@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { get as httpsGet } from "node:https";
+import JSZip from "jszip";
 import WordExtractor from "word-extractor";
 
 const MAX_SOURCE_BYTES = 18_000_000;
@@ -142,7 +143,6 @@ async function safeFetch(urlValue: string, redirects = 0): Promise<{ response: R
       const cause = error && typeof error === "object" && "cause" in error ? error.cause : error;
       const code = cause && typeof cause === "object" && "code" in cause ? codeFromCause(cause) : null;
       const host = new URL(urlValue).hostname;
-      // Keep relaxed TLS pinned to the two official Government CDN hosts only.
       if (OFFICIAL_CDN_TLS_FALLBACK.has(host) && code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE") {
         return fetchOfficialCdn(urlValue, redirects);
       }
@@ -230,6 +230,45 @@ function filenameFrom(response: Response, sourceUrl: string) {
   return new URL(sourceUrl).pathname.split("/").pop() || null;
 }
 
+function docxXmlToText(xml: string) {
+  const tokens: string[] = [];
+  const tokenPattern = /<w:t\b[^>]*>([\s\S]*?)<\/w:t>|<w:tab\b[^>]*\/?\s*>|<w:(?:br|cr)\b[^>]*\/?\s*>|<\/w:(?:p|tr)>|<\/w:tc>/giu;
+  for (const match of xml.matchAll(tokenPattern)) {
+    const token = match[0];
+    if (/^<w:t\b/iu.test(token)) {
+      tokens.push(decodeHtml(match[1] ?? ""));
+    } else if (/^<w:tab\b/iu.test(token) || /^<\/w:tc>/iu.test(token)) {
+      tokens.push("\t");
+    } else {
+      tokens.push("\n");
+    }
+  }
+  return normalizeText(tokens.join(""));
+}
+
+async function extractDocxText(buffer: Buffer) {
+  const mammoth = await import("mammoth");
+  try {
+    const result = await mammoth.extractRawText({ buffer });
+    const text = normalizeText(result.value);
+    if (text.length >= 200) return { text, repairedPath: false };
+  } catch {
+    // Some digitally signed Government DOCX files store ZIP paths with Windows
+    // backslashes (word\document.xml) instead of the OOXML-standard slash.
+  }
+
+  const zip = await JSZip.loadAsync(buffer, { checkCRC32: false, createFolders: true });
+  const documentEntry = Object.values(zip.files).find(
+    (entry) => entry.name.replace(/\\/g, "/").replace(/^\/+/, "") === "word/document.xml",
+  );
+  if (!documentEntry || documentEntry.dir) {
+    throw new Error("Không tìm thấy phần nội dung chính trong tệp DOCX chính thức.");
+  }
+  const text = docxXmlToText(await documentEntry.async("string"));
+  if (text.length < 200) throw new Error("Tệp DOCX chính thức không chứa đủ nội dung chữ.");
+  return { text, repairedPath: true };
+}
+
 async function extractBuffer(
   buffer: Buffer,
   mimeType: string,
@@ -239,12 +278,13 @@ async function extractBuffer(
   let officialText = "";
   let extractionMethod: ExtractedSource["extractionMethod"] = "plain_text";
   let requiresOcr = false;
+  let repairedDocxPath = false;
   const lowerName = fileName?.toLocaleLowerCase("en") ?? "";
 
   if (mimeType.includes("wordprocessingml") || lowerName.endsWith(".docx")) {
-    const mammoth = await import("mammoth");
-    const result = await mammoth.extractRawText({ buffer });
-    officialText = normalizeText(result.value);
+    const result = await extractDocxText(buffer);
+    officialText = result.text;
+    repairedDocxPath = result.repairedPath;
     extractionMethod = "docx";
   } else if (mimeType.includes("msword") || lowerName.endsWith(".doc")) {
     const extractor = new WordExtractor();
@@ -291,6 +331,7 @@ async function extractBuffer(
       bytes: buffer.byteLength,
       legalMarkerCount: (officialText.match(/\b(?:Điều|Chương|Khoản)\s+[0-9IVXLC]+/giu) ?? []).length,
       requiresOcr,
+      repairedDocxPath,
     },
   };
 }
@@ -325,8 +366,6 @@ export function parseLegalHierarchy(input: string): ParsedProvision[] {
   const text = normalizeText(input);
   if (!text) return [];
 
-  // Keep Điều headings separate from their body. This prevents the UI from
-  // rendering "Điều 1" twice and lets numbered clauses stay inside the body.
   const articlePattern = /^\s*Điều\s+(\d+[a-zA-Z]?)\s*[.:]?\s*([^\n]*)$/gimu;
   const articleMatches = [...text.matchAll(articlePattern)];
 
