@@ -53,27 +53,28 @@ function textBetween(item: string, tag: string) {
 }
 
 function parseBingRss(xml: string): OnlineLegalSource[] {
-  return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)]
-    .map((match, index) => {
-      const item = match[1];
-      const title = decodeXml(textBetween(item, "title"));
-      const url = decodeXml(textBetween(item, "link"));
-      const snippet = decodeXml(textBetween(item, "description"));
-      if (!url || !isAllowedLegalSource(url)) return null;
-      return {
-        id: `rss-${createHash("sha256").update(url).digest("hex").slice(0, 20)}`,
-        title: title || sourceLabel(url),
-        url,
-        snippet: snippet || "Nguồn pháp luật chính thức được tìm thấy.",
-        score: Math.max(0.45, 0.88 - index * 0.035),
-        source_label: sourceLabel(url),
-        previewable: true,
-      } satisfies OnlineLegalSource;
-    })
-    .filter((value): value is OnlineLegalSource => value !== null);
+  const sources: OnlineLegalSource[] = [];
+  const matches = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)];
+  for (const [index, match] of matches.entries()) {
+    const item = match[1];
+    const title = decodeXml(textBetween(item, "title"));
+    const url = decodeXml(textBetween(item, "link"));
+    const snippet = decodeXml(textBetween(item, "description"));
+    if (!url || !isAllowedLegalSource(url)) continue;
+    sources.push({
+      id: `rss-${createHash("sha256").update(url).digest("hex").slice(0, 20)}`,
+      title: title || sourceLabel(url),
+      url,
+      snippet: snippet || "Nguồn pháp luật chính thức được tìm thấy.",
+      score: Math.max(0.45, 0.88 - index * 0.035),
+      source_label: sourceLabel(url),
+      previewable: true,
+    });
+  }
+  return sources;
 }
 
-async function searchBingRss(query: string) {
+async function searchBingRss(query: string): Promise<OnlineLegalSource[]> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 10_000);
   try {
