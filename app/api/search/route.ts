@@ -24,6 +24,24 @@ function fullIdentifier(query: string) {
   return query.match(FULL_IDENTIFIER_PATTERN)?.[0].replace(/\s+/g, "") ?? null;
 }
 
+function identifierParts(identifier: string) {
+  const match = identifier.match(/^(\d{1,4})\/(20\d{2})\/(.+)$/iu);
+  if (!match) return null;
+  const suffix = normalizeIdentifier(match[3]);
+  const type = suffix.startsWith("tt-")
+    ? "Thông tư"
+    : suffix.startsWith("nd-")
+      ? "Nghị định"
+      : suffix.startsWith("nq-")
+        ? "Nghị quyết"
+        : suffix.startsWith("qd-")
+          ? "Quyết định"
+          : suffix.startsWith("qh") || suffix.startsWith("ubtvqh")
+            ? "Luật"
+            : "Văn bản";
+  return { number: match[1], year: match[2], type };
+}
+
 function rewriteNamedDocumentLookup(query: string) {
   const match = query.match(
     /^\s*(luật|nghị định|thông tư|nghị quyết|quyết định)\s+(.+?)\s+(\d{1,4})(?:\s+(20\d{2}))?\s*$/iu,
@@ -60,15 +78,35 @@ function uniqueCandidates(sources: OnlineLegalSource[]) {
   });
 }
 
+function sameNumberCandidate(candidate: SearchCandidate, number: string) {
+  return new RegExp(`^${number}(?:/|$)`).test(normalizeIdentifier(candidate.number));
+}
+
 async function validateRequestedIdentifier(query: string, identifier: string): Promise<TaxSearchResponse | null> {
   try {
-    const discovery = await discoverOfficialSources(identifier);
-    const exact = discovery.sources.some(
+    const requested = identifierParts(identifier);
+    const exactDiscovery = await discoverOfficialSources(identifier);
+    const exact = exactDiscovery.sources.some(
       (source) => source.document_number && normalizeIdentifier(source.document_number) === normalizeIdentifier(identifier),
     );
     if (exact) return null;
 
-    const candidates = uniqueCandidates(discovery.sources).slice(0, 6);
+    let alternativeSources = exactDiscovery.sources;
+    if (requested) {
+      const alternatives = await discoverOfficialSources(`${requested.type} ${requested.number}`);
+      alternativeSources = [...alternatives.sources, ...exactDiscovery.sources];
+    }
+
+    const candidates = uniqueCandidates(alternativeSources)
+      .filter((candidate) => !requested || sameNumberCandidate(candidate, requested.number))
+      .sort((left, right) => {
+        const leftSameYear = left.number.includes(`/${requested?.year ?? ""}/`) ? 1 : 0;
+        const rightSameYear = right.number.includes(`/${requested?.year ?? ""}/`) ? 1 : 0;
+        if (leftSameYear !== rightSameYear) return rightSameYear - leftSameYear;
+        return (right.issued_date || "").localeCompare(left.issued_date || "");
+      })
+      .slice(0, 6);
+
     return {
       query_normalized: normalizeIdentifier(query),
       query_kind: "document",
