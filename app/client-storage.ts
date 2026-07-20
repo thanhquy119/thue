@@ -1,6 +1,9 @@
 export type ReadingStateRecord = {
   documentId: string;
   bookmarked: boolean;
+  documentNumber?: string;
+  documentTitle?: string;
+  sourceUrl?: string;
   progress: {
     provisionId: string | null;
     blockIndex: number;
@@ -11,6 +14,7 @@ export type ReadingStateRecord = {
 const DATABASE_NAME = "thue-ro";
 const STORE_NAME = "reading-state-simple";
 const DATABASE_VERSION = 3;
+const READING_STATE_EVENT = "thue-ro-reading-state";
 
 function openDatabase() {
   return new Promise<IDBDatabase>((resolve, reject) => {
@@ -46,7 +50,21 @@ export async function loadReadingStates() {
   return withStore<ReadingStateRecord[]>("readonly", (store) => store.getAll());
 }
 
+function enrichRecord(record: ReadingStateRecord): ReadingStateRecord {
+  const documentNumber = record.documentNumber || document.querySelector<HTMLElement>(".documentKicker")?.textContent?.trim();
+  const documentTitle = record.documentTitle || document.querySelector<HTMLElement>(".detailHeader h2")?.textContent?.trim();
+  const sourceUrl = record.sourceUrl || document.querySelector<HTMLAnchorElement>(".sourceLink")?.href;
+  return {
+    ...record,
+    ...(documentNumber ? { documentNumber } : {}),
+    ...(documentTitle ? { documentTitle } : {}),
+    ...(sourceUrl ? { sourceUrl } : {}),
+  };
+}
+
 export async function putReadingState(record: ReadingStateRecord) {
   if (!("indexedDB" in window)) return;
-  await withStore<IDBValidKey>("readwrite", (store) => store.put(record));
+  const enriched = enrichRecord(record);
+  await withStore<IDBValidKey>("readwrite", (store) => store.put(enriched));
+  window.dispatchEvent(new CustomEvent<ReadingStateRecord>(READING_STATE_EVENT, { detail: enriched }));
 }
