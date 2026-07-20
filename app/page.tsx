@@ -68,6 +68,7 @@ export default function Home() {
   const speechSessionRef = useRef(0);
 
   const detail = result?.document ?? null;
+  const candidates = result?.candidates ?? [];
 
   useEffect(() => {
     loadReadingStates()
@@ -245,10 +246,9 @@ export default function Home() {
     updateReadingState(detail.id, (record) => ({ ...record, bookmarked: !record.bookmarked }));
   }, [detail, updateReadingState]);
 
-  async function submitSearch(event: React.FormEvent) {
-    event.preventDefault();
-    const value = query.trim();
-    if (value.length < 2) return;
+  async function runSearch(value: string) {
+    const cleanValue = value.trim();
+    if (cleanValue.length < 2) return;
 
     speechSessionRef.current += 1;
     window.speechSynthesis?.cancel();
@@ -258,7 +258,7 @@ export default function Home() {
     setSearchError("");
     setResult(null);
 
-    const cacheKey = `thue-ro-search:${normalizeCacheKey(value)}`;
+    const cacheKey = `thue-ro-search-v2:${normalizeCacheKey(cleanValue)}`;
     try {
       const cached = window.sessionStorage.getItem(cacheKey);
       if (cached) {
@@ -271,7 +271,7 @@ export default function Home() {
       const response = await fetch("/api/search", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ query: value }),
+        body: JSON.stringify({ query: cleanValue }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Không thể tra cứu lúc này.");
@@ -284,6 +284,16 @@ export default function Home() {
     } finally {
       setSearching(false);
     }
+  }
+
+  async function submitSearch(event: React.FormEvent) {
+    event.preventDefault();
+    await runSearch(query);
+  }
+
+  function chooseCandidate(number: string) {
+    setQuery(number);
+    void runSearch(number);
   }
 
   async function installApp() {
@@ -316,7 +326,7 @@ export default function Home() {
             id="legal-search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Ví dụ: Nghị định 100/2026/NĐ-CP hoặc hộ kinh doanh phải nộp thuế thế nào?"
+            placeholder="Ví dụ: Thông tư 89 hoặc hộ kinh doanh có phải nộp thuế không?"
             maxLength={500}
           />
           <button type="submit" disabled={searching}>{searching ? "Đang tìm…" : "Tra cứu"}</button>
@@ -338,6 +348,24 @@ export default function Home() {
               <p className="sectionLabel">Trả lời theo văn bản chính thức</p>
               <div className="directAnswer">{result.direct_answer}</div>
               <div className="answerMeta"><span>Độ tin cậy {Math.round(result.confidence * 100)}%</span></div>
+            </article>
+          ) : null}
+
+          {candidates.length ? (
+            <article className="candidatePanel">
+              <p className="sectionLabel">{detail ? "Văn bản liên quan" : "Chọn đúng văn bản"}</p>
+              <h2>{detail ? "Các văn bản khác có liên quan đến câu hỏi" : result.direct_answer}</h2>
+              <div className="candidateList">
+                {candidates.map((candidate) => (
+                  <button className="candidateCard" type="button" key={candidate.id} onClick={() => chooseCandidate(candidate.number)}>
+                    <span className="candidateType">{candidate.type}</span>
+                    <strong>{candidate.number}</strong>
+                    <span className="candidateTitle">{candidate.title}</span>
+                    <span className="candidateMeta">{candidate.issuer} · {formatDate(candidate.issued_date)}</span>
+                    <span className="candidateAction">Mở toàn văn →</span>
+                  </button>
+                ))}
+              </div>
             </article>
           ) : null}
 
@@ -391,7 +419,7 @@ export default function Home() {
                 {result.document.verification_notes ? <p className="verificationNote">{result.document.verification_notes}</p> : null}
               </section>
             </article>
-          ) : (
+          ) : candidates.length ? null : (
             <article className="emptyResult">
               <h2>Chưa thể hiển thị toàn văn</h2>
               <p>{result.direct_answer}</p>
@@ -406,7 +434,7 @@ export default function Home() {
 
       {!result && !searching ? (
         <section className="homeHint">
-          <p>Nhập số hiệu để mở thẳng một văn bản, hoặc đặt câu hỏi nghiệp vụ để nhận câu trả lời và toàn văn của văn bản chính liên quan.</p>
+          <p>Có thể nhập số hiệu đầy đủ, số hiệu rút gọn như “Thông tư 89”, hoặc đặt câu hỏi nghiệp vụ thuế bằng ngôn ngữ tự nhiên.</p>
         </section>
       ) : null}
 
