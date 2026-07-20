@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "./candidates.css";
 
 export const metadata: Metadata = {
   title: "Thuế — Tra cứu và đọc toàn văn pháp luật thuế",
