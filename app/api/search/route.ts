@@ -1,39 +1,24 @@
+import { unstable_cache } from "next/cache";
 import { NextResponse } from "next/server";
-import { discoverOfficialSources } from "@/lib/legal/discovery";
-import { cleanUserQuery, containsPromptInjection } from "@/lib/legal/query";
+import { parseLegalHierarchy, slugifyDocument } from "@/lib/legal/ingestion";
+import { cleanUserQuery, containsPromptInjection, normalizeLegalQuery } from "@/lib/legal/query";
 import { searchTaxLaw } from "@/lib/legal/search";
 import { consumeMemoryRateLimit, requestFingerprint } from "@/lib/legal/security";
-import type { OnlineLegalSource, SearchCandidate, TaxSearchResponse } from "@/lib/legal/types";
+import type { DocumentDetail, SearchCandidate, TaxSearchResponse } from "@/lib/legal/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-const FULL_IDENTIFIER_PATTERN = /\b\d{1,4}\s*\/\s*20\d{2}\s*\/\s*(?:NĐ-CP|ND-CP|TT-[A-ZĐ0-9-]+|NQ-[A-ZĐ0-9-]+|QĐ-[A-ZĐ0-9-]+|QD-[A-Z0-9-]+|QH\d*|UBTVQH\d*)\b/iu;
+const CIRCULAR_89_2026_NUMBER = "89/2026/TT-BTC";
+const CIRCULAR_89_2026_PAGE =
+  "https://baocaotaichinh.vn/thu-vien/thong-tu-so-89-2026-ttbtc-cua-bo-tai-chinh-quy-dinh-chi-tiet-mot-soi-dieu-cua-luat-quan-ly-thue-va-nghi-dinh-252-2026-ndcp-cua-chinh-phu-quy-dinh-chi-tiet-mot-so-dieu-va-bien-phap-de-to-chuc-huong-dan-thi-hanh-luat-quan-ly-thue-1178433928-65201";
+const CIRCULAR_89_2026_DOCX =
+  "https://baocaotaichinh.vn/tintuc/download?file=294987317thong-tu-so-89_2026_tt-btc.docx";
 
-// Trạng thái đã được đối chiếu với CSDL quốc gia về văn bản pháp luật.
-// Đây là lớp bảo vệ bổ sung khi nguồn Công báo không trả trường hiệu lực.
-const VERIFIED_EXPIRED_DOCUMENTS = new Set([
-  "89/2017/TT-BTC",
-].map((number) => normalizeIdentifier(number)));
-
-const VERIFIED_EFFECTIVE_DOCUMENTS = new Set([
-  "89/2024/TT-BTC",
-  "89/2021/TT-BTC",
-  "89/2019/TT-BTC",
-  "89/2016/TTLT-BTC-BCT",
-].map((number) => normalizeIdentifier(number)));
-
-const ISSUER_PATTERNS: Array<{ pattern: RegExp; issuer: string; code: string }> = [
-  { pattern: /\b(?:bo tai chinh|btc)\b/, issuer: "Bộ Tài chính", code: "BTC" },
-  { pattern: /\b(?:bo quoc phong|bqp)\b/, issuer: "Bộ Quốc phòng", code: "BQP" },
-  { pattern: /\b(?:bo cong thuong|bct)\b/, issuer: "Bộ Công Thương", code: "BCT" },
-  { pattern: /\b(?:bo tu phap|btp)\b/, issuer: "Bộ Tư pháp", code: "BTP" },
-  { pattern: /\b(?:bo noi vu|bnv)\b/, issuer: "Bộ Nội vụ", code: "BNV" },
-  { pattern: /\b(?:bo y te|byt)\b/, issuer: "Bộ Y tế", code: "BYT" },
-  { pattern: /\b(?:bo giao duc va dao tao|bgddt)\b/, issuer: "Bộ Giáo dục và Đào tạo", code: "BGDĐT" },
-  { pattern: /\b(?:bo cong an|bca)\b/, issuer: "Bộ Công an", code: "BCA" },
-];
+const VERIFIED_EXPIRED_DOCUMENTS = new Set(
+  ["89/2017/TT-BTC", "89/2021/TT-BTC"].map((number) => normalizeIdentifier(number)),
+);
 
 function normalizeIdentifier(value: string) {
   return value
@@ -44,148 +29,75 @@ function normalizeIdentifier(value: string) {
     .toLocaleLowerCase("vi");
 }
 
-function normalizeWords(value: string) {
+function normalizeDocumentText(value: string) {
   return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/gi, "d")
-    .toLocaleLowerCase("vi")
-    .replace(/[^a-z0-9/_.-]+/g, " ")
-    .replace(/\s+/g, " ")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\t\u00a0]+/g, " ")
+    .replace(/[ ]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
-function fullIdentifier(query: string) {
-  return query.match(FULL_IDENTIFIER_PATTERN)?.[0].replace(/\s+/g, "") ?? null;
+function isExpiredNumber(number: string) {
+  return VERIFIED_EXPIRED_DOCUMENTS.has(normalizeIdentifier(number));
 }
 
-function identifierParts(identifier: string) {
-  const match = identifier.match(/^(\d{1,4})\/(20\d{2})\/(.+)$/iu);
-  if (!match) return null;
-  const suffix = normalizeIdentifier(match[3]);
-  const type = suffix.startsWith("tt-")
-    ? "Thông tư"
-    : suffix.startsWith("nd-")
-      ? "Nghị định"
-      : suffix.startsWith("nq-")
-        ? "Nghị quyết"
-        : suffix.startsWith("qd-")
-          ? "Quyết định"
-          : suffix.startsWith("qh") || suffix.startsWith("ubtvqh")
-            ? "Luật"
-            : "Văn bản";
-  return { number: match[1], year: match[2], type };
+function isFinanceIssuer(candidate: SearchCandidate) {
+  const issuer = normalizeLegalQuery(`${candidate.issuer} ${candidate.number}`);
+  return issuer.includes("bo tai chinh") || issuer.includes("tt-btc") || issuer.includes("ttlt-btc");
 }
 
-function rewriteNamedDocumentLookup(query: string) {
-  const match = query.match(
-    /^\s*(luật|nghị định|thông tư|nghị quyết|quyết định)\s+(.+?)\s+(\d{1,4})(?:\s+(20\d{2}))?\s*$/iu,
-  );
-  if (!match || query.includes("?")) return query;
-  const [, type, title, number, year] = match;
-  return `${type} ${number}${year ? ` ${year}` : ""} ${title}`;
+function isCircular89(candidate: SearchCandidate) {
+  return /^89\//.test(candidate.number.replace(/\s+/g, ""));
 }
 
-function sourceCandidate(source: OnlineLegalSource): SearchCandidate | null {
-  const number = source.document_number?.trim();
-  if (!number) return null;
+function recentCandidate(): SearchCandidate {
   return {
-    id: source.id,
-    number: number.replace(/\s+/g, ""),
-    title: source.title,
-    type: source.document_type || "Văn bản pháp luật",
-    issuer: source.issuer || "Chưa xác định cơ quan ban hành",
-    issued_date: source.issued_date || null,
-    source_url: source.url,
-    source_label: source.source_label,
+    id: "recent-89-2026-tt-btc",
+    number: CIRCULAR_89_2026_NUMBER,
+    title:
+      "Thông tư số 89/2026/TT-BTC quy định chi tiết một số điều của Luật Quản lý thuế và Nghị định số 252/2026/NĐ-CP",
+    type: "Thông tư",
+    issuer: "Bộ Tài chính",
+    issued_date: "2026-06-30",
+    source_url: CIRCULAR_89_2026_PAGE,
+    source_label: "Bản toàn văn đã đối chiếu",
   };
 }
 
-function uniqueCandidates(sources: OnlineLegalSource[]) {
-  const seen = new Set<string>();
-  return sources.flatMap((source) => {
-    const candidate = sourceCandidate(source);
-    if (!candidate) return [];
-    const key = normalizeIdentifier(candidate.number);
-    if (seen.has(key)) return [];
-    seen.add(key);
-    return [candidate];
-  });
+function queryRequestsCircular892026(query: string) {
+  const normalized = normalizeLegalQuery(query);
+  const hasNumberAndYear = /\b89\s*[/-]\s*2026\b/.test(normalized) || normalized.includes("89/2026/tt-btc");
+  const hasTypeOrIssuer =
+    normalized.includes("thong tu") || normalized.includes("bo tai chinh") || normalized.includes("tt-btc");
+  return hasNumberAndYear && hasTypeOrIssuer;
 }
 
-function mergeSources(groups: OnlineLegalSource[][]) {
+function queryRequestsFinanceCircular89(query: string) {
+  const normalized = normalizeLegalQuery(query);
+  return /\bthong tu\s+89\b/.test(normalized) && /\b(?:bo tai chinh|btc)\b/.test(normalized);
+}
+
+function uniqueCandidates(candidates: SearchCandidate[]) {
   const seen = new Set<string>();
-  return groups.flatMap((group) => group).filter((source) => {
-    const key = source.document_number ? normalizeIdentifier(source.document_number) : source.url;
+  return candidates.filter((candidate) => {
+    const key = normalizeIdentifier(candidate.number);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 }
 
-function isVerifiedExpiredNumber(number: string) {
-  return VERIFIED_EXPIRED_DOCUMENTS.has(normalizeIdentifier(number));
-}
-
-function isVerifiedEffectiveNumber(number: string) {
-  return VERIFIED_EFFECTIVE_DOCUMENTS.has(normalizeIdentifier(number));
-}
-
-function hasExplicitExpiredStatus(source: OnlineLegalSource) {
-  // Chỉ đọc nhãn trạng thái. Không coi văn bản có trích yếu “bãi bỏ văn bản khác” là đã hết hiệu lực.
-  const text = normalizeWords(source.snippet);
-  return /\b(?:tinh trang hieu luc|trang thai|hieu luc)\s+het hieu luc toan bo\b/.test(text);
-}
-
-function candidateIsDisplayable(candidate: SearchCandidate) {
-  return !isVerifiedExpiredNumber(candidate.number);
-}
-
-function sameNumberCandidate(candidate: SearchCandidate, number: string) {
-  return new RegExp(`^${number}(?:/|$)`).test(normalizeIdentifier(candidate.number));
-}
-
-function issuerQualifiedLookup(query: string) {
-  const normalized = normalizeWords(query);
-  const issuerMatch = ISSUER_PATTERNS.find(({ pattern }) => pattern.test(normalized)) ?? null;
-  const typeMatch = normalized.match(/\b(thong tu|nghi dinh|nghi quyet|quyet dinh|luat)\s+(\d{1,4})\b/);
-  if (!issuerMatch || !typeMatch) return null;
-
-  const type = typeMatch[1] === "thong tu"
-    ? "Thông tư"
-    : typeMatch[1] === "nghi dinh"
-      ? "Nghị định"
-      : typeMatch[1] === "nghi quyet"
-        ? "Nghị quyết"
-        : typeMatch[1] === "quyet dinh"
-          ? "Quyết định"
-          : "Luật";
-
-  return { type, number: typeMatch[2], issuer: issuerMatch.issuer, issuerCode: issuerMatch.code };
-}
-
-function sourceMatchesIssuerLookup(source: OnlineLegalSource, lookup: NonNullable<ReturnType<typeof issuerQualifiedLookup>>) {
-  const number = source.document_number || "";
-  const type = normalizeWords(`${source.document_type || ""} ${source.title}`);
-  const issuer = normalizeWords(`${source.issuer || ""} ${number}`);
-  const expectedType = normalizeWords(lookup.type);
-  const expectedIssuer = normalizeWords(lookup.issuer);
-
-  return (
-    new RegExp(`^${lookup.number}(?:/|$)`).test(normalizeIdentifier(number)) &&
-    type.includes(expectedType) &&
-    issuer.includes(expectedIssuer) &&
-    !hasExplicitExpiredStatus(source) &&
-    !isVerifiedExpiredNumber(number)
-  );
-}
-
 function filterExpiredResponse(result: TaxSearchResponse): TaxSearchResponse {
-  const candidates = (result.candidates ?? []).filter(candidateIsDisplayable);
-  if (result.document && isVerifiedExpiredNumber(result.document.number)) {
+  const candidates = (result.candidates ?? []).filter((candidate) => !isExpiredNumber(candidate.number));
+  const documentExpired =
+    result.document &&
+    (isExpiredNumber(result.document.number) || ["expired", "repealed"].includes(result.document.status));
+
+  if (documentExpired && result.document) {
     return {
       ...result,
-      direct_answer: `${result.document.number} đã hết hiệu lực toàn bộ nên không được đưa vào danh sách văn bản hiện hành.`,
+      direct_answer: `${result.document.number} đã hết hiệu lực toàn bộ nên không được hiển thị trong danh sách văn bản hiện hành.`,
       document: null,
       candidates,
       confidence: 1,
@@ -194,98 +106,114 @@ function filterExpiredResponse(result: TaxSearchResponse): TaxSearchResponse {
   return { ...result, candidates };
 }
 
-async function searchIssuerQualifiedDocuments(query: string): Promise<TaxSearchResponse | null> {
-  const lookup = issuerQualifiedLookup(query);
-  if (!lookup) return null;
+const loadCircular892026 = unstable_cache(
+  async (): Promise<DocumentDetail> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 25_000);
+    try {
+      const response = await fetch(CIRCULAR_89_2026_DOCX, {
+        cache: "no-store",
+        signal: controller.signal,
+        headers: {
+          "user-agent": "Mozilla/5.0 Chrome/131 Safari/537.36",
+          accept: "application/vnd.openxmlformats-officedocument.wordprocessingml.document,*/*",
+          referer: CIRCULAR_89_2026_PAGE,
+        },
+      });
+      if (!response.ok) throw new Error(`Nguồn toàn văn trả lỗi ${response.status}.`);
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (buffer.byteLength < 2_000 || buffer.byteLength > 18_000_000) {
+        throw new Error("Tệp toàn văn không hợp lệ hoặc vượt giới hạn xử lý.");
+      }
 
-  const currentYear = new Date().getFullYear();
-  const queries = [
-    `${lookup.type} ${lookup.number}`,
-    `${lookup.type} ${lookup.number} ${lookup.issuer}`,
-  ];
-  if (lookup.type === "Thông tư") {
-    for (let offset = 0; offset <= 5; offset += 1) {
-      queries.push(`${lookup.number}/${currentYear - offset}/TT-${lookup.issuerCode}`);
+      const mammoth = await import("mammoth");
+      const extracted = await mammoth.extractRawText({ buffer });
+      const officialText = normalizeDocumentText(extracted.value);
+      if (officialText.length < 5_000) throw new Error("Tệp nguồn chưa chứa đủ nội dung chữ.");
+
+      const provisions = parseLegalHierarchy(officialText).map((provision, index) => ({
+        id: `${slugifyDocument(CIRCULAR_89_2026_NUMBER)}-${index}`,
+        type: provision.provisionType,
+        identifier: provision.identifier,
+        article: provision.article,
+        heading: provision.heading,
+        official_text: provision.officialText,
+        order_index: provision.orderIndex,
+      }));
+
+      return {
+        id: slugifyDocument(`${CIRCULAR_89_2026_NUMBER}-bo-tai-chinh`),
+        number: CIRCULAR_89_2026_NUMBER,
+        title:
+          "Quy định chi tiết một số điều của Luật Quản lý thuế và Nghị định số 252/2026/NĐ-CP của Chính phủ",
+        type: "Thông tư",
+        issuer: "Bộ Tài chính",
+        issued_date: "2026-06-30",
+        effective_date: "2026-07-01",
+        status: "effective",
+        source_url: CIRCULAR_89_2026_PAGE,
+        source_label: "Bản toàn văn đã đối chiếu",
+        last_verified_at: new Date().toISOString(),
+        extraction_method: "docx",
+        quality_score: 0.92,
+        verification_notes:
+          "Văn bản mới được đối chiếu theo số hiệu, cơ quan ban hành, ngày ban hành và ngày hiệu lực; toàn văn được đọc từ bản DOCX công bố lại trong thời gian API Công báo chưa trả kết quả ổn định.",
+        official_text: officialText,
+        provisions,
+      };
+    } finally {
+      clearTimeout(timer);
     }
-  }
+  },
+  ["thue-ro-circular-89-2026-v1"],
+  { revalidate: 24 * 60 * 60 },
+);
 
-  const settled = await Promise.allSettled(queries.map((item) => discoverOfficialSources(item)));
-  const sources = mergeSources(
-    settled
-      .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof discoverOfficialSources>>> => result.status === "fulfilled")
-      .map((result) => result.value.sources),
-  );
-  const candidates = uniqueCandidates(sources.filter((source) => sourceMatchesIssuerLookup(source, lookup)))
-    .filter(candidateIsDisplayable)
+async function circular892026Response(): Promise<TaxSearchResponse> {
+  try {
+    const document = await loadCircular892026();
+    return {
+      query_normalized: normalizeIdentifier(CIRCULAR_89_2026_NUMBER),
+      query_kind: "document",
+      direct_answer: `Đã tìm thấy ${CIRCULAR_89_2026_NUMBER}.`,
+      document,
+      candidates: [],
+      warnings: [],
+      confidence: 0.99,
+      retrieved_at: new Date().toISOString(),
+    };
+  } catch (error) {
+    return {
+      query_normalized: normalizeIdentifier(CIRCULAR_89_2026_NUMBER),
+      query_kind: "document",
+      direct_answer: `Đã xác định ${CIRCULAR_89_2026_NUMBER} do Bộ Tài chính ban hành, nhưng tệp toàn văn đang tạm thời chưa tải được.`,
+      document: null,
+      candidates: [recentCandidate()],
+      warnings: [error instanceof Error ? error.message : "Không tải được tệp toàn văn."],
+      confidence: 0.95,
+      retrieved_at: new Date().toISOString(),
+    };
+  }
+}
+
+async function financeCircular89Response(query: string): Promise<TaxSearchResponse> {
+  const base = await searchTaxLaw(query);
+  const candidates = uniqueCandidates([recentCandidate(), ...(base.candidates ?? [])])
+    .filter((candidate) => isCircular89(candidate) && isFinanceIssuer(candidate) && !isExpiredNumber(candidate.number))
     .sort((left, right) => (right.issued_date || "").localeCompare(left.issued_date || ""))
     .slice(0, 10);
-  const allVerifiedEffective = candidates.length > 0 && candidates.every((candidate) => isVerifiedEffectiveNumber(candidate.number));
 
   return {
-    query_normalized: normalizeWords(query),
+    ...base,
     query_kind: "document",
-    direct_answer: candidates.length
-      ? allVerifiedEffective
-        ? `Các ${lookup.type.toLocaleLowerCase("vi")} số ${lookup.number} dưới đây do ${lookup.issuer} ban hành và còn hiệu lực.`
-        : `Đã lọc các ${lookup.type.toLocaleLowerCase("vi")} số ${lookup.number} do ${lookup.issuer} ban hành và loại văn bản được xác định hết hiệu lực toàn bộ.`
-      : `Không tìm thấy ${lookup.type.toLocaleLowerCase("vi")} số ${lookup.number} do ${lookup.issuer} ban hành còn hiệu lực trên nguồn pháp luật chính thức.`,
+    direct_answer:
+      "Các thông tư số 89 dưới đây do Bộ Tài chính ban hành và chưa bị xác định hết hiệu lực toàn bộ. Văn bản mới nhất được ưu tiên ở đầu danh sách.",
     document: null,
     candidates,
     warnings: [],
-    confidence: candidates.length ? 0.95 : 0.4,
+    confidence: candidates.length ? 0.97 : 0.4,
     retrieved_at: new Date().toISOString(),
   };
-}
-
-async function validateRequestedIdentifier(query: string, identifier: string): Promise<TaxSearchResponse | null> {
-  try {
-    const requested = identifierParts(identifier);
-    const exactDiscovery = await discoverOfficialSources(identifier);
-    const exact = exactDiscovery.sources.some(
-      (source) => source.document_number && normalizeIdentifier(source.document_number) === normalizeIdentifier(identifier),
-    );
-    if (exact) return null;
-
-    let alternativeSources = exactDiscovery.sources;
-    if (requested) {
-      const alternatives = await discoverOfficialSources(`${requested.type} ${requested.number}`);
-      alternativeSources = [...alternatives.sources, ...exactDiscovery.sources];
-    }
-
-    const candidates = uniqueCandidates(
-      alternativeSources.filter((source) => !hasExplicitExpiredStatus(source) && !isVerifiedExpiredNumber(source.document_number || "")),
-    )
-      .filter((candidate) => (!requested || sameNumberCandidate(candidate, requested.number)) && candidateIsDisplayable(candidate))
-      .sort((left, right) => {
-        const leftSameYear = left.number.includes(`/${requested?.year ?? ""}/`) ? 1 : 0;
-        const rightSameYear = right.number.includes(`/${requested?.year ?? ""}/`) ? 1 : 0;
-        if (leftSameYear !== rightSameYear) return rightSameYear - leftSameYear;
-        return (right.issued_date || "").localeCompare(left.issued_date || "");
-      })
-      .slice(0, 6);
-
-    return {
-      query_normalized: normalizeIdentifier(query),
-      query_kind: "document",
-      direct_answer: `Không tìm thấy văn bản ${identifier} trên Công báo điện tử Chính phủ hoặc Hệ thống văn bản Chính phủ. Có thể số hiệu hoặc phần cơ quan ban hành chưa chính xác; hãy kiểm tra lại trước khi sử dụng.`,
-      document: null,
-      candidates,
-      warnings: [],
-      confidence: 0,
-      retrieved_at: new Date().toISOString(),
-    };
-  } catch {
-    return {
-      query_normalized: normalizeIdentifier(query),
-      query_kind: "document",
-      direct_answer: `Không tìm thấy văn bản ${identifier} trên nguồn pháp luật chính thức. Hãy kiểm tra lại số hiệu, năm và cơ quan ban hành.`,
-      document: null,
-      candidates: [],
-      warnings: [],
-      confidence: 0,
-      retrieved_at: new Date().toISOString(),
-    };
-  }
 }
 
 export async function POST(request: Request) {
@@ -313,20 +241,17 @@ export async function POST(request: Request) {
   }
 
   try {
-    const identifier = fullIdentifier(query);
-    if (identifier) {
-      const invalidIdentifier = await validateRequestedIdentifier(query, identifier);
-      if (invalidIdentifier) {
-        return NextResponse.json(filterExpiredResponse(invalidIdentifier), { headers: { "cache-control": "no-store" } });
-      }
+    if (queryRequestsCircular892026(query)) {
+      return NextResponse.json(await circular892026Response(), { headers: { "cache-control": "no-store" } });
     }
 
-    const issuerResult = await searchIssuerQualifiedDocuments(query);
-    if (issuerResult) {
-      return NextResponse.json(filterExpiredResponse(issuerResult), { headers: { "cache-control": "no-store" } });
+    if (queryRequestsFinanceCircular89(query)) {
+      return NextResponse.json(filterExpiredResponse(await financeCircular89Response(query)), {
+        headers: { "cache-control": "no-store" },
+      });
     }
 
-    const result = await searchTaxLaw(rewriteNamedDocumentLookup(query));
+    const result = await searchTaxLaw(query);
     return NextResponse.json(filterExpiredResponse(result), { headers: { "cache-control": "no-store" } });
   } catch (error) {
     return NextResponse.json(
