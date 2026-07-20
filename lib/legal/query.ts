@@ -97,31 +97,36 @@ const TYPE_PATTERNS: Array<[RegExp, string]> = [
   [/\b(?:nghi dinh|nd-cp|nd(?:\b|(?=\d)))/, "Nghị định"],
   [/\b(?:thong tu|tt-btc|tt(?:\b|(?=\d)))/, "Thông tư"],
   [/\b(?:nghi quyet|nq-qh|nq-cp|nq(?:\b|(?=\d)))/, "Nghị quyết"],
+  [/\b(?:quyet dinh|qd-ttg|qd(?:\b|(?=\d)))/, "Quyết định"],
   [/\b(?:luat)\b/, "Luật"],
 ];
+
+const QUESTION_PATTERNS =
+  /\?|\b(?:bao nhieu|muc thue|thue suat|dong thue|nop thue|khai thue|khai ky nao|dung mau|the nao|duoc khong|co phai|phai khong|tai sao|can lam gi|van ban nao|bao gio|han nop|thoi han|doi tuong nao|thuoc dien|cach tinh|tinh nhu the nao|mien thue|giam thue|hoan thue|khau tru|quyet toan|hoa don|ho kinh doanh|doanh thu|chi phi duoc tru|thu nhap chiu thue)\b/;
 
 export function extractSearchHint(query: string): SearchHint {
   const normalized = normalizeLegalQuery(query);
   const type = TYPE_PATTERNS.find(([pattern]) => pattern.test(normalized))?.[1] ?? null;
   const slashIdentifier = normalized.match(/\b(\d{1,4})\s*[/-]\s*(20\d{2})\b/);
-  const compactIdentifier = normalized.match(/\b(?:nd|tt|nq)\s*(\d{1,4})\s*[/-]\s*(20\d{2})\b/);
+  const compactIdentifier = normalized.match(/\b(?:nd|tt|nq|qd)\s*(\d{1,4})\s*[/-]\s*(20\d{2})\b/);
   const spacedIdentifier = normalized.match(
-    /\b(?:nghi dinh|thong tu|nghi quyet|luat|nd|tt|nq)\s+(\d{1,4})(?:\s+(20\d{2}))?\b/,
+    /\b(?:nghi dinh|thong tu|nghi quyet|quyet dinh|luat|nd|tt|nq|qd)\s+(\d{1,4})(?:\s+(20\d{2}))?\b/,
   );
   const abbreviationIdentifier = normalized.match(
-    /\b(\d{1,4})\s*[/-]\s*(20\d{2})\s*[/-]\s*(?:nd-cp|tt-btc|nq-qh\d*|qh\d*)\b/,
+    /\b(\d{1,4})\s*[/-]\s*(20\d{2})\s*[/-]\s*(?:nd-cp|tt-[a-z0-9-]+|nq-[a-z0-9-]+|qd-[a-z0-9-]+|qh\d*)\b/,
   );
   const match = compactIdentifier ?? slashIdentifier ?? spacedIdentifier ?? abbreviationIdentifier;
+  const looksLikeDocumentLookup = Boolean(type && match?.[1]);
+  const wordCount = normalized.split(" ").filter(Boolean).length;
+  const asksQuestion =
+    QUESTION_PATTERNS.test(normalized) || (!looksLikeDocumentLookup && wordCount >= 4);
 
   return {
     normalized,
     number: match?.[1] ?? null,
     year: match?.[2] ?? null,
     type,
-    asksQuestion:
-      /\?|\b(?:bao nhieu|muc thue|dong thue|khai ky nao|dung mau|the nao|duoc khong|tai sao|can lam gi|van ban nao)\b/.test(
-        normalized,
-      ),
+    asksQuestion,
   };
 }
 
@@ -131,14 +136,16 @@ export function extractDocumentMentions(query: string): SearchHint[] {
     nd: "Nghị định",
     tt: "Thông tư",
     nq: "Nghị quyết",
+    qd: "Quyết định",
     "nghi dinh": "Nghị định",
     "thong tu": "Thông tư",
     "nghi quyet": "Nghị quyết",
+    "quyet dinh": "Quyết định",
     luat: "Luật",
   };
   const matches = [
     ...normalized.matchAll(
-      /\b(nghi dinh|thong tu|nghi quyet|luat|nd|tt|nq)\s*(\d{1,4})(?:\s*[/-]?\s*(20\d{2}))?/g,
+      /\b(nghi dinh|thong tu|nghi quyet|quyet dinh|luat|nd|tt|nq|qd)\s*(\d{1,4})(?:\s*[/-]?\s*(20\d{2}))?/g,
     ),
   ];
   const seen = new Set<string>();
@@ -149,7 +156,7 @@ export function extractDocumentMentions(query: string): SearchHint[] {
     const key = `${type}:${number}:${year ?? ""}`;
     if (!type || seen.has(key)) return [];
     seen.add(key);
-    return [{ normalized, type, number, year, asksQuestion: /\?/.test(query) }];
+    return [{ normalized, type, number, year, asksQuestion: QUESTION_PATTERNS.test(normalized) }];
   });
 }
 
