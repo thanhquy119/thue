@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import JSZip from "jszip";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +13,21 @@ export async function GET() {
     headers: { "user-agent": "ThueLegalReader/1.0" },
   });
   const buffer = Buffer.from(await response.arrayBuffer());
+  let entries: Array<{ name: string; dir: boolean; bytes: number; first16Hex?: string }> = [];
+  let zipError = "";
+  try {
+    const zip = await JSZip.loadAsync(buffer, { checkCRC32: false, createFolders: true });
+    entries = await Promise.all(
+      Object.values(zip.files).slice(0, 100).map(async (entry) => {
+        if (entry.dir) return { name: entry.name, dir: true, bytes: 0 };
+        const data = await entry.async("nodebuffer");
+        return { name: entry.name, dir: false, bytes: data.length, first16Hex: data.subarray(0, 16).toString("hex") };
+      }),
+    );
+  } catch (error) {
+    zipError = error instanceof Error ? error.message : String(error);
+  }
+
   return NextResponse.json({
     status: response.status,
     url: response.url,
@@ -19,7 +35,8 @@ export async function GET() {
     contentLength: response.headers.get("content-length"),
     bytes: buffer.length,
     first64Hex: buffer.subarray(0, 64).toString("hex"),
-    first200Text: buffer.subarray(0, 200).toString("latin1"),
+    entries,
+    zipError,
     disposition: response.headers.get("content-disposition"),
   }, { headers: { "cache-control": "no-store" } });
 }
