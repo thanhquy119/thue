@@ -3,10 +3,12 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const URL_VALUE = "https://congbao.chinhphu.vn/van-ban-dang-cong-bao.htm";
+const SEARCH_URL = "https://congbao.chinhphu.vn/tim-kiem-van-ban?q=100%2F2024%2FN%C4%90-CP";
 
 function decodeHtml(value: string) {
   return value
+    .replace(/&#x([0-9a-f]+);/gi, (_match, code: string) => String.fromCodePoint(Number.parseInt(code, 16)))
+    .replace(/&#(\d+);/g, (_match, code: string) => String.fromCodePoint(Number.parseInt(code, 10)))
     .replace(/&quot;/g, '"')
     .replace(/&#39;|&apos;/g, "'")
     .replace(/&amp;/g, "&")
@@ -14,8 +16,12 @@ function decodeHtml(value: string) {
     .replace(/&gt;/g, ">");
 }
 
+function stripTags(value: string) {
+  return decodeHtml(value.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+}
+
 export async function GET() {
-  const response = await fetch(URL_VALUE, {
+  const response = await fetch(SEARCH_URL, {
     cache: "no-store",
     headers: {
       "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
@@ -23,32 +29,26 @@ export async function GET() {
     },
   });
   const html = await response.text();
-
-  const forms = [...html.matchAll(/<form\b[^>]*>[\s\S]*?<\/form>/giu)]
-    .map((match) => decodeHtml(match[0]))
-    .filter((form) => /tìm kiếm|search|keyword|query|tu.?khoa/iu.test(form))
-    .map((form) => ({
-      opening: form.match(/<form\b[^>]*>/iu)?.[0] ?? "",
-      controls: [...form.matchAll(/<(?:input|select|button)\b[^>]*>/giu)].map((match) => match[0]).slice(0, 120),
-      preview: form.slice(0, 10000),
-    }));
-
-  const contexts = [...html.matchAll(/.{0,600}(?:Tìm kiếm nâng cao|Tìm kiếm|keyword|search|query|tu.?khoa).{0,1600}/giu)]
-    .map((match) => decodeHtml(match[0]))
-    .slice(0, 40);
-
-  const scriptSources = [...html.matchAll(/<script\b[^>]*src=["']([^"']+)["']/giu)]
+  const links = [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/giu)]
     .map((match) => {
+      let url = "";
       try {
-        return new URL(decodeHtml(match[1]), URL_VALUE).toString();
-      } catch {
-        return "";
-      }
+        url = new URL(decodeHtml(match[1]), SEARCH_URL).toString();
+      } catch {}
+      return { url, title: stripTags(match[2]) };
     })
-    .filter(Boolean);
+    .filter((item) => /\/van-ban\/|tai-ve-van-ban/iu.test(item.url) || /100\s*\/\s*2024\s*\/\s*N[ĐD]-CP/iu.test(item.title))
+    .filter((item, index, all) => item.url && all.findIndex((candidate) => candidate.url === item.url) === index)
+    .slice(0, 30);
 
   return NextResponse.json(
-    { status: response.status, htmlLength: html.length, forms, contexts, scriptSources },
+    {
+      status: response.status,
+      resolvedUrl: response.url,
+      htmlLength: html.length,
+      exactNumberFound: /100\s*\/\s*2024\s*\/\s*N[ĐD]-CP/iu.test(stripTags(html)),
+      links,
+    },
     { headers: { "cache-control": "no-store" } },
   );
 }
