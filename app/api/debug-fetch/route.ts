@@ -2,25 +2,20 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
 
-const DOCUMENT_URL = "https://vanban.chinhphu.vn/?pageid=27160&docid=210760&classid=1";
+const URL_VALUE = "https://congbao.chinhphu.vn/van-ban-dang-cong-bao.htm";
 
 function decodeHtml(value: string) {
   return value
-    .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
     .replace(/&#39;|&apos;/g, "'")
+    .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">");
 }
 
-function stripTags(value: string) {
-  return decodeHtml(value.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
-}
-
 export async function GET() {
-  const response = await fetch(DOCUMENT_URL, {
+  const response = await fetch(URL_VALUE, {
     cache: "no-store",
     headers: {
       "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
@@ -28,53 +23,32 @@ export async function GET() {
     },
   });
   const html = await response.text();
-  const attachments = [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/giu)]
-    .map((match) => ({
-      url: (() => {
-        try {
-          return new URL(decodeHtml(match[1]), DOCUMENT_URL).toString();
-        } catch {
-          return "";
-        }
-      })(),
-      label: stripTags(match[2]),
-    }))
-    .filter((item) => /\.(?:pdf|docx?|rtf)(?:\?|$)/iu.test(item.url) || /tài liệu|đính kèm|toàn văn|download/iu.test(item.label));
 
-  const unique = attachments.filter(
-    (item, index, all) => item.url && all.findIndex((candidate) => candidate.url === item.url) === index,
-  );
+  const forms = [...html.matchAll(/<form\b[^>]*>[\s\S]*?<\/form>/giu)]
+    .map((match) => decodeHtml(match[0]))
+    .filter((form) => /tìm kiếm|search|keyword|query|tu.?khoa/iu.test(form))
+    .map((form) => ({
+      opening: form.match(/<form\b[^>]*>/iu)?.[0] ?? "",
+      controls: [...form.matchAll(/<(?:input|select|button)\b[^>]*>/giu)].map((match) => match[0]).slice(0, 120),
+      preview: form.slice(0, 10000),
+    }));
 
-  const probes = await Promise.all(
-    unique.slice(0, 12).map(async (item) => {
+  const contexts = [...html.matchAll(/.{0,600}(?:Tìm kiếm nâng cao|Tìm kiếm|keyword|search|query|tu.?khoa).{0,1600}/giu)]
+    .map((match) => decodeHtml(match[0]))
+    .slice(0, 40);
+
+  const scriptSources = [...html.matchAll(/<script\b[^>]*src=["']([^"']+)["']/giu)]
+    .map((match) => {
       try {
-        const probe = await fetch(item.url, {
-          method: "GET",
-          cache: "no-store",
-          headers: { range: "bytes=0-4095", "user-agent": "ThueRo/2.2" },
-        });
-        const bytes = Buffer.from(await probe.arrayBuffer());
-        return {
-          ...item,
-          status: probe.status,
-          contentType: probe.headers.get("content-type"),
-          contentLength: probe.headers.get("content-length"),
-          contentDisposition: probe.headers.get("content-disposition"),
-          firstBytes: bytes.subarray(0, 32).toString("hex"),
-        };
-      } catch (error) {
-        return { ...item, error: error instanceof Error ? error.message : String(error) };
+        return new URL(decodeHtml(match[1]), URL_VALUE).toString();
+      } catch {
+        return "";
       }
-    }),
-  );
+    })
+    .filter(Boolean);
 
   return NextResponse.json(
-    {
-      status: response.status,
-      htmlLength: html.length,
-      pageTextLength: stripTags(html).length,
-      attachments: probes,
-    },
+    { status: response.status, htmlLength: html.length, forms, contexts, scriptSources },
     { headers: { "cache-control": "no-store" } },
   );
 }
