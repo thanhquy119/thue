@@ -4,16 +4,20 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const JS_URL = "https://static.mediacdn.vn/CongBao/min/main-06042026v1.min.js";
-const NEEDLES = [
-  "/api/keyword/getlistbysymbol.htm",
-  "/api/keyword/getlistbykeyword.htm",
-  "/api/document/get-documents-by-publishdate-documenttype.htm",
-];
+const NEEDLES = ["getlistbysymbol", "getlistbykeyword", "publishdate", "symbol", "ky-hieu", "kyHieu"];
 
-function context(text: string, needle: string) {
-  const index = text.indexOf(needle);
-  if (index < 0) return null;
-  return text.slice(Math.max(0, index - 1800), Math.min(text.length, index + needle.length + 4500));
+function contexts(text: string, needle: string) {
+  const lower = text.toLocaleLowerCase("en");
+  const target = needle.toLocaleLowerCase("en");
+  const values: string[] = [];
+  let offset = 0;
+  while (values.length < 5) {
+    const index = lower.indexOf(target, offset);
+    if (index < 0) break;
+    values.push(text.slice(Math.max(0, index - 1200), Math.min(text.length, index + target.length + 3200)));
+    offset = index + target.length;
+  }
+  return values;
 }
 
 export async function GET() {
@@ -29,7 +33,7 @@ export async function GET() {
     {
       status: response.status,
       length: text.length,
-      contexts: Object.fromEntries(NEEDLES.map((needle) => [needle, context(text, needle)])),
+      contexts: Object.fromEntries(NEEDLES.map((needle) => [needle, contexts(text, needle)])),
     },
     { headers: { "cache-control": "no-store" } },
   );
