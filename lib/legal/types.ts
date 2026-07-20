@@ -22,6 +22,10 @@ export type OnlineLegalSource = {
   score: number;
   source_label: string;
   previewable?: boolean;
+  document_number?: string;
+  document_type?: string;
+  issuer?: string;
+  issued_date?: string | null;
 };
 
 export type ProvisionDetail = {
@@ -53,11 +57,23 @@ export type DocumentDetail = {
   provisions: ProvisionDetail[];
 };
 
+export type SearchCandidate = {
+  id: string;
+  number: string;
+  title: string;
+  type: string;
+  issuer: string;
+  issued_date: string | null;
+  source_url: string;
+  source_label: string;
+};
+
 export type TaxSearchResponse = {
   query_normalized: string;
   query_kind: "document" | "question";
   direct_answer: string;
   document: DocumentDetail | null;
+  candidates?: SearchCandidate[];
   warnings: string[];
   confidence: number;
   retrieved_at: string;
