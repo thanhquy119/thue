@@ -17,6 +17,24 @@ function normalizeNumber(value: string) {
   return normalizeLegalQuery(value).replace(/\s+/g, "");
 }
 
+function yearScore(date: string | null | undefined) {
+  const year = Number(date?.slice(0, 4));
+  if (!year) return 0;
+  const currentYear = new Date().getFullYear();
+  if (year === currentYear) return 3.2;
+  if (year === currentYear - 1) return 1.7;
+  if (year === currentYear - 2) return 0.7;
+  if (year <= currentYear - 5) return -0.55;
+  return 0;
+}
+
+function amendmentScore(value: string) {
+  const normalized = normalizeLegalQuery(value);
+  if (/\b(?:sua doi bo sung|thay the|bai bo)\b/.test(normalized)) return 2.2;
+  if (/\b(?:quy dinh chi tiet|huong dan thi hanh)\b/.test(normalized)) return 0.35;
+  return 0;
+}
+
 function sourceScore(query: string, source: OnlineLegalSource) {
   const hint = extractSearchHint(query);
   const haystack = normalizeLegalQuery(
@@ -27,6 +45,10 @@ function sourceScore(query: string, source: OnlineLegalSource) {
   if (hint.year && haystack.includes(hint.year)) score += 1.8;
   if (hint.type && haystack.includes(normalizeLegalQuery(hint.type))) score += 0.8;
   if (source.document_number && exactSourceMatch(source, hint)) score += 2.2;
+  if (hint.asksQuestion) {
+    score += yearScore(source.issued_date);
+    score += amendmentScore(`${source.title} ${source.snippet}`);
+  }
   return score;
 }
 
@@ -189,9 +211,17 @@ const cachedDocumentFromSource = unstable_cache(
       provisions,
     };
   },
-  ["thue-ro-official-document-v4"],
+  ["thue-ro-official-document-v5"],
   { revalidate: DOCUMENT_REVALIDATE_SECONDS, tags: ["official-legal-documents"] },
 );
+
+function documentQuestionScore(query: string, document: DocumentDetail) {
+  return (
+    lexicalRelevance(query, `${document.number} ${document.title} ${document.official_text.slice(0, 25_000)}`) +
+    yearScore(document.issued_date) +
+    amendmentScore(document.title)
+  );
+}
 
 function evidenceForQuestion(query: string, documents: DocumentDetail[]) {
   return documents.map((document) => {
@@ -208,7 +238,14 @@ function evidenceForQuestion(query: string, documents: DocumentDetail[]) {
       .map(({ provision }) =>
         `${provision.identifier ?? "Nội dung"}${provision.heading ? ` — ${provision.heading}` : ""}\n${provision.official_text.slice(0, 5_000)}`,
       );
-    return { document_number: document.number, title: document.title, excerpts: ranked };
+    return {
+      document_number: document.number,
+      title: document.title,
+      issued_date: document.issued_date,
+      effective_date: document.effective_date,
+      status: document.status,
+      excerpts: ranked,
+    };
   });
 }
 
@@ -226,10 +263,13 @@ function extractiveAnswer(query: string, documents: DocumentDetail[]) {
       document.provisions.map((provision) => ({
         document,
         provision,
-        score: lexicalRelevance(
-          query,
-          `${document.number} ${document.title} ${provision.identifier ?? ""} ${provision.heading ?? ""} ${provision.official_text}`,
-        ),
+        score:
+          lexicalRelevance(
+            query,
+            `${document.number} ${document.title} ${provision.identifier ?? ""} ${provision.heading ?? ""} ${provision.official_text}`,
+          ) +
+          yearScore(document.issued_date) +
+          amendmentScore(document.title),
       })),
     )
     .filter((item) => item.provision.official_text.trim().length > 80)
@@ -250,7 +290,7 @@ function extractiveAnswer(query: string, documents: DocumentDetail[]) {
   }
 
   return [
-    "Hệ thống đã đối chiếu câu hỏi với văn bản chính thức. Các căn cứ gần nhất được trích nguyên ý dưới đây; cần đọc toàn bộ Điều/Khoản và tình trạng hiệu lực trước khi áp dụng vào hồ sơ cụ thể.",
+    "Hệ thống đã ưu tiên văn bản mới và văn bản sửa đổi, bổ sung khi đối chiếu câu hỏi. Dưới đây là các căn cứ gần nhất được trích trực tiếp; cần đọc đầy đủ Điều/Khoản trước khi áp dụng cho hồ sơ cụ thể.",
     ...selected.map(({ document, provision }) =>
       `${document.number} — ${provision.identifier ?? "Nội dung liên quan"}${provision.heading ? ` — ${provision.heading}` : ""}\n${compactExcerpt(provision.official_text)}`,
     ),
@@ -290,7 +330,7 @@ export async function searchTaxLaw(query: string): Promise<TaxSearchResponse> {
 
   const extracted: DocumentDetail[] = [];
   const warnings: string[] = [];
-  const sourceLimit = hint.asksQuestion ? 10 : 7;
+  const sourceLimit = hint.asksQuestion ? 12 : 7;
   for (const source of rankedSources.slice(0, sourceLimit)) {
     try {
       const document = await cachedDocumentFromSource(source.url, source.title, source.snippet, query);
@@ -299,10 +339,14 @@ export async function searchTaxLaw(query: string): Promise<TaxSearchResponse> {
         hint,
       );
       if (exactNumberMatches || hint.asksQuestion) extracted.push(document);
-      if (extracted.length >= (hint.asksQuestion ? 3 : 1)) break;
+      if (extracted.length >= (hint.asksQuestion ? 4 : 1)) break;
     } catch (error) {
       warnings.push(error instanceof Error ? error.message : "Không đọc được một nguồn chính thức.");
     }
+  }
+
+  if (hint.asksQuestion) {
+    extracted.sort((left, right) => documentQuestionScore(query, right) - documentQuestionScore(query, left));
   }
 
   const primary = extracted[0] ?? null;
@@ -324,10 +368,10 @@ export async function searchTaxLaw(query: string): Promise<TaxSearchResponse> {
   if (hint.asksQuestion) {
     try {
       answer = await answerFromOfficialEvidence(query, evidenceForQuestion(query, extracted));
-      confidence = 0.84;
+      confidence = 0.86;
     } catch (error) {
       answer = extractiveAnswer(query, extracted);
-      confidence = 0.7;
+      confidence = 0.72;
       if (error instanceof GeminiUnavailableError) {
         warnings.push("Chế độ tổng hợp câu trả lời đang tạm giới hạn; phần trên là các căn cứ gần nhất được trích trực tiếp từ văn bản chính thức.");
       }
