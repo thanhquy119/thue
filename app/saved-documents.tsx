@@ -18,10 +18,17 @@ export default function SavedDocuments() {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    setTopbar(document.querySelector<HTMLElement>(".topbar"));
+    const header = document.querySelector<HTMLElement>(".topbar");
+    setTopbar(header);
+
+    // Logo đầu trang luôn mở trạng thái trang chủ sạch. Logo ở footer vẫn giữ
+    // href="#top" để chỉ cuộn lên đầu trang mà không làm mất kết quả đang xem.
+    const headerBrand = header?.querySelector<HTMLAnchorElement>(".brand");
+    headerBrand?.setAttribute("href", "/");
+
     loadReadingStates().then(setRecords).catch(() => undefined);
 
-    // Không dùng lại kết quả đã lưu trước các thay đổi về số hiệu, cơ quan ban hành và hiệu lực.
+    // Không dùng lại kết quả đã lưu trước các thay đổi về nhận diện tên văn bản.
     for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
       const key = window.sessionStorage.key(index);
       if (key?.startsWith("thue-ro-search-")) window.sessionStorage.removeItem(key);
