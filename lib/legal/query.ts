@@ -11,6 +11,8 @@ export function normalizeLegalQuery(value: string) {
     .replace(/nghi\s+(?:dinh|didnh|dihn|dinhh)/g, "nghi dinh")
     .replace(/thong\s+tu/g, "thong tu")
     .replace(/nghi\s+quyet/g, "nghi quyet")
+    .replace(/quyet\s+dinh/g, "quyet dinh")
+    .replace(/quan\s+l[iy]/g, "quan ly")
     .replace(/\bgtgt\b/g, "gia tri gia tang")
     .replace(/\btncn\b/g, "thu nhap ca nhan")
     .replace(/\btndn\b/g, "thu nhap doanh nghiep")
@@ -138,33 +140,89 @@ const TYPE_PATTERNS: Array<[RegExp, string]> = [
   [/\b(?:luat)\b/, "Luật"],
 ];
 
+const TYPE_TEXT_PATTERN = /\b(?:nghi dinh|thong tu|nghi quyet|quyet dinh|luat|nd-cp|tt-btc|nd|tt|nq|qd)\b/g;
 const QUESTION_PATTERNS =
   /\?|\b(?:bao nhieu|muc thue|thue suat|dong thue|nop thue|khai thue|khai ky nao|dung mau|the nao|duoc khong|co phai|phai khong|tai sao|can lam gi|van ban nao|bao gio|han nop|thoi han|doi tuong nao|thuoc dien|cach tinh|tinh nhu the nao|mien thue|giam thue|hoan thue|khau tru|quyet toan|hoa don|ho kinh doanh|doanh thu|chi phi duoc tru|thu nhap chiu thue)\b/;
+
+function plausibleDocumentNumber(value: string | undefined) {
+  if (!value) return null;
+  if (/^(?:19|20)\d{2}$/.test(value)) return null;
+  return value;
+}
+
+function trailingNamedIdentifier(normalized: string, type: string | null) {
+  if (!type) return null;
+  const match = normalized.match(
+    /\b(\d{1,4})(?:\s*[/-]\s*(20\d{2}))?(?:\s*[/-]\s*(?:nd-cp|tt-[a-z0-9-]+|nq-[a-z0-9-]+|qd-[a-z0-9-]+|qh\d*|ubtvqh\d*))?\s*$/,
+  );
+  const number = plausibleDocumentNumber(match?.[1]);
+  return number ? { number, year: match?.[2] ?? null } : null;
+}
 
 export function extractSearchHint(query: string): SearchHint {
   const normalized = normalizeLegalQuery(query);
   const type = TYPE_PATTERNS.find(([pattern]) => pattern.test(normalized))?.[1] ?? null;
-  const slashIdentifier = normalized.match(/\b(\d{1,4})\s*[/-]\s*(20\d{2})\b/);
+  const fullIdentifier = normalized.match(
+    /\b(\d{1,4})\s*[/-]\s*(20\d{2})\s*[/-]\s*(?:nd-cp|tt-[a-z0-9-]+|nq-[a-z0-9-]+|qd-[a-z0-9-]+|qh\d*|ubtvqh\d*)\b/,
+  );
   const compactIdentifier = normalized.match(/\b(?:nd|tt|nq|qd)\s*(\d{1,4})\s*[/-]\s*(20\d{2})\b/);
-  const spacedIdentifier = normalized.match(
-    /\b(?:nghi dinh|thong tu|nghi quyet|quyet dinh|luat|nd|tt|nq|qd)\s+(\d{1,4})(?:\s+(20\d{2}))?\b/,
+  const slashIdentifier = normalized.match(/\b(\d{1,4})\s*[/-]\s*(20\d{2})\b/);
+  const directIdentifier = normalized.match(
+    /\b(?:nghi dinh|thong tu|nghi quyet|quyet dinh|luat|nd|tt|nq|qd)\s+(?:so\s+)?(\d{1,4})(?:\s+(20\d{2}))?\b/,
   );
-  const abbreviationIdentifier = normalized.match(
-    /\b(\d{1,4})\s*[/-]\s*(20\d{2})\s*[/-]\s*(?:nd-cp|tt-[a-z0-9-]+|nq-[a-z0-9-]+|qd-[a-z0-9-]+|qh\d*)\b/,
-  );
-  const match = compactIdentifier ?? slashIdentifier ?? spacedIdentifier ?? abbreviationIdentifier;
-  const looksLikeDocumentLookup = Boolean(type && match?.[1]);
+  const trailingIdentifier = trailingNamedIdentifier(normalized, type);
+  const match = fullIdentifier ?? compactIdentifier ?? slashIdentifier ?? directIdentifier;
+  const number = plausibleDocumentNumber(match?.[1]) ?? trailingIdentifier?.number ?? null;
+  const year = match?.[2] ?? trailingIdentifier?.year ?? null;
+  const hasQuestionLanguage = QUESTION_PATTERNS.test(normalized);
   const wordCount = normalized.split(" ").filter(Boolean).length;
-  const asksQuestion =
-    QUESTION_PATTERNS.test(normalized) || (!looksLikeDocumentLookup && wordCount >= 4);
+  const looksLikeDocumentLookup = Boolean(type && (number || (!hasQuestionLanguage && wordCount <= 18)));
+  const asksQuestion = hasQuestionLanguage || (!looksLikeDocumentLookup && wordCount >= 4);
 
-  return {
-    normalized,
-    number: match?.[1] ?? null,
-    year: match?.[2] ?? null,
-    type,
-    asksQuestion,
-  };
+  return { normalized, number, year, type, asksQuestion };
+}
+
+function descriptorForDocumentQuery(query: string) {
+  const hint = extractSearchHint(query);
+  if (!hint.type) return "";
+  let normalized = hint.normalized
+    .replace(/\b\d{1,4}\s*[/-]\s*20\d{2}\s*[/-]\s*(?:nd-cp|tt-[a-z0-9-]+|nq-[a-z0-9-]+|qd-[a-z0-9-]+|qh\d*|ubtvqh\d*)\b/g, " ")
+    .replace(TYPE_TEXT_PATTERN, " ")
+    .replace(/\b(?:so|nam)\b/g, " ");
+  if (hint.number) normalized = normalized.replace(new RegExp(`\\b${hint.number}\\b`, "g"), " ");
+  if (hint.year) normalized = normalized.replace(new RegExp(`\\b${hint.year}\\b`, "g"), " ");
+  return normalized.replace(/\s+/g, " ").trim();
+}
+
+export function hasDocumentDescriptor(query: string) {
+  return descriptorForDocumentQuery(query)
+    .split(" ")
+    .some((token) => token.length > 1 && !["bo", "so", "nam"].includes(token));
+}
+
+export function buildDocumentSearchQueries(query: string) {
+  const clean = query.replace(/\s+/g, " ").trim();
+  const hint = extractSearchHint(clean);
+  if (hint.asksQuestion || !hint.type) return [clean];
+
+  const descriptor = descriptorForDocumentQuery(clean);
+  const identifier = hint.number ? `${hint.number}${hint.year ? `/${hint.year}` : ""}` : "";
+  const variants = [clean];
+
+  if (identifier) {
+    variants.push(`${hint.type} ${identifier}`);
+    variants.push(`${hint.type} số ${identifier}`);
+    if (descriptor) {
+      variants.push(`${hint.type} ${identifier} ${descriptor}`);
+      variants.push(`${hint.type} ${descriptor} ${identifier}`);
+      variants.push(`${descriptor} ${hint.type} ${identifier}`);
+    }
+  } else if (descriptor) {
+    variants.push(`${hint.type} ${descriptor}`);
+    variants.push(descriptor);
+  }
+
+  return Array.from(new Set(variants.map((value) => value.replace(/\s+/g, " ").trim()).filter(Boolean))).slice(0, 6);
 }
 
 export function extractDocumentMentions(query: string): SearchHint[] {
