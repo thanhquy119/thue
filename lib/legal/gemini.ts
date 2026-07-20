@@ -20,6 +20,15 @@ type GeminiResponse = {
   error?: { message?: unknown };
 };
 
+export type OfficialEvidence = {
+  document_number: string;
+  title: string;
+  issued_date: string | null;
+  effective_date: string | null;
+  status: string;
+  excerpts: string[];
+};
+
 function apiKey() {
   return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
 }
@@ -66,7 +75,7 @@ async function callModel(model: string, input: string, system: string) {
           systemInstruction: { parts: [{ text: system }] },
           contents: [{ role: "user", parts: [{ text: input }] }],
           generationConfig: {
-            temperature: 0.05,
+            temperature: 0.02,
             maxOutputTokens: 2_400,
           },
         }),
@@ -113,14 +122,14 @@ export async function discoverOfficialSources(query: string): Promise<GeminiDisc
   return discoverViaRss(query);
 }
 
-export async function answerFromOfficialEvidence(
-  query: string,
-  evidence: Array<{ document_number: string; title: string; excerpts: string[] }>,
-) {
+export async function answerFromOfficialEvidence(query: string, evidence: OfficialEvidence[]) {
   const payload = await callGemini(
-    JSON.stringify({ query, evidence }),
+    JSON.stringify({ current_date: new Date().toISOString().slice(0, 10), query, evidence }),
     "Bạn là trợ lý tra cứu pháp luật thuế Việt Nam. Chỉ được kết luận từ evidence đã cung cấp, không dùng trí nhớ riêng và không suy đoán. " +
-      "Mỗi kết luận quan trọng phải ghi số hiệu văn bản và Điều/Khoản nếu chúng xuất hiện trong evidence. Nếu evidence chưa đủ, nói rõ phần chưa đủ. " +
+      "Trước khi trả lời, phải so sánh ngày ban hành, ngày hiệu lực và quan hệ sửa đổi/bổ sung thể hiện trong tiêu đề hoặc nội dung. " +
+      "Khi văn bản mới sửa đổi, bổ sung hoặc thay thế quy định cũ, phải áp dụng nội dung mới; tuyệt đối không lặp lại ngưỡng, mức thuế hoặc thủ tục cũ. " +
+      "Nếu các evidence mâu thuẫn mà chưa đủ căn cứ xác định văn bản hiện hành, phải nói rõ chưa thể kết luận thay vì chọn tùy ý. " +
+      "Mỗi kết luận quan trọng phải ghi số hiệu văn bản và Điều/Khoản nếu chúng xuất hiện trong evidence. " +
       "Trả lời tiếng Việt dễ hiểu trong 3-7 đoạn ngắn, không dùng bảng Markdown, không thêm danh sách nguồn ở cuối vì ứng dụng đã hiển thị văn bản gốc.",
   );
   const text = responseText(payload);
