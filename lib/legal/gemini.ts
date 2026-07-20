@@ -41,7 +41,9 @@ function apiKey() {
 }
 
 export function geminiModel() {
-  return process.env.GEMINI_MODEL || "gemini-3.5-flash";
+  const configured = process.env.GEMINI_MODEL?.trim();
+  if (!configured || configured === "gemini-3.5-flash") return "gemini-2.5-flash";
+  return configured;
 }
 
 export function hasGeminiConfig() {
