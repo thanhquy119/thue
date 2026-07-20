@@ -3,14 +3,17 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const JS_URL = "https://static.mediacdn.vn/CongBao/min/main-06042026v1.min.js";
+const PAGE_URL = "https://congbao.chinhphu.vn/van-ban-dang-cong-bao.htm?ky-hieu=100%2F2024%2FN%C4%90-CP";
 const NEEDLES = [
-  "/api/document/get-documents-by-publishdate-documenttype.htm",
-  "/api/keyword/getlistbykeyword.htm",
-  "/api/keyword/getlistbysymbol.htm",
+  "searchvanban",
+  "txtKyHieu",
   "ky-hieu",
   "tu-khoa",
-  "txtKyHieu",
+  "get-documents",
+  "getlistbysymbol",
+  "data-atc",
+  "ajaxDomain",
+  "eth.cnnd.vn",
 ];
 
 function allContexts(text: string, needle: string) {
@@ -23,7 +26,7 @@ function allContexts(text: string, needle: string) {
     if (index < 0) break;
     values.push({
       index,
-      context: text.slice(Math.max(0, index - 6000), Math.min(text.length, index + target.length + 12000)),
+      context: text.slice(Math.max(0, index - 5000), Math.min(text.length, index + target.length + 12000)),
     });
     offset = index + target.length;
   }
@@ -31,19 +34,30 @@ function allContexts(text: string, needle: string) {
 }
 
 export async function GET() {
-  const response = await fetch(JS_URL, {
+  const response = await fetch(PAGE_URL, {
     cache: "no-store",
     headers: {
       "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
-      accept: "text/javascript,application/javascript,*/*;q=0.8",
+      "accept-language": "vi-VN,vi;q=0.9,en;q=0.5",
     },
   });
   const text = await response.text();
+  const scripts = [...text.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/giu)].map((match, index) => ({
+    index,
+    attrs: match[1],
+    length: match[2].length,
+    matches: NEEDLES.filter((needle) => match[2].toLocaleLowerCase("vi").includes(needle.toLocaleLowerCase("vi"))),
+    body: NEEDLES.some((needle) => match[2].toLocaleLowerCase("vi").includes(needle.toLocaleLowerCase("vi")))
+      ? match[2].slice(0, 120000)
+      : "",
+  }));
   return NextResponse.json(
     {
       status: response.status,
+      resolvedUrl: response.url,
       length: text.length,
       contexts: Object.fromEntries(NEEDLES.map((needle) => [needle, allContexts(text, needle)])),
+      matchingScripts: scripts.filter((script) => script.matches.length),
     },
     { headers: { "cache-control": "no-store" } },
   );
