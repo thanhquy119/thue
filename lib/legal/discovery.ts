@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { extractSearchHint, normalizeLegalQuery } from "./query";
 import type { OnlineLegalSource } from "./types";
 
 export type OfficialSourceDiscovery = {
@@ -192,6 +193,40 @@ async function searchGazetteDocuments(query: string): Promise<OnlineLegalSource[
     .slice(0, 30);
 }
 
+function questionSearchQueries(query: string) {
+  const hint = extractSearchHint(query);
+  if (!hint.asksQuestion) return [query];
+
+  const currentYear = new Date().getFullYear();
+  const normalized = normalizeLegalQuery(query);
+  const queries = [query, `${query} ${currentYear} sửa đổi bổ sung`];
+
+  if (/\b(?:ho kinh doanh|ca nhan kinh doanh)\b/.test(normalized)) {
+    queries.push(`chính sách thuế hộ kinh doanh cá nhân kinh doanh ${currentYear}`);
+  } else if (/\b(?:hoa don|may tinh tien)\b/.test(normalized)) {
+    queries.push(`quản lý thuế hóa đơn điện tử ${currentYear}`);
+  } else if (/\b(?:thu nhap ca nhan|quyet toan|tncn)\b/.test(normalized)) {
+    queries.push(`thuế thu nhập cá nhân quyết toán ${currentYear}`);
+  } else if (/\b(?:gia tri gia tang|gtgt)\b/.test(normalized)) {
+    queries.push(`thuế giá trị gia tăng ${currentYear} sửa đổi bổ sung`);
+  } else if (/\b(?:thu nhap doanh nghiep|tndn)\b/.test(normalized)) {
+    queries.push(`thuế thu nhập doanh nghiệp ${currentYear} sửa đổi bổ sung`);
+  }
+
+  return Array.from(new Set(queries)).slice(0, 3);
+}
+
+function mergeSources(groups: OnlineLegalSource[][]) {
+  const byUrl = new Map<string, OnlineLegalSource>();
+  for (const source of groups.flat()) {
+    const existing = byUrl.get(source.url);
+    if (!existing || source.score > existing.score) {
+      byUrl.set(source.url, source);
+    }
+  }
+  return [...byUrl.values()];
+}
+
 function parseGovernmentResults(html: string, hint: string): OnlineLegalSource[] {
   const rows: Array<{ url: string; title: string; snippet: string; score: number }> = [];
   const normalizedHint = normalize(hint);
@@ -263,18 +298,24 @@ async function searchGovernmentDocuments(query: string) {
 }
 
 export async function discoverOfficialSources(query: string): Promise<OfficialSourceDiscovery> {
-  let gazetteError: unknown = null;
-  try {
-    const sources = await searchGazetteDocuments(query);
-    if (sources.length) {
-      return {
-        draft_answer: "Đã tìm thấy nguồn chính thức và tệp toàn văn trên Công báo điện tử Chính phủ.",
-        sources,
-      };
-    }
-  } catch (error) {
-    gazetteError = error;
+  const queries = questionSearchQueries(query);
+  const gazetteSettled = await Promise.allSettled(queries.map((item) => searchGazetteDocuments(item)));
+  const gazetteGroups = gazetteSettled
+    .filter((result): result is PromiseFulfilledResult<OnlineLegalSource[]> => result.status === "fulfilled")
+    .map((result) => result.value);
+  const gazetteSources = mergeSources(gazetteGroups);
+
+  if (gazetteSources.length) {
+    return {
+      draft_answer: "Đã tìm thấy nguồn chính thức và tệp toàn văn trên Công báo điện tử Chính phủ.",
+      sources: gazetteSources,
+    };
   }
+
+  const gazetteMessages = gazetteSettled
+    .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+    .map((result) => (result.reason instanceof Error ? result.reason.message : ""))
+    .filter(Boolean);
 
   try {
     const sources = await searchGovernmentDocuments(query);
@@ -285,8 +326,10 @@ export async function discoverOfficialSources(query: string): Promise<OfficialSo
       };
     }
   } catch (governmentError) {
-    const messages = [gazetteError, governmentError]
-      .map((error) => (error instanceof Error ? error.message : ""))
+    const messages = [
+      ...gazetteMessages,
+      governmentError instanceof Error ? governmentError.message : "",
+    ]
       .filter(Boolean)
       .join(" ");
     throw new Error(messages || "Không kết nối được các nguồn pháp luật chính thức.");
