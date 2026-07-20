@@ -1,3 +1,13 @@
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+.siteShell {
+  background: #fff !important;
+}
+
 .installLink,
 .loadingPanel p,
 .answerMeta,
@@ -146,6 +156,7 @@ footer > span,
 
 footer {
   justify-content: flex-start;
+  border-top: 1px solid var(--line);
 }
 
 @media (max-width: 760px) {
