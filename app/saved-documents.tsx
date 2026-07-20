@@ -38,8 +38,38 @@ export default function SavedDocuments() {
       const record = (event as CustomEvent<ReadingStateRecord>).detail;
       if (record?.documentId) setRecords((current) => mergeRecord(current, record));
     };
+
+    // Web Speech không thể đổi tốc độ của một utterance đang chạy. Khi người
+    // dùng đổi tốc độ trong lúc đọc, tự dừng và khởi động lại đúng đoạn hiện tại
+    // để tốc độ mới có hiệu lực ngay, thay vì bắt người dùng bấm hai lần.
+    const onAudioSettingChange = (event: Event) => {
+      const select = event.target;
+      if (!(select instanceof HTMLSelectElement)) return;
+      const label = select.closest("label");
+      if (!label?.textContent?.includes("Tốc độ")) return;
+
+      const dock = select.closest<HTMLElement>(".audioDock");
+      const currentButton = dock?.querySelector<HTMLButtonElement>(".stopButton");
+      if (!dock?.classList.contains("visible") || currentButton?.textContent?.trim() !== "Dừng") return;
+
+      window.setTimeout(() => {
+        const stopButton = dock.querySelector<HTMLButtonElement>(".stopButton");
+        if (stopButton?.textContent?.trim() !== "Dừng") return;
+        stopButton.click();
+
+        window.setTimeout(() => {
+          const resumeButton = dock.querySelector<HTMLButtonElement>(".stopButton");
+          if (resumeButton?.textContent?.trim() === "Tiếp tục") resumeButton.click();
+        }, 120);
+      }, 0);
+    };
+
     window.addEventListener(READING_STATE_EVENT, onReadingState);
-    return () => window.removeEventListener(READING_STATE_EVENT, onReadingState);
+    document.addEventListener("change", onAudioSettingChange);
+    return () => {
+      window.removeEventListener(READING_STATE_EVENT, onReadingState);
+      document.removeEventListener("change", onAudioSettingChange);
+    };
   }, []);
 
   const saved = useMemo(
