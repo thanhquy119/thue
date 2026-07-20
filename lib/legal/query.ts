@@ -80,6 +80,37 @@ export function significantSearchTokens(value: string) {
   );
 }
 
+function intentRelevance(normalizedQuery: string, normalizedCandidate: string) {
+  let score = 0;
+  const householdQuestion = /\b(?:ho kinh doanh|ca nhan kinh doanh)\b/.test(normalizedQuery);
+  const householdDocument = /\b(?:ho kinh doanh|ca nhan kinh doanh)\b/.test(normalizedCandidate);
+  if (householdQuestion) score += householdDocument ? 0.9 : -0.25;
+
+  const asksThresholdOrAmount = /\b(?:doanh thu|muc thue|thue suat|bao nhieu|co phai nop|phai nop thue|nop thue khong|mien thue|khong phai nop)\b/.test(
+    normalizedQuery,
+  );
+  const policyDocument = /\b(?:chinh sach thue|doi tuong chiu thue|khong chiu thue|thu nhap chiu thue|can cu tinh thue)\b/.test(
+    normalizedCandidate,
+  );
+  const procedureDocument = /\b(?:ho so thu tuc|thu tuc quan ly thue|khai thue|mau bieu|dang ky thue)\b/.test(
+    normalizedCandidate,
+  );
+  if (asksThresholdOrAmount) {
+    if (policyDocument) score += 1.2;
+    if (procedureDocument) score -= 0.45;
+  }
+
+  const asksProcedure = /\b(?:ho so|thu tuc|khai thue|mau nao|dung mau|dang ky|han nop|thoi han|quyet toan)\b/.test(
+    normalizedQuery,
+  );
+  if (asksProcedure && procedureDocument) score += 1.15;
+
+  const asksInvoice = /\b(?:hoa don|may tinh tien)\b/.test(normalizedQuery);
+  if (asksInvoice && /\b(?:hoa don|may tinh tien)\b/.test(normalizedCandidate)) score += 1.05;
+
+  return score;
+}
+
 export function lexicalRelevance(query: string, candidate: string) {
   const tokens = significantSearchTokens(query);
   if (!tokens.length) return 0;
@@ -90,7 +121,13 @@ export function lexicalRelevance(query: string, candidate: string) {
   const normalizedCandidate = normalizeLegalQuery(candidate);
   const normalizedQuery = normalizeLegalQuery(query);
   const phraseBoost = normalizedQuery.length > 3 && normalizedCandidate.includes(normalizedQuery) ? 0.25 : 0;
-  return Math.min(1.25, coverage + phraseBoost + Math.min(0.12, matched.length * 0.02));
+  return Math.max(
+    0,
+    Math.min(
+      3.5,
+      coverage + phraseBoost + Math.min(0.12, matched.length * 0.02) + intentRelevance(normalizedQuery, normalizedCandidate),
+    ),
+  );
 }
 
 const TYPE_PATTERNS: Array<[RegExp, string]> = [
