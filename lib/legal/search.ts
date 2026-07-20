@@ -275,10 +275,11 @@ export async function searchTaxLaw(query: string): Promise<TaxSearchResponse> {
       : [];
 
   if (shorthandCandidates.length > 1) {
+    const shorthandType = hint.type ?? "Văn bản";
     return {
       query_normalized: hint.normalized,
       query_kind: "document",
-      direct_answer: `Có nhiều ${hint.type.toLocaleLowerCase("vi")} mang số ${hint.number}. Chọn đúng năm, cơ quan ban hành hoặc trích yếu để mở toàn văn.`,
+      direct_answer: `Có nhiều ${shorthandType.toLocaleLowerCase("vi")} mang số ${hint.number}. Chọn đúng năm, cơ quan ban hành hoặc trích yếu để mở toàn văn.`,
       document: null,
       candidates: shorthandCandidates,
       warnings: [],
