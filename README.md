@@ -54,4 +54,4 @@ npm run verify
 
 Không hệ thống nào có thể bảo đảm lấy được toàn văn của mọi văn bản chỉ bằng web search. Trường hợp nguồn chặn bot, liên kết Google redirect không giải được, PDF chỉ là ảnh scan hoặc file quá lớn, ứng dụng sẽ báo không thể trích xuất thay vì hiển thị nội dung tóm tắt như thể đó là toàn văn.
 
-Một câu hỏi thuế đôi khi cần nhiều văn bản cùng lúc. Bản này dùng tối đa ba văn bản chính thức để tạo câu trả lời nhưng chỉ hiển thị toàn văn của văn bản chính có độ liên quan cao nhất, đúng theo yêu cầu giao diện chỉ có một văn bản.
+
