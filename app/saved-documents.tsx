@@ -21,10 +21,10 @@ export default function SavedDocuments() {
     setTopbar(document.querySelector<HTMLElement>(".topbar"));
     loadReadingStates().then(setRecords).catch(() => undefined);
 
-    // Results produced before the improved document-number matcher must not be reused.
+    // Không dùng lại kết quả đã lưu trước các thay đổi về số hiệu, cơ quan ban hành và hiệu lực.
     for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
       const key = window.sessionStorage.key(index);
-      if (key?.startsWith("thue-ro-search-v2:")) window.sessionStorage.removeItem(key);
+      if (key?.startsWith("thue-ro-search-")) window.sessionStorage.removeItem(key);
     }
 
     const onReadingState = (event: Event) => {
