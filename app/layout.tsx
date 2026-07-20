@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./candidates.css";
+import "./refinements.css";
 import SavedDocuments from "./saved-documents";
 
 export const metadata: Metadata = {
