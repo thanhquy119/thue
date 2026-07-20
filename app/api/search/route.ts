@@ -11,6 +11,23 @@ export const dynamic = "force-dynamic";
 
 const FULL_IDENTIFIER_PATTERN = /\b\d{1,4}\s*\/\s*20\d{2}\s*\/\s*(?:NĐ-CP|ND-CP|TT-[A-ZĐ0-9-]+|NQ-[A-ZĐ0-9-]+|QĐ-[A-ZĐ0-9-]+|QD-[A-Z0-9-]+|QH\d*|UBTVQH\d*)\b/iu;
 
+// Các trạng thái đã được đối chiếu với CSDL quốc gia về văn bản pháp luật.
+// Danh sách này là lớp bảo vệ bổ sung khi nguồn Công báo không trả trường hiệu lực.
+const VERIFIED_EXPIRED_DOCUMENTS = new Set([
+  "89/2017/TT-BTC",
+].map((number) => normalizeIdentifier(number)));
+
+const ISSUER_PATTERNS: Array<{ pattern: RegExp; issuer: string }> = [
+  { pattern: /\b(?:bo tai chinh|btc)\b/, issuer: "Bộ Tài chính" },
+  { pattern: /\b(?:bo quoc phong|bqp)\b/, issuer: "Bộ Quốc phòng" },
+  { pattern: /\b(?:bo cong thuong|bct)\b/, issuer: "Bộ Công Thương" },
+  { pattern: /\b(?:bo tu phap|btp)\b/, issuer: "Bộ Tư pháp" },
+  { pattern: /\b(?:bo noi vu|bnv)\b/, issuer: "Bộ Nội vụ" },
+  { pattern: /\b(?:bo y te|byt)\b/, issuer: "Bộ Y tế" },
+  { pattern: /\b(?:bo giao duc va dao tao|bgddt)\b/, issuer: "Bộ Giáo dục và Đào tạo" },
+  { pattern: /\b(?:bo cong an|bca)\b/, issuer: "Bộ Công an" },
+];
+
 function normalizeIdentifier(value: string) {
   return value
     .normalize("NFD")
@@ -18,6 +35,17 @@ function normalizeIdentifier(value: string) {
     .replace(/đ/gi, "d")
     .replace(/\s+/g, "")
     .toLocaleLowerCase("vi");
+}
+
+function normalizeWords(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/gi, "d")
+    .toLocaleLowerCase("vi")
+    .replace(/[^a-z0-9/_.-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function fullIdentifier(query: string) {
@@ -78,8 +106,94 @@ function uniqueCandidates(sources: OnlineLegalSource[]) {
   });
 }
 
+function isVerifiedExpiredNumber(number: string) {
+  return VERIFIED_EXPIRED_DOCUMENTS.has(normalizeIdentifier(number));
+}
+
+function hasExplicitExpiredStatus(source: OnlineLegalSource) {
+  const text = normalizeWords(`${source.title} ${source.snippet}`);
+  return /\b(?:het hieu luc toan bo|bi bai bo toan bo|duoc thay the toan bo)\b/.test(text);
+}
+
+function candidateIsDisplayable(candidate: SearchCandidate) {
+  return !isVerifiedExpiredNumber(candidate.number);
+}
+
 function sameNumberCandidate(candidate: SearchCandidate, number: string) {
   return new RegExp(`^${number}(?:/|$)`).test(normalizeIdentifier(candidate.number));
+}
+
+function issuerQualifiedLookup(query: string) {
+  const normalized = normalizeWords(query);
+  const issuer = ISSUER_PATTERNS.find(({ pattern }) => pattern.test(normalized))?.issuer ?? null;
+  const typeMatch = normalized.match(/\b(thong tu|nghi dinh|nghi quyet|quyet dinh|luat)\s+(\d{1,4})\b/);
+  if (!issuer || !typeMatch) return null;
+
+  const type = typeMatch[1] === "thong tu"
+    ? "Thông tư"
+    : typeMatch[1] === "nghi dinh"
+      ? "Nghị định"
+      : typeMatch[1] === "nghi quyet"
+        ? "Nghị quyết"
+        : typeMatch[1] === "quyet dinh"
+          ? "Quyết định"
+          : "Luật";
+
+  return { type, number: typeMatch[2], issuer };
+}
+
+function sourceMatchesIssuerLookup(source: OnlineLegalSource, lookup: NonNullable<ReturnType<typeof issuerQualifiedLookup>>) {
+  const number = source.document_number || "";
+  const type = normalizeWords(`${source.document_type || ""} ${source.title}`);
+  const issuer = normalizeWords(`${source.issuer || ""} ${number}`);
+  const expectedType = normalizeWords(lookup.type);
+  const expectedIssuer = normalizeWords(lookup.issuer);
+
+  return (
+    new RegExp(`^${lookup.number}(?:/|$)`).test(normalizeIdentifier(number)) &&
+    type.includes(expectedType) &&
+    issuer.includes(expectedIssuer) &&
+    !hasExplicitExpiredStatus(source) &&
+    !isVerifiedExpiredNumber(number)
+  );
+}
+
+function filterExpiredResponse(result: TaxSearchResponse): TaxSearchResponse {
+  const candidates = (result.candidates ?? []).filter(candidateIsDisplayable);
+  if (result.document && isVerifiedExpiredNumber(result.document.number)) {
+    return {
+      ...result,
+      direct_answer: `${result.document.number} đã hết hiệu lực toàn bộ nên không được đưa vào danh sách văn bản hiện hành.`,
+      document: null,
+      candidates,
+      confidence: 1,
+    };
+  }
+  return { ...result, candidates };
+}
+
+async function searchIssuerQualifiedDocuments(query: string): Promise<TaxSearchResponse | null> {
+  const lookup = issuerQualifiedLookup(query);
+  if (!lookup) return null;
+
+  const discovery = await discoverOfficialSources(`${lookup.type} ${lookup.number}`);
+  const candidates = uniqueCandidates(discovery.sources.filter((source) => sourceMatchesIssuerLookup(source, lookup)))
+    .filter(candidateIsDisplayable)
+    .sort((left, right) => (right.issued_date || "").localeCompare(left.issued_date || ""))
+    .slice(0, 10);
+
+  return {
+    query_normalized: normalizeWords(query),
+    query_kind: "document",
+    direct_answer: candidates.length
+      ? `Các ${lookup.type.toLocaleLowerCase("vi")} số ${lookup.number} do ${lookup.issuer} ban hành đang còn hiệu lực hoặc chưa bị xác định hết hiệu lực toàn bộ.`
+      : `Không tìm thấy ${lookup.type.toLocaleLowerCase("vi")} số ${lookup.number} do ${lookup.issuer} ban hành còn hiệu lực trên nguồn pháp luật chính thức.`,
+    document: null,
+    candidates,
+    warnings: [],
+    confidence: candidates.length ? 0.95 : 0.4,
+    retrieved_at: new Date().toISOString(),
+  };
 }
 
 async function validateRequestedIdentifier(query: string, identifier: string): Promise<TaxSearchResponse | null> {
@@ -97,8 +211,10 @@ async function validateRequestedIdentifier(query: string, identifier: string): P
       alternativeSources = [...alternatives.sources, ...exactDiscovery.sources];
     }
 
-    const candidates = uniqueCandidates(alternativeSources)
-      .filter((candidate) => !requested || sameNumberCandidate(candidate, requested.number))
+    const candidates = uniqueCandidates(
+      alternativeSources.filter((source) => !hasExplicitExpiredStatus(source) && !isVerifiedExpiredNumber(source.document_number || "")),
+    )
+      .filter((candidate) => (!requested || sameNumberCandidate(candidate, requested.number)) && candidateIsDisplayable(candidate))
       .sort((left, right) => {
         const leftSameYear = left.number.includes(`/${requested?.year ?? ""}/`) ? 1 : 0;
         const rightSameYear = right.number.includes(`/${requested?.year ?? ""}/`) ? 1 : 0;
@@ -160,12 +276,17 @@ export async function POST(request: Request) {
     if (identifier) {
       const invalidIdentifier = await validateRequestedIdentifier(query, identifier);
       if (invalidIdentifier) {
-        return NextResponse.json(invalidIdentifier, { headers: { "cache-control": "no-store" } });
+        return NextResponse.json(filterExpiredResponse(invalidIdentifier), { headers: { "cache-control": "no-store" } });
       }
     }
 
+    const issuerResult = await searchIssuerQualifiedDocuments(query);
+    if (issuerResult) {
+      return NextResponse.json(filterExpiredResponse(issuerResult), { headers: { "cache-control": "no-store" } });
+    }
+
     const result = await searchTaxLaw(rewriteNamedDocumentLookup(query));
-    return NextResponse.json(result, { headers: { "cache-control": "no-store" } });
+    return NextResponse.json(filterExpiredResponse(result), { headers: { "cache-control": "no-store" } });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Không thể tra cứu lúc này." },
