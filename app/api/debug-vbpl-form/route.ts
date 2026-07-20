@@ -15,11 +15,21 @@ export async function GET() {
     headers: { "user-agent": "Mozilla/5.0 Chrome/131 Safari/537.36", "accept-language": "vi-VN,vi;q=0.9" },
   });
   const html = await response.text();
-  const inputs = [...html.matchAll(/<input\b[^>]*>/giu)].map((match) => attrs(match[0])).filter((item) => item.name || item.id);
-  const selects = [...html.matchAll(/<select\b[^>]*>[\s\S]*?<\/select>/giu)].map((match) => ({
-    ...attrs(match[0].match(/<select\b[^>]*>/iu)?.[0] || ""),
-    options: [...match[0].matchAll(/<option\b[^>]*value=["']([^"']*)["'][^>]*>([\s\S]*?)<\/option>/giu)].map((option) => ({ value: option[1], label: option[2].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() })),
-  })).filter((item) => item.name || item.id);
+  const inputs = [...html.matchAll(/<input\b[^>]*>/giu)]
+    .map((match) => attrs(match[0]))
+    .filter((item) => Boolean(item.name || item.id));
+  const selects = [...html.matchAll(/<select\b[^>]*>[\s\S]*?<\/select>/giu)]
+    .map((match) => {
+      const properties = attrs(match[0].match(/<select\b[^>]*>/iu)?.[0] || "");
+      return {
+        properties,
+        options: [...match[0].matchAll(/<option\b[^>]*value=["']([^"']*)["'][^>]*>([\s\S]*?)<\/option>/giu)].map((option) => ({
+          value: option[1],
+          label: option[2].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
+        })),
+      };
+    })
+    .filter((item) => Boolean(item.properties.name || item.properties.id));
   const forms = [...html.matchAll(/<form\b[^>]*>/giu)].map((match) => attrs(match[0]));
   return NextResponse.json({ status: response.status, forms, inputs, selects });
 }
