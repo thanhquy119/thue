@@ -2,52 +2,50 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
 
-type GeminiPayload = {
-  candidates?: Array<{
-    content?: { parts?: Array<{ text?: string }> };
-    groundingMetadata?: {
-      webSearchQueries?: string[];
-      groundingChunks?: Array<{ web?: { uri?: string; title?: string } }>;
-    };
-  }>;
-  error?: { message?: string };
-};
+const PAGE_URL = "https://congbao.chinhphu.vn/van-ban-dang-cong-bao.htm";
+const NEEDLES = [
+  "getlistbysymbol",
+  "getlistbykeyword",
+  "searchvanban",
+  "txtKyHieu",
+  "ky-hieu",
+  "tu-khoa",
+  "ajaxDomain",
+  "eth.cnnd.vn",
+  "/api/keyword",
+  "documenttype",
+];
+
+function contexts(text: string, needle: string) {
+  const lower = text.toLocaleLowerCase("vi");
+  const target = needle.toLocaleLowerCase("vi");
+  const values: Array<{ index: number; context: string }> = [];
+  let offset = 0;
+  while (values.length < 5) {
+    const index = lower.indexOf(target, offset);
+    if (index < 0) break;
+    values.push({ index, context: text.slice(Math.max(0, index - 700), Math.min(text.length, index + target.length + 1400)) });
+    offset = index + target.length;
+  }
+  return values;
+}
 
 export async function GET() {
-  const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  if (!key) return NextResponse.json({ error: "missing key" }, { status: 500 });
-
-  const model = process.env.GEMINI_MODEL?.trim() || "gemini-3.5-flash";
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-goog-api-key": key },
-      body: JSON.stringify({
-        contents: [{
-          role: "user",
-          parts: [{
-            text: "Tìm Nghị định 100/2024/NĐ-CP trên các nguồn pháp luật chính thức của Việt Nam. Ưu tiên trang chi tiết có tệp DOCX hoặc DOC tại vbpl.vn hoặc congbao.chinhphu.vn. Trả lời ngắn gọn và ghi URL nguồn chính thức tìm được.",
-          }],
-        }],
-        tools: [{ google_search: {} }],
-        generationConfig: { temperature: 0, maxOutputTokens: 1200 },
-      }),
+  const response = await fetch(PAGE_URL, {
+    cache: "no-store",
+    headers: {
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
+      "accept-language": "vi-VN,vi;q=0.9,en;q=0.5",
     },
-  );
-  const payload = (await response.json().catch(() => ({}))) as GeminiPayload;
-  const candidate = payload.candidates?.[0];
+  });
+  const text = await response.text();
   return NextResponse.json(
     {
-      model,
       status: response.status,
-      error: payload.error?.message ?? null,
-      text: candidate?.content?.parts?.map((part) => part.text ?? "").join("\n") ?? "",
-      queries: candidate?.groundingMetadata?.webSearchQueries ?? [],
-      chunks: candidate?.groundingMetadata?.groundingChunks ?? [],
+      length: text.length,
+      contexts: Object.fromEntries(NEEDLES.map((needle) => [needle, contexts(text, needle)])),
     },
-    { status: response.ok ? 200 : response.status, headers: { "cache-control": "no-store" } },
+    { headers: { "cache-control": "no-store" } },
   );
 }
