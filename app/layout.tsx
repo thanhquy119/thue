@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./candidates.css";
+import SavedDocuments from "./saved-documents";
 
 export const metadata: Metadata = {
   title: "Thuế — Tra cứu và đọc toàn văn pháp luật thuế",
@@ -26,5 +27,5 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="vi"><body>{children}</body></html>;
+  return <html lang="vi"><body>{children}<SavedDocuments /></body></html>;
 }
