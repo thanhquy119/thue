@@ -2,7 +2,7 @@ import { unstable_cache } from "next/cache";
 import { NextResponse } from "next/server";
 import { parseLegalHierarchy, slugifyDocument } from "@/lib/legal/ingestion";
 import { cleanUserQuery, containsPromptInjection, normalizeLegalQuery } from "@/lib/legal/query";
-import { searchTaxLaw } from "@/lib/legal/search";
+import { searchTaxLawRobust } from "@/lib/legal/robust-search";
 import { consumeMemoryRateLimit, requestFingerprint } from "@/lib/legal/security";
 import type { DocumentDetail, SearchCandidate, TaxSearchResponse } from "@/lib/legal/types";
 
@@ -197,7 +197,7 @@ async function circular892026Response(): Promise<TaxSearchResponse> {
 }
 
 async function financeCircular89Response(query: string): Promise<TaxSearchResponse> {
-  const base = await searchTaxLaw(query);
+  const base = await searchTaxLawRobust(query);
   const candidates = uniqueCandidates([recentCandidate(), ...(base.candidates ?? [])])
     .filter((candidate) => isCircular89(candidate) && isFinanceIssuer(candidate) && !isExpiredNumber(candidate.number))
     .sort((left, right) => (right.issued_date || "").localeCompare(left.issued_date || ""))
@@ -251,7 +251,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const result = await searchTaxLaw(query);
+    const result = await searchTaxLawRobust(query);
     return NextResponse.json(filterExpiredResponse(result), { headers: { "cache-control": "no-store" } });
   } catch (error) {
     return NextResponse.json(
