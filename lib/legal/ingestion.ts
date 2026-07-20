@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { get as httpsGet } from "node:https";
+import WordExtractor from "word-extractor";
 
 const MAX_SOURCE_BYTES = 18_000_000;
 const ALLOWED_HOSTS = new Set([
@@ -22,6 +23,7 @@ const ALLOWED_HOSTS = new Set([
   "pbgdpl.cantho.gov.vn",
 ]);
 const ALLOWED_ROOT_DOMAINS = ["vbpl.vn", "chinhphu.vn", "mof.gov.vn", "gdt.gov.vn", "moj.gov.vn"];
+const OFFICIAL_CDN_TLS_FALLBACK = new Set(["g7.cdnchinhphu.vn", "congbaocdn.chinhphu.vn"]);
 
 export type ExtractedSource = {
   sourceUrl: string | null;
@@ -29,7 +31,7 @@ export type ExtractedSource = {
   fileName: string | null;
   officialText: string;
   sha256: string;
-  extractionMethod: "html" | "docx" | "pdf_text" | "plain_text" | "ocr_required";
+  extractionMethod: "html" | "doc" | "docx" | "pdf_text" | "plain_text" | "ocr_required";
   qualityScore: number;
   requiresOcr: boolean;
   metadata: Record<string, unknown>;
@@ -105,8 +107,9 @@ function officialAttachmentUrl(html: string, pageUrl: string) {
     })
     .filter((url) => isAllowedLegalSource(url));
   return (
-    candidates.find((url) => url.toLocaleLowerCase("en").includes(".docx")) ??
-    candidates.find((url) => url.toLocaleLowerCase("en").includes(".pdf")) ??
+    candidates.find((url) => /\.docx(?:$|\?)/iu.test(url)) ??
+    candidates.find((url) => /\.doc(?:$|\?)/iu.test(url)) ??
+    candidates.find((url) => /\.pdf(?:$|\?)/iu.test(url)) ??
     candidates[0] ??
     null
   );
@@ -118,7 +121,7 @@ function scoreText(text: string, method: ExtractedSource["extractionMethod"]) {
   const legalMarkers = (text.match(/\b(?:Điều|Chương|Khoản)\s+[0-9IVXLC]+/giu) ?? []).length;
   const markerScore = Math.min(1, legalMarkers / 8);
   const replacementRatio = (text.match(/�/g) ?? []).length / Math.max(1, text.length);
-  const base = method === "docx" ? 0.58 : method === "pdf_text" ? 0.52 : method === "html" ? 0.42 : 0.5;
+  const base = method === "docx" ? 0.58 : method === "doc" ? 0.56 : method === "pdf_text" ? 0.52 : method === "html" ? 0.42 : 0.5;
   return Math.max(0, Math.min(1, base + lengthScore * 0.2 + markerScore * 0.22 - replacementRatio * 20));
 }
 
@@ -137,10 +140,10 @@ async function safeFetch(urlValue: string, redirects = 0): Promise<{ response: R
       });
     } catch (error) {
       const cause = error && typeof error === "object" && "cause" in error ? error.cause : error;
-      const code = cause && typeof cause === "object" && "code" in cause ? cause.code : null;
-      // This official CDN currently serves an incomplete certificate chain to Node on Windows.
-      // Keep the exception pinned to this one allow-listed host; redirects return to strict TLS.
-      if (new URL(urlValue).hostname === "g7.cdnchinhphu.vn" && code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE") {
+      const code = cause && typeof cause === "object" && "code" in cause ? codeFromCause(cause) : null;
+      const host = new URL(urlValue).hostname;
+      // Keep relaxed TLS pinned to the two official Government CDN hosts only.
+      if (OFFICIAL_CDN_TLS_FALLBACK.has(host) && code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE") {
         return fetchOfficialCdn(urlValue, redirects);
       }
       throw error;
@@ -160,6 +163,10 @@ async function safeFetch(urlValue: string, redirects = 0): Promise<{ response: R
   } finally {
     clearTimeout(timer);
   }
+}
+
+function codeFromCause(cause: object) {
+  return "code" in cause && typeof cause.code === "string" ? cause.code : null;
 }
 
 async function fetchOfficialCdn(urlValue: string, redirects: number): Promise<{ response: Response; buffer: Buffer }> {
@@ -240,7 +247,10 @@ async function extractBuffer(
     officialText = normalizeText(result.value);
     extractionMethod = "docx";
   } else if (mimeType.includes("msword") || lowerName.endsWith(".doc")) {
-    throw new Error("Định dạng DOC cũ chưa được trích xuất an toàn. Hãy chuyển tệp sang DOCX hoặc PDF.");
+    const extractor = new WordExtractor();
+    const document = await extractor.extract(buffer);
+    officialText = normalizeText(document.getBody());
+    extractionMethod = "doc";
   } else if (mimeType.includes("pdf") || lowerName.endsWith(".pdf")) {
     const [{ PDFParse }, { CanvasFactory }] = await Promise.all([
       import("pdf-parse"),
