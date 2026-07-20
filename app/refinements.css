@@ -1,8 +1,30 @@
 .installLink,
 .loadingPanel p,
 .answerMeta,
-footer > span {
+footer > span,
+.hero > .eyebrow,
+.homeHint {
   display: none !important;
+}
+
+.hero h1 {
+  font-size: 0;
+  line-height: 1;
+}
+
+.hero h1::after {
+  content: "Tra cứu văn bản\A và hỏi đáp thuế";
+  display: block;
+  white-space: pre-line;
+  font-size: clamp(48px, 7vw, 88px);
+  font-weight: 790;
+  letter-spacing: -0.068em;
+  line-height: 0.98;
+}
+
+.searchBox input::placeholder {
+  color: transparent !important;
+  opacity: 0;
 }
 
 .savedLink {
@@ -33,7 +55,12 @@ footer > span {
 }
 
 .directAnswer,
-.legalBlock {
+.legalBlock,
+.candidatePanel h2,
+.candidateTitle,
+.emptyResult p,
+.verificationNote,
+.savedDocument span {
   text-align: justify;
   text-justify: inter-word;
   hyphens: auto;
@@ -116,6 +143,10 @@ footer {
 }
 
 @media (max-width: 760px) {
+  .hero h1::after {
+    font-size: clamp(42px, 13vw, 64px);
+  }
+
   .savedSheet {
     padding: 34px 20px 24px;
     border-radius: 20px;
