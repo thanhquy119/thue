@@ -66,6 +66,12 @@ footer > span,
   hyphens: auto;
 }
 
+/* Web Speech chỉ trả các giọng đã có trên thiết bị. Khi máy chỉ có một
+   giọng Việt, bộ chọn giọng không mang lại tác dụng nên chỉ giữ tốc độ đọc. */
+.audioSettings label:first-child {
+  display: none;
+}
+
 .savedSheet {
   position: relative;
   width: min(620px, 100%);
