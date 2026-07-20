@@ -9,8 +9,6 @@ export type OfficialSourceDiscovery = {
 type GazetteAttachment = {
   duong_dan?: string;
   file_extension?: string;
-  ten_file?: string;
-  thu_tu?: number;
 };
 
 type GazetteDocument = {
@@ -70,15 +68,13 @@ function normalize(value: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/đ/gi, "d")
     .toLocaleLowerCase("vi")
-    .replace(/\s+/g, "")
-    .replace(/nd-cp/g, "nd-cp")
-    .replace(/qd-/g, "qd-");
+    .replace(/\s+/g, "");
 }
 
 function documentNumberHint(query: string) {
   return (
     query.match(
-      /\b\d{1,4}\s*\/\s*20\d{2}\s*\/\s*(?:NĐ-CP|ND-CP|TT-[A-ZĐ]+|NQ-[A-ZĐ0-9]+|QĐ-[A-ZĐa-z]+|QD-[A-Za-z]+|QH\d*|UBTVQH\d*)\b/iu,
+      /\b\d{1,4}\s*\/\s*20\d{2}\s*\/\s*(?:NĐ-CP|ND-CP|TT-[A-ZĐ0-9-]+|NQ-[A-ZĐ0-9-]+|QĐ-[A-ZĐa-z0-9-]+|QD-[A-Za-z0-9-]+|QH\d*|UBTVQH\d*)\b/iu,
     )?.[0] ?? query
   )
     .replace(/\s+/g, " ")
@@ -147,7 +143,7 @@ async function searchGazetteDocuments(query: string): Promise<OnlineLegalSource[
         origin: "https://congbao.chinhphu.vn",
         referer: "https://congbao.chinhphu.vn/",
       },
-      body: JSON.stringify({ filters: {}, page: 1, page_size: 20, query: hint }),
+      body: JSON.stringify({ filters: {}, page: 1, page_size: 30, query: hint }),
     },
     20_000,
   );
@@ -163,11 +159,16 @@ async function searchGazetteDocuments(query: string): Promise<OnlineLegalSource[
       const normalizedNumber = normalize(number);
       const exact = normalizedHint.length >= 4 && normalizedNumber === normalizedHint;
       const related = normalizedHint.length >= 4 && normalizedNumber.includes(normalizedHint);
-      const title = [document.loai_van_ban ? `${document.loai_van_ban} số ${number}` : number, document.trich_yeu]
-        .filter(Boolean)
-        .join(": ");
+      const type = document.loai_van_ban?.trim() || "Văn bản pháp luật";
+      const title = [`${type} số ${number}`, document.trich_yeu].filter(Boolean).join(": ");
       const issuer = document.ten_co_quan?.filter(Boolean).join(", ") ?? "";
-      const snippet = [document.trich_yeu, issuer ? `Cơ quan ban hành: ${issuer}.` : "", document.ngay_ban_hanh ? `Ngày ban hành: ${document.ngay_ban_hanh.slice(0, 10)}.` : "", document.noi_dung_lien_quan_tim_thay]
+      const issuedDate = document.ngay_ban_hanh?.slice(0, 10) || null;
+      const snippet = [
+        document.trich_yeu,
+        issuer ? `Cơ quan ban hành: ${issuer}.` : "",
+        issuedDate ? `Ngày ban hành: ${issuedDate}.` : "",
+        document.noi_dung_lien_quan_tim_thay,
+      ]
         .filter(Boolean)
         .join(" ")
         .slice(0, 2_000);
@@ -180,11 +181,15 @@ async function searchGazetteDocuments(query: string): Promise<OnlineLegalSource[
         score: exact ? 4.5 : related ? 3.2 : 1.4 + Math.min(1, Math.max(0, baseScore)),
         source_label: "Công báo điện tử Chính phủ",
         previewable: true,
+        document_number: number,
+        document_type: type,
+        issuer,
+        issued_date: issuedDate,
       } satisfies OnlineLegalSource;
     })
     .filter((source) => source.url)
     .sort((left, right) => right.score - left.score)
-    .slice(0, 20);
+    .slice(0, 30);
 }
 
 function parseGovernmentResults(html: string, hint: string): OnlineLegalSource[] {
@@ -210,8 +215,7 @@ function parseGovernmentResults(html: string, hint: string): OnlineLegalSource[]
     const normalizedSnippet = normalize(snippet);
     const exactTitle = normalizedHint.length >= 4 && normalizedTitle.includes(normalizedHint);
     const related = normalizedHint.length >= 4 && normalizedSnippet.includes(normalizedHint);
-    const score = exactTitle ? 1.35 : related ? 0.84 : 0.55;
-    rows.push({ url, title, snippet, score });
+    rows.push({ url, title, snippet, score: exactTitle ? 1.35 : related ? 0.84 : 0.55 });
   }
 
   return rows
@@ -229,10 +233,7 @@ function parseGovernmentResults(html: string, hint: string): OnlineLegalSource[]
 }
 
 async function searchGovernmentDocuments(query: string) {
-  const initial = await fetchWithTimeout(GOVERNMENT_SEARCH_URL, {
-    cache: "no-store",
-    headers: COMMON_HEADERS,
-  });
+  const initial = await fetchWithTimeout(GOVERNMENT_SEARCH_URL, { cache: "no-store", headers: COMMON_HEADERS });
   if (!initial.ok) throw new Error(`Hệ thống văn bản Chính phủ trả lỗi ${initial.status}.`);
 
   const initialHtml = await initial.text();
@@ -285,7 +286,7 @@ export async function discoverOfficialSources(query: string): Promise<OfficialSo
     }
   } catch (governmentError) {
     const messages = [gazetteError, governmentError]
-      .map((error) => error instanceof Error ? error.message : "")
+      .map((error) => (error instanceof Error ? error.message : ""))
       .filter(Boolean)
       .join(" ");
     throw new Error(messages || "Không kết nối được các nguồn pháp luật chính thức.");
