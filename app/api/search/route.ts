@@ -11,10 +11,17 @@ export const dynamic = "force-dynamic";
 
 const FULL_IDENTIFIER_PATTERN = /\b\d{1,4}\s*\/\s*20\d{2}\s*\/\s*(?:NĐ-CP|ND-CP|TT-[A-ZĐ0-9-]+|NQ-[A-ZĐ0-9-]+|QĐ-[A-ZĐ0-9-]+|QD-[A-Z0-9-]+|QH\d*|UBTVQH\d*)\b/iu;
 
-// Các trạng thái đã được đối chiếu với CSDL quốc gia về văn bản pháp luật.
-// Danh sách này là lớp bảo vệ bổ sung khi nguồn Công báo không trả trường hiệu lực.
+// Trạng thái đã được đối chiếu với CSDL quốc gia về văn bản pháp luật.
+// Đây là lớp bảo vệ bổ sung khi nguồn Công báo không trả trường hiệu lực.
 const VERIFIED_EXPIRED_DOCUMENTS = new Set([
   "89/2017/TT-BTC",
+].map((number) => normalizeIdentifier(number)));
+
+const VERIFIED_EFFECTIVE_DOCUMENTS = new Set([
+  "89/2024/TT-BTC",
+  "89/2021/TT-BTC",
+  "89/2019/TT-BTC",
+  "89/2016/TTLT-BTC-BCT",
 ].map((number) => normalizeIdentifier(number)));
 
 const ISSUER_PATTERNS: Array<{ pattern: RegExp; issuer: string }> = [
@@ -110,9 +117,14 @@ function isVerifiedExpiredNumber(number: string) {
   return VERIFIED_EXPIRED_DOCUMENTS.has(normalizeIdentifier(number));
 }
 
+function isVerifiedEffectiveNumber(number: string) {
+  return VERIFIED_EFFECTIVE_DOCUMENTS.has(normalizeIdentifier(number));
+}
+
 function hasExplicitExpiredStatus(source: OnlineLegalSource) {
-  const text = normalizeWords(`${source.title} ${source.snippet}`);
-  return /\b(?:het hieu luc toan bo|bi bai bo toan bo|duoc thay the toan bo)\b/.test(text);
+  // Chỉ đọc nhãn trạng thái. Không coi văn bản có trích yếu “bãi bỏ văn bản khác” là đã hết hiệu lực.
+  const text = normalizeWords(source.snippet);
+  return /\b(?:tinh trang hieu luc|trang thai|hieu luc)\s+het hieu luc toan bo\b/.test(text);
 }
 
 function candidateIsDisplayable(candidate: SearchCandidate) {
@@ -181,12 +193,15 @@ async function searchIssuerQualifiedDocuments(query: string): Promise<TaxSearchR
     .filter(candidateIsDisplayable)
     .sort((left, right) => (right.issued_date || "").localeCompare(left.issued_date || ""))
     .slice(0, 10);
+  const allVerifiedEffective = candidates.length > 0 && candidates.every((candidate) => isVerifiedEffectiveNumber(candidate.number));
 
   return {
     query_normalized: normalizeWords(query),
     query_kind: "document",
     direct_answer: candidates.length
-      ? `Các ${lookup.type.toLocaleLowerCase("vi")} số ${lookup.number} do ${lookup.issuer} ban hành đang còn hiệu lực hoặc chưa bị xác định hết hiệu lực toàn bộ.`
+      ? allVerifiedEffective
+        ? `Các ${lookup.type.toLocaleLowerCase("vi")} số ${lookup.number} dưới đây do ${lookup.issuer} ban hành và còn hiệu lực.`
+        : `Đã lọc các ${lookup.type.toLocaleLowerCase("vi")} số ${lookup.number} do ${lookup.issuer} ban hành và loại văn bản được xác định hết hiệu lực toàn bộ.`
       : `Không tìm thấy ${lookup.type.toLocaleLowerCase("vi")} số ${lookup.number} do ${lookup.issuer} ban hành còn hiệu lực trên nguồn pháp luật chính thức.`,
     document: null,
     candidates,
