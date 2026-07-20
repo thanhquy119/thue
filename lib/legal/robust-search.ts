@@ -88,11 +88,12 @@ export async function searchTaxLawRobust(query: string): Promise<TaxSearchRespon
           source_url: result.document.source_url,
           source_label: result.document.source_label,
         }, hint) + 5;
+      const matchingResult: TaxSearchResponse = { ...result, query_normalized: hint.normalized };
       if (score > bestResultScore) {
-        bestResult = { ...result, query_normalized: hint.normalized };
+        bestResult = matchingResult;
         bestResultScore = score;
       }
-      if (score >= 8) return bestResult;
+      if (score >= 8) return matchingResult;
     }
 
     const rankedCandidate = bestCandidate(query, result, hint);
