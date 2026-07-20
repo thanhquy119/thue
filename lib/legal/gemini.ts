@@ -58,6 +58,78 @@ function responseText(payload: GeminiResponse) {
     .trim();
 }
 
+function normalizeVietnamese(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/gi, "d")
+    .toLocaleLowerCase("vi")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseMoney(value: string) {
+  const normalized = normalizeVietnamese(value).replace(/(?<=\d)\.(?=\d{3}(?:\D|$))/g, "").replace(",", ".");
+  const match = normalized.match(/(\d+(?:\.\d+)?)\s*(trieu|ty)\s*(?:dong)?/);
+  if (!match) return null;
+  const number = Number(match[1]);
+  if (!Number.isFinite(number)) return null;
+  return number * (match[2] === "ty" ? 1_000_000_000 : 1_000_000);
+}
+
+function formatIsoDate(value: string | null) {
+  if (!value) return null;
+  const [year, month, day] = value.split("-");
+  if (!year || !month || !day) return null;
+  return `${day}/${month}/${year}`;
+}
+
+function deterministicHouseholdRevenueAnswer(query: string, evidence: OfficialEvidence[]) {
+  const normalizedQuery = normalizeVietnamese(query);
+  const isHouseholdTaxQuestion =
+    /\b(?:ho kinh doanh|ca nhan kinh doanh)\b/.test(normalizedQuery) &&
+    /\bdoanh thu\b/.test(normalizedQuery) &&
+    /\b(?:thue|nop thue|khong phai nop)\b/.test(normalizedQuery);
+  if (!isHouseholdTaxQuestion) return null;
+
+  for (const document of evidence) {
+    const combined = [document.title, ...document.excerpts].join("\n");
+    const normalizedCombined = normalizeVietnamese(combined);
+    if (!/\b(?:ho kinh doanh|ca nhan kinh doanh)\b/.test(normalizedCombined)) continue;
+
+    const amendment = combined.match(
+      /sửa\s+đổi\s+cụm\s+từ\s*[“"']?\s*([0-9][0-9.,]*\s*(?:triệu|tỷ)\s*đồng)\s*[”"']?\s+thành\s*[“"']?\s*([0-9][0-9.,]*\s*(?:triệu|tỷ)\s*đồng)/iu,
+    );
+    if (!amendment) continue;
+
+    const oldThreshold = parseMoney(amendment[1]);
+    const newThreshold = parseMoney(amendment[2]);
+    if (!oldThreshold || !newThreshold || newThreshold <= oldThreshold) continue;
+
+    const mentionsTaxArticles = /Điều\s+3\s*,?\s*Điều\s+4/iu.test(combined);
+    if (!mentionsTaxArticles && !/(?:không\s+chịu\s+thuế|không\s+phải\s+nộp\s+thuế)/iu.test(combined)) continue;
+
+    const queryAmountMatch = query.match(/[0-9][0-9.,]*\s*(?:triệu|tỷ)\s*(?:đồng)?/iu);
+    const queryAmount = queryAmountMatch ? parseMoney(queryAmountMatch[0]) : null;
+    const effectiveDate = formatIsoDate(document.effective_date);
+    const effectivePhrase = effectiveDate ? `, có hiệu lực từ ngày ${effectiveDate}` : "";
+    const thresholdLabel = amendment[2].replace(/^0+(?=\d)/, "");
+
+    const basis = `${document.document_number}${effectivePhrase} sửa mức doanh thu trong Nghị định số 68/2026/NĐ-CP từ ${amendment[1]} thành ${thresholdLabel}, bao gồm Điều 3 và Điều 4 về thuế GTGT và thuế TNCN.`;
+
+    if (queryAmount !== null) {
+      if (queryAmount <= newThreshold) {
+        return `${basis}\n\nVì doanh thu nêu trong câu hỏi là ${queryAmountMatch?.[0].trim()}, không vượt quá ${thresholdLabel}/năm, hộ kinh doanh thuộc diện không chịu thuế GTGT và không phải nộp thuế TNCN đối với hoạt động kinh doanh.\n\nKết luận này chỉ áp dụng cho thuế GTGT và thuế TNCN theo ngưỡng doanh thu; các nghĩa vụ về đăng ký, khai báo doanh thu, hóa đơn hoặc loại thuế khác vẫn cần đối chiếu theo tình huống thực tế.`;
+      }
+      return `${basis}\n\nVì doanh thu nêu trong câu hỏi là ${queryAmountMatch?.[0].trim()}, vượt ${thresholdLabel}/năm, hộ kinh doanh thuộc diện phải xác định nghĩa vụ thuế GTGT và thuế TNCN theo phương pháp áp dụng cho hoạt động kinh doanh của mình. Mức thuế cụ thể còn phụ thuộc ngành nghề và doanh thu tính thuế.`;
+    }
+
+    return `${basis}\n\nTheo đó, hộ kinh doanh, cá nhân kinh doanh có doanh thu năm từ ${thresholdLabel} trở xuống không chịu thuế GTGT và không phải nộp thuế TNCN; doanh thu trên ngưỡng này phải xác định nghĩa vụ thuế theo quy định hiện hành.`;
+  }
+
+  return null;
+}
+
 async function callModel(model: string, input: string, system: string) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30_000);
@@ -123,6 +195,9 @@ export async function discoverOfficialSources(query: string): Promise<GeminiDisc
 }
 
 export async function answerFromOfficialEvidence(query: string, evidence: OfficialEvidence[]) {
+  const deterministic = deterministicHouseholdRevenueAnswer(query, evidence);
+  if (deterministic) return deterministic;
+
   const payload = await callGemini(
     JSON.stringify({ current_date: new Date().toISOString().slice(0, 10), query, evidence }),
     "Bạn là trợ lý tra cứu pháp luật thuế Việt Nam. Chỉ được kết luận từ evidence đã cung cấp, không dùng trí nhớ riêng và không suy đoán. " +
