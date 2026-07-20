@@ -24,15 +24,15 @@ const VERIFIED_EFFECTIVE_DOCUMENTS = new Set([
   "89/2016/TTLT-BTC-BCT",
 ].map((number) => normalizeIdentifier(number)));
 
-const ISSUER_PATTERNS: Array<{ pattern: RegExp; issuer: string }> = [
-  { pattern: /\b(?:bo tai chinh|btc)\b/, issuer: "Bộ Tài chính" },
-  { pattern: /\b(?:bo quoc phong|bqp)\b/, issuer: "Bộ Quốc phòng" },
-  { pattern: /\b(?:bo cong thuong|bct)\b/, issuer: "Bộ Công Thương" },
-  { pattern: /\b(?:bo tu phap|btp)\b/, issuer: "Bộ Tư pháp" },
-  { pattern: /\b(?:bo noi vu|bnv)\b/, issuer: "Bộ Nội vụ" },
-  { pattern: /\b(?:bo y te|byt)\b/, issuer: "Bộ Y tế" },
-  { pattern: /\b(?:bo giao duc va dao tao|bgddt)\b/, issuer: "Bộ Giáo dục và Đào tạo" },
-  { pattern: /\b(?:bo cong an|bca)\b/, issuer: "Bộ Công an" },
+const ISSUER_PATTERNS: Array<{ pattern: RegExp; issuer: string; code: string }> = [
+  { pattern: /\b(?:bo tai chinh|btc)\b/, issuer: "Bộ Tài chính", code: "BTC" },
+  { pattern: /\b(?:bo quoc phong|bqp)\b/, issuer: "Bộ Quốc phòng", code: "BQP" },
+  { pattern: /\b(?:bo cong thuong|bct)\b/, issuer: "Bộ Công Thương", code: "BCT" },
+  { pattern: /\b(?:bo tu phap|btp)\b/, issuer: "Bộ Tư pháp", code: "BTP" },
+  { pattern: /\b(?:bo noi vu|bnv)\b/, issuer: "Bộ Nội vụ", code: "BNV" },
+  { pattern: /\b(?:bo y te|byt)\b/, issuer: "Bộ Y tế", code: "BYT" },
+  { pattern: /\b(?:bo giao duc va dao tao|bgddt)\b/, issuer: "Bộ Giáo dục và Đào tạo", code: "BGDĐT" },
+  { pattern: /\b(?:bo cong an|bca)\b/, issuer: "Bộ Công an", code: "BCA" },
 ];
 
 function normalizeIdentifier(value: string) {
@@ -113,6 +113,16 @@ function uniqueCandidates(sources: OnlineLegalSource[]) {
   });
 }
 
+function mergeSources(groups: OnlineLegalSource[][]) {
+  const seen = new Set<string>();
+  return groups.flatMap((group) => group).filter((source) => {
+    const key = source.document_number ? normalizeIdentifier(source.document_number) : source.url;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function isVerifiedExpiredNumber(number: string) {
   return VERIFIED_EXPIRED_DOCUMENTS.has(normalizeIdentifier(number));
 }
@@ -137,9 +147,9 @@ function sameNumberCandidate(candidate: SearchCandidate, number: string) {
 
 function issuerQualifiedLookup(query: string) {
   const normalized = normalizeWords(query);
-  const issuer = ISSUER_PATTERNS.find(({ pattern }) => pattern.test(normalized))?.issuer ?? null;
+  const issuerMatch = ISSUER_PATTERNS.find(({ pattern }) => pattern.test(normalized)) ?? null;
   const typeMatch = normalized.match(/\b(thong tu|nghi dinh|nghi quyet|quyet dinh|luat)\s+(\d{1,4})\b/);
-  if (!issuer || !typeMatch) return null;
+  if (!issuerMatch || !typeMatch) return null;
 
   const type = typeMatch[1] === "thong tu"
     ? "Thông tư"
@@ -151,7 +161,7 @@ function issuerQualifiedLookup(query: string) {
           ? "Quyết định"
           : "Luật";
 
-  return { type, number: typeMatch[2], issuer };
+  return { type, number: typeMatch[2], issuer: issuerMatch.issuer, issuerCode: issuerMatch.code };
 }
 
 function sourceMatchesIssuerLookup(source: OnlineLegalSource, lookup: NonNullable<ReturnType<typeof issuerQualifiedLookup>>) {
@@ -188,8 +198,24 @@ async function searchIssuerQualifiedDocuments(query: string): Promise<TaxSearchR
   const lookup = issuerQualifiedLookup(query);
   if (!lookup) return null;
 
-  const discovery = await discoverOfficialSources(`${lookup.type} ${lookup.number}`);
-  const candidates = uniqueCandidates(discovery.sources.filter((source) => sourceMatchesIssuerLookup(source, lookup)))
+  const currentYear = new Date().getFullYear();
+  const queries = [
+    `${lookup.type} ${lookup.number}`,
+    `${lookup.type} ${lookup.number} ${lookup.issuer}`,
+  ];
+  if (lookup.type === "Thông tư") {
+    for (let offset = 0; offset <= 5; offset += 1) {
+      queries.push(`${lookup.number}/${currentYear - offset}/TT-${lookup.issuerCode}`);
+    }
+  }
+
+  const settled = await Promise.allSettled(queries.map((item) => discoverOfficialSources(item)));
+  const sources = mergeSources(
+    settled
+      .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof discoverOfficialSources>>> => result.status === "fulfilled")
+      .map((result) => result.value.sources),
+  );
+  const candidates = uniqueCandidates(sources.filter((source) => sourceMatchesIssuerLookup(source, lookup)))
     .filter(candidateIsDisplayable)
     .sort((left, right) => (right.issued_date || "").localeCompare(left.issued_date || ""))
     .slice(0, 10);
