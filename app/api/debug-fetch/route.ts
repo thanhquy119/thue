@@ -1,38 +1,31 @@
 import { NextResponse } from "next/server";
+import { searchTaxLaw } from "@/lib/legal/search";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const API_URL = "https://api-searchcongbao.chinhphu.vn/search/van-ban";
-
 export async function GET() {
-  const response = await fetch(API_URL, {
-    method: "POST",
-    cache: "no-store",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-      origin: "https://congbao.chinhphu.vn",
-      referer: "https://congbao.chinhphu.vn/",
-      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
-    },
-    body: JSON.stringify({
-      filters: {},
-      page: 1,
-      page_size: 10,
-      query: "100/2024/NĐ-CP",
-    }),
-  });
-  const text = await response.text();
-  let payload: unknown = text;
-  try { payload = JSON.parse(text); } catch {}
-  return NextResponse.json(
-    {
-      status: response.status,
-      contentType: response.headers.get("content-type"),
-      payload,
-    },
-    { status: response.ok ? 200 : response.status, headers: { "cache-control": "no-store" } },
-  );
+  try {
+    const result = await searchTaxLaw("Nghị định 100/2024/NĐ-CP");
+    return NextResponse.json(
+      {
+        hasDocument: Boolean(result.document),
+        number: result.document?.number ?? null,
+        title: result.document?.title ?? null,
+        extractionMethod: result.document?.extraction_method ?? null,
+        textLength: result.document?.official_text.length ?? 0,
+        provisionCount: result.document?.provisions.length ?? 0,
+        firstText: result.document?.official_text.slice(0, 800) ?? "",
+        warnings: result.warnings,
+        directAnswer: result.direct_answer,
+      },
+      { headers: { "cache-control": "no-store" } },
+    );
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) },
+      { status: 500, headers: { "cache-control": "no-store" } },
+    );
+  }
 }
