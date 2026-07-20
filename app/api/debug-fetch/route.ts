@@ -4,31 +4,22 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const PAGE_URL = "https://congbao.chinhphu.vn/van-ban-dang-cong-bao.htm";
-const NEEDLES = [
-  "getlistbysymbol",
-  "getlistbykeyword",
-  "searchvanban",
-  "txtKyHieu",
-  "ky-hieu",
-  "tu-khoa",
-  "ajaxDomain",
-  "eth.cnnd.vn",
-  "/api/keyword",
-  "documenttype",
-];
 
-function contexts(text: string, needle: string) {
-  const lower = text.toLocaleLowerCase("vi");
-  const target = needle.toLocaleLowerCase("vi");
-  const values: Array<{ index: number; context: string }> = [];
-  let offset = 0;
-  while (values.length < 5) {
-    const index = lower.indexOf(target, offset);
-    if (index < 0) break;
-    values.push({ index, context: text.slice(Math.max(0, index - 700), Math.min(text.length, index + target.length + 1400)) });
-    offset = index + target.length;
-  }
-  return values;
+function decodeHtml(value: string) {
+  return value
+    .replace(/&#x([0-9a-f]+);/gi, (_match, code: string) => String.fromCodePoint(Number.parseInt(code, 16)))
+    .replace(/&#(\d+);/g, (_match, code: string) => String.fromCodePoint(Number.parseInt(code, 10)))
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+function context(text: string, needle: string) {
+  const index = text.toLocaleLowerCase("vi").indexOf(needle.toLocaleLowerCase("vi"));
+  if (index < 0) return null;
+  return text.slice(Math.max(0, index - 900), Math.min(text.length, index + needle.length + 2200));
 }
 
 export async function GET() {
@@ -39,12 +30,27 @@ export async function GET() {
       "accept-language": "vi-VN,vi;q=0.9,en;q=0.5",
     },
   });
-  const text = await response.text();
+  const text = decodeHtml(await response.text());
+  const urls = new Set<string>();
+
+  for (const match of text.matchAll(/(?:src\s*=\s*|loadJs(?:Defer)?\s*\(\s*)["']([^"']+\.js(?:\?[^"']*)?)["']/giu)) {
+    try {
+      urls.add(new URL(match[1], PAGE_URL).toString());
+    } catch {}
+  }
+  for (const match of text.matchAll(/https?:\/\/[^\s"'<>]+\.js(?:\?[^\s"'<>]*)?/giu)) {
+    urls.add(match[0]);
+  }
+
   return NextResponse.json(
     {
       status: response.status,
       length: text.length,
-      contexts: Object.fromEntries(NEEDLES.map((needle) => [needle, contexts(text, needle)])),
+      scripts: [...urls].slice(0, 100),
+      loadJs: context(text, "loadJs("),
+      loadJsDefer: context(text, "loadJsDefer("),
+      mainBundle: context(text, "main-"),
+      searchAction: context(text, 'data-atc="searchvanban"'),
     },
     { headers: { "cache-control": "no-store" } },
   );
