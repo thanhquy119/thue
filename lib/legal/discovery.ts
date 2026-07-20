@@ -6,6 +6,32 @@ export type OfficialSourceDiscovery = {
   sources: OnlineLegalSource[];
 };
 
+type GazetteAttachment = {
+  duong_dan?: string;
+  file_extension?: string;
+  ten_file?: string;
+  thu_tu?: number;
+};
+
+type GazetteDocument = {
+  id_van_ban?: number;
+  so_ky_hieu?: string;
+  tieu_de?: string;
+  loai_van_ban?: string;
+  trich_yeu?: string;
+  ngay_ban_hanh?: string;
+  ten_co_quan?: string[];
+  score?: number;
+  noi_dung_lien_quan_tim_thay?: string;
+  danh_sach_tep_van_ban?: GazetteAttachment[];
+};
+
+type GazetteSearchPayload = {
+  success?: boolean;
+  data?: GazetteDocument[];
+};
+
+const GAZETTE_SEARCH_URL = "https://api-searchcongbao.chinhphu.vn/search/van-ban";
 const GOVERNMENT_SEARCH_URL = "https://vanban.chinhphu.vn/he-thong-van-ban?classid=1&mode=1";
 const COMMON_HEADERS = {
   "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
@@ -57,7 +83,7 @@ function documentNumberHint(query: string) {
   )
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 100);
+    .slice(0, 300);
 }
 
 function hiddenFormFields(html: string) {
@@ -85,6 +111,80 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 18_0
   } finally {
     clearTimeout(timer);
   }
+}
+
+function preferredGazetteAttachment(attachments: GazetteAttachment[]) {
+  const valid = attachments.filter((attachment) => {
+    try {
+      const url = new URL(attachment.duong_dan ?? "");
+      return url.protocol === "https:" && url.hostname.endsWith("chinhphu.vn");
+    } catch {
+      return false;
+    }
+  });
+  const extension = (attachment: GazetteAttachment) =>
+    (attachment.file_extension || attachment.duong_dan?.match(/\.([a-z0-9]+)(?:\?|$)/iu)?.[1] || "").toLocaleLowerCase("en");
+  return (
+    valid.find((attachment) => extension(attachment) === "docx") ??
+    valid.find((attachment) => extension(attachment) === "doc") ??
+    valid.find((attachment) => extension(attachment) === "pdf") ??
+    valid[0] ??
+    null
+  );
+}
+
+async function searchGazetteDocuments(query: string): Promise<OnlineLegalSource[]> {
+  const hint = documentNumberHint(query);
+  const response = await fetchWithTimeout(
+    GAZETTE_SEARCH_URL,
+    {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        ...COMMON_HEADERS,
+        accept: "application/json",
+        "content-type": "application/json",
+        origin: "https://congbao.chinhphu.vn",
+        referer: "https://congbao.chinhphu.vn/",
+      },
+      body: JSON.stringify({ filters: {}, page: 1, page_size: 20, query: hint }),
+    },
+    20_000,
+  );
+  if (!response.ok) throw new Error(`API Công báo trả lỗi ${response.status}.`);
+  const payload = (await response.json()) as GazetteSearchPayload;
+  const normalizedHint = normalize(hint);
+
+  return (payload.data ?? [])
+    .map((document) => {
+      const attachment = preferredGazetteAttachment(document.danh_sach_tep_van_ban ?? []);
+      const url = attachment?.duong_dan?.trim() ?? "";
+      const number = document.so_ky_hieu?.trim() || document.tieu_de?.trim() || "Văn bản";
+      const normalizedNumber = normalize(number);
+      const exact = normalizedHint.length >= 4 && normalizedNumber === normalizedHint;
+      const related = normalizedHint.length >= 4 && normalizedNumber.includes(normalizedHint);
+      const title = [document.loai_van_ban ? `${document.loai_van_ban} số ${number}` : number, document.trich_yeu]
+        .filter(Boolean)
+        .join(": ");
+      const issuer = document.ten_co_quan?.filter(Boolean).join(", ") ?? "";
+      const snippet = [document.trich_yeu, issuer ? `Cơ quan ban hành: ${issuer}.` : "", document.ngay_ban_hanh ? `Ngày ban hành: ${document.ngay_ban_hanh.slice(0, 10)}.` : "", document.noi_dung_lien_quan_tim_thay]
+        .filter(Boolean)
+        .join(" ")
+        .slice(0, 2_000);
+      const baseScore = Number.isFinite(document.score) ? Number(document.score) : 0;
+      return {
+        id: `gazette-${document.id_van_ban ?? createHash("sha256").update(`${number}-${url}`).digest("hex").slice(0, 16)}`,
+        title,
+        url,
+        snippet,
+        score: exact ? 4.5 : related ? 3.2 : 1.4 + Math.min(1, Math.max(0, baseScore)),
+        source_label: "Công báo điện tử Chính phủ",
+        previewable: true,
+      } satisfies OnlineLegalSource;
+    })
+    .filter((source) => source.url)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 20);
 }
 
 function parseGovernmentResults(html: string, hint: string): OnlineLegalSource[] {
@@ -162,26 +262,34 @@ async function searchGovernmentDocuments(query: string) {
 }
 
 export async function discoverOfficialSources(query: string): Promise<OfficialSourceDiscovery> {
-  let sources: OnlineLegalSource[] = [];
+  let gazetteError: unknown = null;
   try {
-    sources = await searchGovernmentDocuments(query);
+    const sources = await searchGazetteDocuments(query);
+    if (sources.length) {
+      return {
+        draft_answer: "Đã tìm thấy nguồn chính thức và tệp toàn văn trên Công báo điện tử Chính phủ.",
+        sources,
+      };
+    }
   } catch (error) {
-    const message = error instanceof Error && error.name === "AbortError"
-      ? "Hệ thống văn bản Chính phủ phản hồi quá chậm."
-      : error instanceof Error
-        ? error.message
-        : "Không kết nối được Hệ thống văn bản Chính phủ.";
-    throw new Error(message);
+    gazetteError = error;
   }
 
-  if (!sources.length) {
-    throw new Error(
-      "Không tìm thấy văn bản khớp trên Hệ thống văn bản Chính phủ. Hãy kiểm tra lại số hiệu, năm và cơ quan ban hành.",
-    );
+  try {
+    const sources = await searchGovernmentDocuments(query);
+    if (sources.length) {
+      return {
+        draft_answer: "Đã tìm thấy nguồn chính thức trên Hệ thống văn bản Chính phủ và đang đọc toàn văn.",
+        sources,
+      };
+    }
+  } catch (governmentError) {
+    const messages = [gazetteError, governmentError]
+      .map((error) => error instanceof Error ? error.message : "")
+      .filter(Boolean)
+      .join(" ");
+    throw new Error(messages || "Không kết nối được các nguồn pháp luật chính thức.");
   }
 
-  return {
-    draft_answer: "Đã tìm thấy nguồn chính thức trên Hệ thống văn bản Chính phủ và đang đọc toàn văn.",
-    sources,
-  };
+  throw new Error("Không tìm thấy văn bản khớp trên các nguồn pháp luật chính thức. Hãy kiểm tra lại số hiệu, năm và cơ quan ban hành.");
 }
