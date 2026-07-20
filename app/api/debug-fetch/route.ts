@@ -3,84 +3,55 @@ import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const PAGE_URL = "https://congbao.chinhphu.vn/van-ban-dang-cong-bao.htm";
+const JS_URL = "https://static.mediacdn.vn/CongBao/min/main-06042026v1.min.js";
 const NEEDLES = [
   "searchvanban",
   "ddlLoaiThongTin",
   "searchFormDate",
+  "data-atc",
   "data-search",
-  "window.location",
+  "ajaxDomain",
+  "eth.cnnd.vn",
   "location.href",
-  "ajax",
-  "XMLHttpRequest",
-  "tim-kiem",
+  "window.location",
+  "encodeURIComponent",
+  "SiteId",
 ];
-
-function decodeHtml(value: string) {
-  return value
-    .replace(/&#x([0-9a-f]+);/gi, (_match, code: string) => String.fromCodePoint(Number.parseInt(code, 16)))
-    .replace(/&#(\d+);/g, (_match, code: string) => String.fromCodePoint(Number.parseInt(code, 10)))
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
-}
 
 function contexts(text: string, needle: string) {
   const lower = text.toLocaleLowerCase("vi");
   const target = needle.toLocaleLowerCase("vi");
-  const values: string[] = [];
+  const values: Array<{ index: number; context: string }> = [];
   let offset = 0;
-  while (values.length < 12) {
+  while (values.length < 30) {
     const index = lower.indexOf(target, offset);
     if (index < 0) break;
-    values.push(decodeHtml(text.slice(Math.max(0, index - 800), Math.min(text.length, index + target.length + 1800))));
+    values.push({
+      index,
+      context: text.slice(Math.max(0, index - 1800), Math.min(text.length, index + target.length + 5000)),
+    });
     offset = index + target.length;
   }
   return values;
 }
 
 export async function GET() {
-  const response = await fetch(PAGE_URL, {
+  const response = await fetch(JS_URL, {
     cache: "no-store",
     headers: {
       "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
-      "accept-language": "vi-VN,vi;q=0.9,en;q=0.5",
+      accept: "text/javascript,application/javascript,*/*;q=0.8",
     },
   });
-  const html = await response.text();
-  const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/giu)].map((match, index) => ({
-    index,
-    attrs: decodeHtml(match[1]),
-    body: decodeHtml(match[2]),
-  }));
-
-  const relevantScripts = scripts
-    .map((script) => ({
-      index: script.index,
-      attrs: script.attrs,
-      length: script.body.length,
-      matches: NEEDLES.filter((needle) => script.body.toLocaleLowerCase("vi").includes(needle.toLocaleLowerCase("vi"))),
-      snippets: Object.fromEntries(
-        NEEDLES.map((needle) => [needle, contexts(script.body, needle)]).filter(([, values]) => (values as string[]).length),
-      ),
-      urlStrings: [...script.body.matchAll(/["'`]([^"'`\r\n]{1,400})["'`]/g)]
-        .map((match) => match[1])
-        .filter((value) => /search|tim-kiem|van-ban|ajax|api|congbao/iu.test(value))
-        .filter((value, itemIndex, all) => all.indexOf(value) === itemIndex)
-        .slice(0, 100),
-    }))
-    .filter((script) => script.matches.length || script.urlStrings.length);
-
+  const text = await response.text();
+  const result = Object.fromEntries(NEEDLES.map((needle) => [needle, contexts(text, needle)]));
+  const urlStrings = [...text.matchAll(/["'`]([^"'`\r\n]{1,600})["'`]/g)]
+    .map((match) => match[1])
+    .filter((value) => /search|timkiem|tim-kiem|vanban|van-ban|ajax|api|sodo|congbao/iu.test(value))
+    .filter((value, index, all) => all.indexOf(value) === index)
+    .slice(0, 400);
   return NextResponse.json(
-    {
-      status: response.status,
-      htmlLength: html.length,
-      scriptCount: scripts.length,
-      externalScripts: scripts.filter((script) => /\bsrc\s*=/iu.test(script.attrs)).map((script) => script.attrs),
-      relevantScripts,
-    },
+    { status: response.status, resolvedUrl: response.url, length: text.length, result, urlStrings },
     { headers: { "cache-control": "no-store" } },
   );
 }
