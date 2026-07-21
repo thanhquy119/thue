@@ -1,0 +1,24 @@
+.answerPanel + .candidatePanel .sectionLabel {
+  font-size: 0;
+}
+
+.answerPanel + .candidatePanel .sectionLabel::after {
+  content: "Văn bản căn cứ";
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.answerPanel + .candidatePanel h2 {
+  text-align: left;
+  font-size: 0;
+}
+
+.answerPanel + .candidatePanel h2::after {
+  content: "Các văn bản được dùng để đối chiếu";
+  display: block;
+  font-size: clamp(26px, 4vw, 38px);
+  font-weight: 780;
+  line-height: 1.08;
+  letter-spacing: -0.045em;
+}
