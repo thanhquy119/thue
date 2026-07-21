@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { currentBackboneQueries, questionSearchQueries } from "../lib/legal/discovery.ts";
+import { currentBackboneQueries, questionSearchQueries } from "../lib/legal/discovery-queries.ts";
 
 test("registration questions include the current registration circular and tax law", () => {
-  const queries = questionSearchQueries("Doanh nghiệp chuyển địa chỉ sang tỉnh khác có phải hoàn thành nghĩa vụ thuế trước không?");
+  const queries = questionSearchQueries("Doanh nghiệp chuyển địa chỉ sang tỉnh khác có phải hoàn thành nghĩa vụ thuế trước không?", 2026);
   assert.ok(queries.includes("90/2026/TT-BTC"));
   assert.ok(queries.includes("108/2025/QH15"));
 });
@@ -15,7 +15,7 @@ test("household revenue questions include the current threshold and procedure do
 });
 
 test("invoice questions include the July 2026 invoice backbone documents", () => {
-  const queries = questionSearchQueries("Tiền đặt cọc có phải lập hóa đơn điện tử không?");
+  const queries = questionSearchQueries("Tiền đặt cọc có phải lập hóa đơn điện tử không?", 2026);
   assert.ok(queries.includes("254/2026/NĐ-CP"));
   assert.ok(queries.includes("91/2026/TT-BTC"));
 });
@@ -27,5 +27,5 @@ test("corporate income tax questions include current corporate tax documents", (
 });
 
 test("ordinary document lookup remains a single query", () => {
-  assert.deepEqual(questionSearchQueries("108/2025/QH15"), ["108/2025/QH15"]);
+  assert.deepEqual(questionSearchQueries("108/2025/QH15", 2026), ["108/2025/QH15"]);
 });
