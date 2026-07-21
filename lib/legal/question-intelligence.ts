@@ -64,6 +64,42 @@ const QUESTION_PATTERN =
 const DOCUMENT_REFERENCE_PATTERN =
   /\b(?:nghi dinh|thong tu|nghi quyet|quyet dinh|luat|nd|tt|nq|qd)\s*(?:so\s*)?\d{1,4}\s*[/-]\s*20\d{2}(?:\s*[/-]\s*[a-z0-9-]+)?\b/;
 
+const INTENT_SEARCH_TERMS: Record<string, string> = {
+  "thuế suất, mức thuế và cách tính": "thuế suất mức thuế căn cứ tính thuế cách tính",
+  "ngưỡng doanh thu, miễn thuế, không chịu thuế": "ngưỡng doanh thu miễn thuế không chịu thuế",
+  "khai thuế, hồ sơ và mẫu biểu": "khai thuế hồ sơ thủ tục tờ khai mẫu biểu",
+  "thời hạn khai, nộp và xử lý": "thời hạn nộp hồ sơ thời hạn giải quyết",
+  "hóa đơn và chứng từ": "hóa đơn điện tử chứng từ",
+  "khấu trừ thuế, chi phí được trừ": "khấu trừ thuế chi phí được trừ",
+  "hoàn thuế": "hoàn thuế điều kiện hồ sơ",
+  "quyết toán thuế": "quyết toán thuế hồ sơ",
+  "đăng ký thuế và mã số thuế": "đăng ký thuế mã số thuế",
+  "xử phạt, tiền chậm nộp và cưỡng chế": "xử phạt tiền chậm nộp cưỡng chế",
+  "phân bổ nghĩa vụ thuế, khai tập trung": "phân bổ nghĩa vụ thuế khai tập trung",
+  "sửa đổi, bổ sung, thay thế và đối chiếu": "sửa đổi bổ sung thay thế bãi bỏ",
+};
+
+const RETRIEVAL_STOP_WORDS = new Set([
+  "thue",
+  "van",
+  "ban",
+  "quy",
+  "dinh",
+  "hien",
+  "hanh",
+  "nguoi",
+  "dung",
+  "can",
+  "phai",
+  "duoc",
+  "khong",
+  "thi",
+  "va",
+  "cua",
+  "cho",
+  "nam",
+]);
+
 export function analyzeTaxQuestion(query: string): TaxQuestionPlan {
   const normalized = normalize(query);
   const explicitYears = Array.from(new Set(normalized.match(/\b20\d{2}\b/g) ?? []));
@@ -120,6 +156,67 @@ export function enrichTaxQuestion(query: string, plan = analyzeTaxQuestion(query
     .join("; ");
   const suffix = ` Ngữ cảnh tra cứu pháp lý: ${context}. Ưu tiên quy định còn hiệu lực đúng thời kỳ; đối chiếu văn bản sửa đổi, bổ sung, thay thế và không dùng văn bản hết hiệu lực toàn bộ.`;
   return `${query.trim()}${suffix}`.slice(0, 490).trim();
+}
+
+export function buildTaxSearchQueries(query: string, plan = analyzeTaxQuestion(query)) {
+  if (!plan.isQuestion || plan.hasDocumentReference) return [query.trim()];
+  const intentTerms = plan.intents.map((intent) => INTENT_SEARCH_TERMS[intent] || intent).join(" ");
+  const areaTerms = plan.taxAreas.join(" ");
+  const subjectTerms = plan.subjects.join(" ");
+  const periodTerms = plan.explicitYears.length ? `năm ${plan.explicitYears.join(" ")}` : "quy định hiện hành";
+  const core = [intentTerms || "nghĩa vụ thuế", areaTerms, subjectTerms, periodTerms]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const legalBasis = [
+    areaTerms,
+    intentTerms,
+    "Luật Quản lý thuế nghị định thông tư hướng dẫn",
+    periodTerms,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return Array.from(new Set([core, legalBasis].filter(Boolean))).slice(0, 2);
+}
+
+export function taxSourceRelevance(query: string, candidate: string) {
+  const plan = analyzeTaxQuestion(query);
+  if (!plan.isQuestion || plan.hasDocumentReference) return 1;
+  const normalizedCandidate = normalize(candidate);
+  const areaMatches = TAX_AREAS.filter(
+    (item) => plan.taxAreas.includes(item.label) && item.pattern.test(normalizedCandidate),
+  ).length;
+  const subjectMatches = SUBJECTS.filter(
+    (item) => plan.subjects.includes(item.label) && item.pattern.test(normalizedCandidate),
+  ).length;
+  const intentMatches = INTENTS.filter(
+    (item) => plan.intents.includes(item.label) && item.pattern.test(normalizedCandidate),
+  ).length;
+  const administrationBridge = /\b(?:luat quan ly thue|quan ly thue|thu tuc thue|khai thue|hoan thue)\b/.test(
+    normalizedCandidate,
+  );
+
+  if (plan.taxAreas.length && areaMatches === 0 && intentMatches === 0 && !administrationBridge) return -5;
+  if (!/\b(?:thue|hoa don|hai quan|le phi|quan ly thue)\b/.test(normalizedCandidate) && areaMatches === 0) return -4;
+
+  const queryTokens = new Set(
+    plan.normalized
+      .split(/[^a-z0-9]+/)
+      .filter((token) => token.length > 2 && !RETRIEVAL_STOP_WORDS.has(token) && !/^20\d{2}$/.test(token)),
+  );
+  const candidateTokens = new Set(normalizedCandidate.split(/[^a-z0-9]+/).filter(Boolean));
+  const tokenMatches = [...queryTokens].filter((token) => candidateTokens.has(token)).length;
+
+  return (
+    areaMatches * 3 +
+    intentMatches * 1.6 +
+    subjectMatches * 0.7 +
+    (administrationBridge ? 1.4 : 0) +
+    Math.min(2, tokenMatches * 0.22)
+  );
 }
 
 function parseLocalizedNumber(value: string) {
