@@ -20,7 +20,7 @@ export function currentBackboneQueries(query: string) {
     queries.push("90/2026/TT-BTC", "108/2025/QH15");
   }
 
-  if (/\b(?:ho kinh doanh|ca nhan kinh doanh|cho thue nha|cho thue bat dong san|doanh thu)\b/.test(normalized)) {
+  if (/\b(?:ho kinh doanh|ca nhan kinh doanh|cho thue nha|cho thue bat dong san)\b/.test(normalized)) {
     queries.push("141/2026/NĐ-CP", "50/2026/TT-BTC", "18/2026/TT-BTC");
   }
 
@@ -36,7 +36,7 @@ export function currentBackboneQueries(query: string) {
     queries.push("141/2026/NĐ-CP", "320/2025/NĐ-CP");
   }
 
-  return Array.from(new Set(queries)).slice(0, 4);
+  return Array.from(new Set(queries)).slice(0, 6);
 }
 
 export function questionSearchQueries(query: string, currentYear = new Date().getFullYear()) {
@@ -63,5 +63,5 @@ export function questionSearchQueries(query: string, currentYear = new Date().ge
       `${query} ${currentYear} sửa đổi bổ sung thay thế`,
       ...topical,
     ]),
-  ).slice(0, 7);
+  ).slice(0, 9);
 }
