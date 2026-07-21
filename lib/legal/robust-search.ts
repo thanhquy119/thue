@@ -83,16 +83,17 @@ function noExactMatchResponse(query: string, hint: SearchHint, result: TaxSearch
   };
 }
 
-function guardQuestionResult(query: string, result: TaxSearchResponse): TaxSearchResponse {
+function guardQuestionResult(originalQuery: string, result: TaxSearchResponse): TaxSearchResponse {
   const document = result.document;
   if (!document) return result;
 
   const fullText = `${document.number} ${document.type} ${document.title} ${document.issuer} ${document.official_text.slice(0, 40_000)}`;
-  const relevance = taxSourceRelevance(query, fullText);
-  if (!disqualifyTaxSource(query, fullText) && relevance >= 1.4) return result;
+  const relevance = taxSourceRelevance(originalQuery, fullText);
+  if (!disqualifyTaxSource(originalQuery, fullText) && relevance >= 1.4) return result;
 
   return {
     ...result,
+    query_normalized: normalizeLegalQuery(originalQuery),
     direct_answer:
       "Chưa tìm thấy văn bản chính thức đủ phù hợp với đúng đối tượng và nghiệp vụ để kết luận an toàn. Hệ thống đã loại các nguồn chỉ bãi bỏ văn bản cũ, nguồn khác đối tượng hoặc nguồn chỉ gần giống từ khóa. Vui lòng bổ sung tình huống cụ thể hơn hoặc nêu số hiệu văn bản cần đối chiếu.",
     document: null,
@@ -104,12 +105,15 @@ function guardQuestionResult(query: string, result: TaxSearchResponse): TaxSearc
 
 /**
  * Resolve natural document names without maintaining a table of aliases.
- * Examples: “Luật quản lý thuế 108”, “Luật 108 quản lý thuế”, and a full
- * identifier all converge on the same official-document search flow.
+ * `query` may contain internal retrieval context; `originalQuery` must remain
+ * the user's unchanged wording for legal relevance and fail-closed checks.
  */
-export async function searchTaxLawRobust(query: string): Promise<TaxSearchResponse> {
+export async function searchTaxLawRobust(
+  query: string,
+  originalQuery: string = query,
+): Promise<TaxSearchResponse> {
   const hint = extractSearchHint(query);
-  if (hint.asksQuestion) return guardQuestionResult(query, await searchTaxLaw(query));
+  if (hint.asksQuestion) return guardQuestionResult(originalQuery, await searchTaxLaw(query));
   if (!hint.type) return searchTaxLaw(query);
 
   let bestResult: TaxSearchResponse | null = null;
@@ -153,8 +157,6 @@ export async function searchTaxLawRobust(query: string): Promise<TaxSearchRespon
     }
   }
 
-  // Với truy vấn có số văn bản, thà trả về “chưa tìm thấy chính xác” còn hơn
-  // hiển thị một văn bản khác chỉ vì tiêu đề có vài từ giống nhau.
   if (hint.number) return noExactMatchResponse(query, hint, bestResult);
   return bestResult ?? searchTaxLaw(query);
 }
