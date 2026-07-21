@@ -5,6 +5,7 @@ import "./refinements.css";
 import "./question-results.css";
 import "./document-tools.css";
 import "./preamble.css";
+import "./document-typography.css";
 import CacheVersion from "./cache-version";
 import SavedDocuments from "./saved-documents";
 import DocumentTools from "./document-tools";

@@ -1,0 +1,73 @@
+/* Cân đối tiêu đề văn bản và tiêu đề Điều trên màn hình rộng. */
+.detailHeader h2 {
+  width: 100%;
+  max-width: 100%;
+  padding-right: 0;
+  font-size: clamp(30px, 3.65vw, 48px);
+  line-height: 1.08;
+  letter-spacing: -0.038em;
+  text-align: justify;
+  text-align-last: left;
+  text-justify: inter-word;
+  hyphens: none;
+  overflow-wrap: break-word;
+  text-wrap: pretty;
+}
+
+/* h4 gồm cột số thứ tự và một anonymous grid item chứa tiêu đề Điều. */
+.readerText .legalProvision h4 {
+  width: 100%;
+  grid-template-columns: 40px minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: start;
+  font-size: clamp(21px, 2.15vw, 27px);
+  line-height: 1.28;
+  letter-spacing: -0.022em;
+  text-align: justify;
+  text-align-last: left;
+  text-justify: inter-word;
+  hyphens: none;
+  overflow-wrap: break-word;
+  text-wrap: pretty;
+}
+
+.readerText .legalProvision h4 > span {
+  padding-top: 7px;
+  text-align: left;
+  text-align-last: left;
+}
+
+/* Giữ dòng nội dung thẳng với phần tiêu đề sau khi thu gọn cột số thứ tự. */
+.readerText .legalBlocks {
+  padding-left: 40px;
+}
+
+@media (max-width: 760px) {
+  /* Trên màn hình hẹp, căn trái tránh khoảng trắng bị kéo giãn quá mức. */
+  .detailHeader h2 {
+    width: 100%;
+    max-width: none;
+    padding-right: 0;
+    font-size: clamp(30px, 9vw, 44px);
+    line-height: 1.08;
+    text-align: left;
+    text-align-last: auto;
+  }
+
+  .readerText .legalProvision h4 {
+    grid-template-columns: 30px minmax(0, 1fr);
+    column-gap: 8px;
+    font-size: clamp(20px, 6vw, 25px);
+    line-height: 1.24;
+    text-align: left;
+    text-align-last: auto;
+  }
+
+  .readerText .legalProvision h4 > span {
+    padding-top: 5px;
+  }
+
+  .readerText .legalBlocks {
+    padding-left: 30px;
+  }
+}
