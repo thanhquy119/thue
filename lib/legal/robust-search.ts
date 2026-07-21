@@ -61,6 +61,26 @@ function attemptQueries(query: string, hint: SearchHint) {
   return Array.from(new Set(variants.map((value) => value.replace(/\s+/g, " ").trim()).filter(Boolean))).slice(0, 4);
 }
 
+function exactCandidates(result: TaxSearchResponse | null, hint: SearchHint) {
+  if (!result) return [];
+  return (result.candidates ?? []).filter((candidate) => matchesHint(candidate.number, candidate.type, hint));
+}
+
+function noExactMatchResponse(query: string, hint: SearchHint, result: TaxSearchResponse | null): TaxSearchResponse {
+  const candidates = exactCandidates(result, hint);
+  const expected = [hint.type, hint.number, hint.year].filter(Boolean).join(" ");
+  return {
+    query_normalized: hint.normalized,
+    query_kind: "document",
+    direct_answer: `Chưa tìm thấy văn bản ${expected || query} khớp chính xác về loại, số và năm trên các nguồn đang truy cập. Hệ thống không mở một văn bản gần giống để tránh nhầm căn cứ pháp lý.`,
+    document: null,
+    candidates,
+    warnings: result?.warnings ?? [],
+    confidence: candidates.length ? 0.68 : 0.25,
+    retrieved_at: result?.retrieved_at ?? new Date().toISOString(),
+  };
+}
+
 /**
  * Resolve natural document names without maintaining a table of aliases.
  * Examples: “Luật quản lý thuế 108”, “Luật 108 quản lý thuế”, and a full
@@ -111,5 +131,8 @@ export async function searchTaxLawRobust(query: string): Promise<TaxSearchRespon
     }
   }
 
+  // Với truy vấn có số văn bản, thà trả về “chưa tìm thấy chính xác” còn hơn
+  // hiển thị một văn bản khác chỉ vì tiêu đề có vài từ giống nhau.
+  if (hint.number) return noExactMatchResponse(query, hint, bestResult);
   return bestResult ?? searchTaxLaw(query);
 }
