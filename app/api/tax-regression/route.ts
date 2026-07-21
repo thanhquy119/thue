@@ -58,7 +58,7 @@ async function runQuestion(question: string) {
     mode: "answer",
     answer: result.direct_answer.slice(0, 1800),
     document: result.document?.number ?? null,
-    candidates: result.candidates.map((candidate) => candidate.number),
+    candidates: (result.candidates ?? []).map((candidate) => candidate.number),
     warnings: result.warnings,
     confidence: result.confidence,
   };
