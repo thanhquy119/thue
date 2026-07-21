@@ -3,6 +3,8 @@ import { lexicalRelevance, normalizeLegalQuery } from "./query";
 import type { AnchoredReference } from "./anchored-reference";
 import type { DocumentDetail, SearchCandidate, TaxSearchResponse } from "./types";
 
+export { extractAnchoredReferences, isAnchoredLegalQuestion } from "./anchored-reference";
+
 function normalizedIdentifier(value: string) {
   return normalizeLegalQuery(value).replace(/\s+/g, "");
 }
