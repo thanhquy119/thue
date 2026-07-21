@@ -22,6 +22,13 @@ export function disqualifyTaxSource(query: string, candidate: string) {
     );
   if (repealOnly && !asksAmendment) return true;
 
+  const asksHistoricalRegistrationRule =
+    /\b(?:2024|2025|86\s*\/\s*2024|thong tu\s+(?:so\s+)?86)\b/.test(normalizedQuery);
+  const supersededRegistrationCircular =
+    /\b86\s*\/\s*2024\s*\/\s*tt-btc\b/.test(normalizedCandidate) ||
+    /\bthong tu\s+(?:so\s+)?86\s*\/\s*2024\s*\/\s*tt-btc\b/.test(normalizedCandidate);
+  if (supersededRegistrationCircular && !asksHistoricalRegistrationRule && !asksAmendment) return true;
+
   const asksEnterprise = /\b(?:doanh nghiep|cong ty|to chuc|hop tac xa)\b/.test(normalizedQuery);
   const householdOnly =
     /\b(?:ho kinh doanh|ca nhan kinh doanh)\b/.test(normalizedCandidate) &&
