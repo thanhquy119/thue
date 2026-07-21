@@ -79,6 +79,21 @@ const SOURCE_INTENT_PATTERNS: Record<string, RegExp> = {
   "sửa đổi, bổ sung, thay thế và đối chiếu": /\b(?:sua doi|bo sung|thay the|bai bo|diem moi)\b/,
 };
 
+const PRIMARY_INTENT_ORDER = [
+  "hoàn thuế",
+  "quyết toán thuế",
+  "xử phạt, tiền chậm nộp và cưỡng chế",
+  "hóa đơn và chứng từ",
+  "khấu trừ thuế, chi phí được trừ",
+  "đăng ký thuế và mã số thuế",
+  "ngưỡng doanh thu, miễn thuế, không chịu thuế",
+  "thuế suất, mức thuế và cách tính",
+  "phân bổ nghĩa vụ thuế, khai tập trung",
+  "sửa đổi, bổ sung, thay thế và đối chiếu",
+  "khai thuế, hồ sơ và mẫu biểu",
+  "thời hạn khai, nộp và xử lý",
+];
+
 const QUESTION_PATTERN =
   /\?|\b(?:bao nhieu|the nao|duoc khong|co phai|phai khong|tai sao|can lam gi|bao gio|han nop|thoi han|mau nao|cach tinh|ap dung|xu ly|phan tich|giai thich|doi chieu|huong dan|khai thue|nop thue|hoan thue|khau tru|quyet toan|hoa don|doanh thu|thue suat|chi phi duoc tru|mien thue|giam thue|khong chiu thue|dang ky thue|ma so thue|xu phat|cham nop|phan bo|khai tap trung)\b/;
 const DOCUMENT_REFERENCE_PATTERN =
@@ -107,6 +122,7 @@ export function taxSourceRelevance(query: string, candidate: string) {
   const taxAreas = matchingLabels(QUERY_AREA_PATTERNS, normalizedQuery);
   const subjects = matchingLabels(QUERY_SUBJECT_PATTERNS, normalizedQuery);
   const intents = matchingLabels(QUERY_INTENT_PATTERNS, normalizedQuery);
+  const primaryIntent = PRIMARY_INTENT_ORDER.find((intent) => intents.includes(intent)) ?? null;
   const normalizedCandidate = normalize(candidate);
   const areaMatches = countMatches(taxAreas, SOURCE_AREA_PATTERNS, normalizedCandidate);
   const subjectMatches = countMatches(subjects, SOURCE_SUBJECT_PATTERNS, normalizedCandidate);
@@ -117,6 +133,14 @@ export function taxSourceRelevance(query: string, candidate: string) {
     /\b(?:thue|gtgt|tncn|tndn|gia tri gia tang|hoa don|hai quan|le phi|quan ly thue)\b/.test(normalizedCandidate);
 
   if (!hasTaxMarker && areaMatches === 0 && !administrationBridge) return -5;
+
+  const asksEnterprise = subjects.includes("doanh nghiệp, tổ chức");
+  const sourceOnlyHousehold =
+    /\b(?:ho kinh doanh|ca nhan kinh doanh)\b/.test(normalizedCandidate) &&
+    !/\b(?:doanh nghiep|cong ty|to chuc|nguoi nop thue)\b/.test(normalizedCandidate);
+  if (asksEnterprise && sourceOnlyHousehold) return -4.5;
+
+  if (primaryIntent && !SOURCE_INTENT_PATTERNS[primaryIntent]?.test(normalizedCandidate)) return -3.5;
   if (taxAreas.length && areaMatches === 0 && intentMatches === 0 && !administrationBridge) return -4;
 
   const queryTokens = new Set(
