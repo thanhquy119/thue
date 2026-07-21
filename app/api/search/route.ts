@@ -1,7 +1,18 @@
 import { unstable_cache } from "next/cache";
 import { NextResponse } from "next/server";
 import { parseLegalHierarchy, slugifyDocument } from "@/lib/legal/ingestion";
-import { cleanUserQuery, containsPromptInjection, normalizeLegalQuery } from "@/lib/legal/query";
+import {
+  cleanUserQuery,
+  containsPromptInjection,
+  extractSearchHint,
+  normalizeLegalQuery,
+} from "@/lib/legal/query";
+import {
+  analyzeTaxQuestion,
+  clarificationForTaxQuestion,
+  enrichTaxQuestion,
+  type TaxQuestionPlan,
+} from "@/lib/legal/question-intelligence";
 import { searchTaxLawRobust } from "@/lib/legal/robust-search";
 import {
   answerQuestionFromAnchors,
@@ -112,6 +123,68 @@ function filterExpiredResponse(result: TaxSearchResponse): TaxSearchResponse {
     };
   }
   return { ...result, candidates };
+}
+
+function clarificationResponse(query: string, message: string): TaxSearchResponse {
+  return {
+    query_normalized: normalizeLegalQuery(query),
+    query_kind: "question",
+    direct_answer: message,
+    document: null,
+    candidates: [],
+    warnings: [],
+    confidence: 0.3,
+    retrieved_at: new Date().toISOString(),
+  };
+}
+
+function guardQuestionEffectiveStatus(
+  query: string,
+  plan: TaxQuestionPlan,
+  result: TaxSearchResponse,
+): TaxSearchResponse {
+  const document = result.document;
+  if (!document || result.query_kind !== "question") return result;
+  const warnings = [...result.warnings];
+  const currentYear = new Date().getFullYear();
+  const asksFuturePeriod = plan.explicitYears.some((year) => Number(year) > currentYear);
+
+  if (document.status === "upcoming" && !asksFuturePeriod) {
+    warnings.push(
+      `${document.number} chưa có hiệu lực tại thời điểm hiện tại nên không được dùng làm căn cứ duy nhất cho nghiệp vụ đang áp dụng.`,
+    );
+    return {
+      ...result,
+      query_normalized: normalizeLegalQuery(query),
+      direct_answer: `Đã tìm thấy ${document.number}, nhưng văn bản này chưa có hiệu lực tại thời điểm hiện tại. Hệ thống chưa dùng nội dung đó để kết luận cho nghiệp vụ đang áp dụng; cần tiếp tục đối chiếu văn bản hiện hành trước ngày hiệu lực của văn bản này.`,
+      warnings: Array.from(new Set(warnings)),
+      confidence: Math.min(result.confidence, 0.45),
+    };
+  }
+
+  if (document.status === "unknown") {
+    warnings.push(
+      `Chưa xác minh đầy đủ trạng thái hiệu lực của ${document.number}; cần kiểm tra lại trước khi áp dụng cho hồ sơ thực tế.`,
+    );
+    return {
+      ...result,
+      query_normalized: normalizeLegalQuery(query),
+      warnings: Array.from(new Set(warnings)),
+      confidence: Math.min(result.confidence, 0.62),
+    };
+  }
+
+  if (document.status === "partially_effective") {
+    warnings.push(
+      `${document.number} chỉ còn hiệu lực một phần; cần đối chiếu đúng Điều/Khoản chưa bị sửa đổi, thay thế hoặc bãi bỏ.`,
+    );
+  }
+
+  return {
+    ...result,
+    query_normalized: normalizeLegalQuery(query),
+    warnings: Array.from(new Set(warnings)),
+  };
 }
 
 const loadCircular892026 = unstable_cache(
@@ -297,6 +370,23 @@ export async function POST(request: Request) {
 
     if (queryRequestsFinanceCircular89(query)) {
       return NextResponse.json(filterExpiredResponse(await financeCircular89Response(query)), {
+        headers: { "cache-control": "no-store" },
+      });
+    }
+
+    const hint = extractSearchHint(query);
+    const plan = analyzeTaxQuestion(query);
+    if (hint.asksQuestion || plan.isQuestion) {
+      const clarification = clarificationForTaxQuestion(query, plan);
+      if (clarification) {
+        return NextResponse.json(clarificationResponse(query, clarification), {
+          headers: { "cache-control": "no-store" },
+        });
+      }
+
+      const enrichedQuery = enrichTaxQuestion(query, plan);
+      const result = filterExpiredResponse(await searchTaxLawRobust(enrichedQuery));
+      return NextResponse.json(guardQuestionEffectiveStatus(query, plan, result), {
         headers: { "cache-control": "no-store" },
       });
     }
