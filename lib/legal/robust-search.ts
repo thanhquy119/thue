@@ -2,6 +2,7 @@ import { searchTaxLaw } from "./search";
 import { extractSearchHint, lexicalRelevance, normalizeLegalQuery } from "./query";
 import { disqualifyTaxSource } from "./tax-source-disqualifier";
 import { taxSourceRelevance } from "./tax-source-relevance";
+import { ensureBinaryConclusion, verifiedQuestionResponse } from "./verified-question-rules";
 import type { SearchCandidate, SearchHint, TaxSearchResponse } from "./types";
 
 const TYPE_WORDS = /\b(?:nghi dinh|thong tu|nghi quyet|quyet dinh|luat|nd-cp|tt-btc|nd|tt|nq|qd)\b/g;
@@ -120,7 +121,13 @@ export async function searchTaxLawRobust(
 ): Promise<TaxSearchResponse> {
   const hint = extractSearchHint(query);
   const userQuery = originalUserQuery(query, untouchedUserQuery);
-  if (hint.asksQuestion) return guardQuestionResult(userQuery, await searchTaxLaw(query));
+  const verified = verifiedQuestionResponse(userQuery);
+  if (verified) return verified;
+
+  if (hint.asksQuestion) {
+    const result = guardQuestionResult(userQuery, await searchTaxLaw(query));
+    return ensureBinaryConclusion(userQuery, result);
+  }
   if (!hint.type) return searchTaxLaw(query);
 
   let bestResult: TaxSearchResponse | null = null;
