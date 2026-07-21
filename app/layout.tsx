@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./candidates.css";
 import "./refinements.css";
+import "./question-results.css";
 import CacheVersion from "./cache-version";
 import SavedDocuments from "./saved-documents";
 
