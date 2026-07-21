@@ -9,6 +9,7 @@ import { searchTaxLaw } from "./search";
 import { extractSearchHint, lexicalRelevance, normalizeLegalQuery } from "./query";
 import { disqualifyTaxSource } from "./tax-source-disqualifier";
 import { taxSourceRelevance } from "./tax-source-relevance";
+import { verifiedExtraQuestionResponse } from "./verified-question-rules-extra";
 import { ensureBinaryConclusion, verifiedQuestionResponse } from "./verified-question-rules";
 import type { SearchCandidate, SearchHint, TaxSearchResponse } from "./types";
 
@@ -268,7 +269,7 @@ export async function searchTaxLawRobust(
 ): Promise<TaxSearchResponse> {
   const hint = extractSearchHint(query);
   const userQuery = originalUserQuery(query, untouchedUserQuery);
-  const verified = verifiedQuestionResponse(userQuery);
+  const verified = verifiedExtraQuestionResponse(userQuery) ?? verifiedQuestionResponse(userQuery);
   if (verified) return verified;
 
   if (hint.asksQuestion) {
