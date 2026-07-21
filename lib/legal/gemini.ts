@@ -1,4 +1,5 @@
 import { discoverOfficialSources as discoverViaRss } from "./discovery";
+import { answerGroundingIssues } from "./question-intelligence";
 import type { OnlineLegalSource } from "./types";
 
 export class GeminiUnavailableError extends Error {
@@ -203,11 +204,28 @@ export async function answerFromOfficialEvidence(query: string, evidence: Offici
     "Bạn là trợ lý tra cứu pháp luật thuế Việt Nam. Chỉ được kết luận từ evidence đã cung cấp, không dùng trí nhớ riêng và không suy đoán. " +
       "Trước khi trả lời, phải so sánh ngày ban hành, ngày hiệu lực và quan hệ sửa đổi/bổ sung thể hiện trong tiêu đề hoặc nội dung. " +
       "Khi văn bản mới sửa đổi, bổ sung hoặc thay thế quy định cũ, phải áp dụng nội dung mới; tuyệt đối không lặp lại ngưỡng, mức thuế hoặc thủ tục cũ. " +
+      "Không được đưa ra số tiền, tỷ lệ phần trăm, thời hạn hoặc ngưỡng nếu dữ kiện đó không xuất hiện rõ trong evidence. " +
+      "Nếu câu hỏi thiếu dữ kiện để áp dụng cho một trường hợp cụ thể, phải nêu rõ dữ kiện còn thiếu thay vì tự giả định. " +
       "Nếu các evidence mâu thuẫn mà chưa đủ căn cứ xác định văn bản hiện hành, phải nói rõ chưa thể kết luận thay vì chọn tùy ý. " +
       "Mỗi kết luận quan trọng phải ghi số hiệu văn bản và Điều/Khoản nếu chúng xuất hiện trong evidence. " +
       "Trả lời tiếng Việt dễ hiểu trong 3-7 đoạn ngắn, không dùng bảng Markdown, không thêm danh sách nguồn ở cuối vì ứng dụng đã hiển thị văn bản gốc.",
   );
   const text = responseText(payload);
   if (!text) throw new GeminiUnavailableError("Gemini không tạo được câu trả lời từ văn bản chính thức.");
+
+  const evidenceText = evidence
+    .flatMap((document) => [document.document_number, document.title, ...document.excerpts])
+    .join("\n");
+  const issues = answerGroundingIssues(
+    text,
+    evidenceText,
+    evidence.map((document) => document.document_number),
+  );
+  if (issues.includes("unsupported_numeric_claim")) {
+    throw new GeminiUnavailableError("Câu trả lời có con số chưa được xác minh trong căn cứ chính thức.");
+  }
+  if (issues.includes("missing_document_reference")) {
+    throw new GeminiUnavailableError("Câu trả lời chưa gắn kết luận với số hiệu văn bản trong căn cứ.");
+  }
   return text;
 }
