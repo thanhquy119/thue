@@ -1,0 +1,144 @@
+/* Chỉ làm đẹp phần mở đầu; các Điều/Khoản phía sau giữ nguyên. */
+.readerText > .legalProvision:first-child .legalBlocks {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  column-gap: clamp(32px, 7vw, 84px);
+  row-gap: 0;
+}
+
+.readerText > .legalProvision:first-child .legalBlock {
+  grid-column: 1 / -1;
+}
+
+/* Cơ quan ban hành. */
+.readerText > .legalProvision:first-child .legalBlock:nth-child(1) {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  align-self: start;
+  margin-left: 0;
+  padding: 4px 8px;
+  text-align: center;
+  font-weight: 760;
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+
+/* Quốc hiệu. */
+.readerText > .legalProvision:first-child .legalBlock:nth-child(2) {
+  grid-column: 2;
+  grid-row: 1;
+  margin-left: 0;
+  padding: 4px 8px;
+  text-align: center;
+  font-weight: 820;
+  line-height: 1.5;
+  text-transform: uppercase;
+}
+
+/* Tiêu ngữ. */
+.readerText > .legalProvision:first-child .legalBlock:nth-child(3) {
+  grid-column: 2;
+  grid-row: 2;
+  margin-left: 0;
+  padding: 2px 8px 8px;
+  text-align: center;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.readerText > .legalProvision:first-child .legalBlock:nth-child(1)::after,
+.readerText > .legalProvision:first-child .legalBlock:nth-child(3)::after {
+  content: "";
+  display: block;
+  width: 72px;
+  margin: 8px auto 0;
+  border-top: 1px solid currentColor;
+  opacity: 0.65;
+}
+
+/* Số hiệu và địa danh, ngày tháng. */
+.readerText > .legalProvision:first-child .legalBlock:nth-child(4) {
+  grid-column: 1;
+  grid-row: 3;
+  margin: 24px 0 0;
+  padding: 5px 8px;
+  text-align: left;
+}
+
+.readerText > .legalProvision:first-child .legalBlock:nth-child(5) {
+  grid-column: 2;
+  grid-row: 3;
+  margin: 24px 0 0;
+  padding: 5px 8px;
+  text-align: right;
+  font-style: italic;
+}
+
+/* Tên loại văn bản. */
+.readerText > .legalProvision:first-child .legalBlock:nth-child(6) {
+  grid-column: 1 / -1;
+  grid-row: 4;
+  margin: 34px 0 0;
+  padding: 6px 10px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 850;
+  line-height: 1.4;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Trích yếu nội dung văn bản. */
+.readerText > .legalProvision:first-child .legalBlock:nth-child(7) {
+  grid-column: 1 / -1;
+  grid-row: 5;
+  max-width: 860px;
+  margin: 2px auto 30px;
+  padding: 4px 10px;
+  text-align: center;
+  font-weight: 650;
+  line-height: 1.65;
+}
+
+/* Phần căn cứ và nội dung dẫn nhập trở về cách đọc thông thường. */
+.readerText > .legalProvision:first-child .legalBlock:nth-child(n + 8) {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 760px) {
+  .readerText > .legalProvision:first-child .legalBlocks {
+    grid-template-columns: 1fr;
+  }
+
+  .readerText > .legalProvision:first-child .legalBlock:nth-child(-n + 7) {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .readerText > .legalProvision:first-child .legalBlock:nth-child(1),
+  .readerText > .legalProvision:first-child .legalBlock:nth-child(2),
+  .readerText > .legalProvision:first-child .legalBlock:nth-child(3),
+  .readerText > .legalProvision:first-child .legalBlock:nth-child(4),
+  .readerText > .legalProvision:first-child .legalBlock:nth-child(5),
+  .readerText > .legalProvision:first-child .legalBlock:nth-child(6),
+  .readerText > .legalProvision:first-child .legalBlock:nth-child(7) {
+    margin-left: 0;
+    text-align: center;
+  }
+
+  .readerText > .legalProvision:first-child .legalBlock:nth-child(2) {
+    margin-top: 18px;
+  }
+
+  .readerText > .legalProvision:first-child .legalBlock:nth-child(4) {
+    margin-top: 22px;
+  }
+
+  .readerText > .legalProvision:first-child .legalBlock:nth-child(5) {
+    margin-top: 0;
+  }
+
+  .readerText > .legalProvision:first-child .legalBlock:nth-child(6) {
+    margin-top: 28px;
+  }
+}
