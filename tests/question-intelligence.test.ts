@@ -3,8 +3,10 @@ import test from "node:test";
 import {
   analyzeTaxQuestion,
   answerGroundingIssues,
+  buildTaxSearchQueries,
   clarificationForTaxQuestion,
   enrichTaxQuestion,
+  taxSourceRelevance,
 } from "../lib/legal/question-intelligence.ts";
 
 test("classifies a detailed VAT refund question", () => {
@@ -15,6 +17,33 @@ test("classifies a detailed VAT refund question", () => {
   assert.ok(plan.intents.includes("hoàn thuế"));
   assert.ok(plan.intents.includes("khai thuế, hồ sơ và mẫu biểu"));
   assert.ok(plan.intents.includes("thời hạn khai, nộp và xử lý"));
+});
+
+test("builds focused search phrases for VAT refund", () => {
+  const query = "Doanh nghiệp hoàn thuế GTGT thì cần hồ sơ gì và thời hạn xử lý bao lâu?";
+  const searches = buildTaxSearchQueries(query);
+  assert.equal(searches.length, 2);
+  assert.match(searches[0], /hoàn thuế/);
+  assert.match(searches[0], /thuế giá trị gia tăng/);
+  assert.match(searches[0], /thời hạn giải quyết/);
+});
+
+test("rejects an unrelated agriculture circular for a VAT refund question", () => {
+  const query = "Doanh nghiệp hoàn thuế GTGT thì cần hồ sơ gì và thời hạn xử lý bao lâu?";
+  const score = taxSourceRelevance(
+    query,
+    "Thông tư 07/2026/TT-BNNMT quy định về trồng trọt và bảo vệ thực vật của Bộ Nông nghiệp và Môi trường",
+  );
+  assert.ok(score < 0);
+});
+
+test("accepts a tax-administration source for a VAT refund question", () => {
+  const query = "Doanh nghiệp hoàn thuế GTGT thì cần hồ sơ gì và thời hạn xử lý bao lâu?";
+  const score = taxSourceRelevance(
+    query,
+    "Luật Quản lý thuế quy định hồ sơ hoàn thuế và thời hạn giải quyết hoàn thuế giá trị gia tăng",
+  );
+  assert.ok(score >= 3);
 });
 
 test("does not rewrite a long natural document lookup as a question", () => {
