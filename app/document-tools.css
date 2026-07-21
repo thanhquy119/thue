@@ -1,0 +1,242 @@
+/* Ngăn CSS Grid và các chuỗi số hiệu dài làm trang bị kéo ngang trên Safari iPhone. */
+html,
+body {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.siteShell,
+.resultShell,
+.documentDetail,
+.detailHeader,
+.readerBlock,
+.readerText,
+.legalProvision,
+.legalBlocks,
+.legalBlock {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.documentDetail,
+.legalProvision,
+.legalBlocks {
+  width: 100%;
+}
+
+.detailHeader h2,
+.documentKicker,
+.facts dd,
+.legalBlock {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+/* 1fr có min-size tự động trên Safari; minmax(0, ...) giữ lưới trong khung. */
+.readerText > .legalProvision:first-child .legalBlocks {
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+}
+
+.readerText > .legalProvision:first-child .legalBlock {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Căn đều phần trả lời và làm nhãn rõ hơn. */
+.answerPanel .sectionLabel {
+  color: var(--ink);
+  font-weight: 900;
+}
+
+.answerPanel .directAnswer {
+  width: 100%;
+  max-width: 980px;
+  margin-inline: auto;
+}
+
+.readerHeading {
+  align-items: flex-start;
+}
+
+.documentSearch {
+  position: relative;
+  width: min(420px, 100%);
+  flex: 0 1 420px;
+}
+
+.documentSearchForm {
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+  padding: 5px 5px 5px 14px;
+}
+
+.documentSearchForm:focus-within {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.08);
+}
+
+.documentSearchForm input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.documentSearchForm input::placeholder {
+  color: #858580;
+  opacity: 1;
+}
+
+.documentSearchForm button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--ink);
+  color: #fff;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 780;
+  cursor: pointer;
+}
+
+.documentSearchResults {
+  position: absolute;
+  z-index: 12;
+  top: calc(100% + 9px);
+  right: 0;
+  width: min(540px, calc(100vw - 56px));
+  max-height: min(520px, 65vh);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  padding: 10px;
+  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.16);
+}
+
+.documentSearchStatus {
+  margin: 2px 5px 9px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 760;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.documentSearchList {
+  display: grid;
+  gap: 5px;
+}
+
+.documentSearchList button {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--ink);
+  padding: 11px 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.documentSearchList button:hover,
+.documentSearchList button:focus-visible {
+  background: var(--soft);
+}
+
+.documentSearchList strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.documentSearchList span {
+  display: -webkit-box;
+  overflow: hidden;
+  color: #3d3d3a;
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: left;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.documentSearchEmpty {
+  margin: 0;
+  border-radius: 11px;
+  background: var(--soft);
+  padding: 14px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.legalBlock.searchTarget,
+.legalBlock.searchTarget:hover {
+  background: #fff3a8;
+  box-shadow: inset 3px 0 0 var(--ink);
+}
+
+@media (max-width: 760px) {
+  .resultShell,
+  .documentDetail,
+  .detailHeader,
+  .readerBlock,
+  .readerText,
+  .legalProvision,
+  .legalBlocks {
+    max-width: 100%;
+  }
+
+  .documentDetail,
+  .readerBlock,
+  .legalProvision {
+    overflow-x: hidden;
+  }
+
+  .readerText > .legalProvision:first-child .legalBlocks {
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr);
+    padding-left: 0;
+  }
+
+  .readerText > .legalProvision:first-child .legalBlock {
+    width: 100%;
+    margin-right: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .readerHeading {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .documentSearch {
+    width: 100%;
+    flex-basis: auto;
+  }
+
+  .documentSearchResults {
+    position: static;
+    width: 100%;
+    max-height: 430px;
+    margin-top: 8px;
+    box-shadow: 0 12px 34px rgba(0, 0, 0, 0.13);
+  }
+
+  .answerPanel .directAnswer {
+    max-width: none;
+  }
+}
