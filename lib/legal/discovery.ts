@@ -36,6 +36,8 @@ const COMMON_HEADERS = {
   "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
   "accept-language": "vi-VN,vi;q=0.9,en;q=0.5",
 };
+const FULL_DOCUMENT_NUMBER =
+  /\b\d{1,4}\s*\/\s*20\d{2}\s*\/\s*(?:NĐ-CP|ND-CP|TT-[A-ZĐ0-9-]+|NQ-[A-ZĐ0-9-]+|QĐ-[A-ZĐa-z0-9-]+|QD-[A-Za-z0-9-]+|QH\d*|UBTVQH\d*)\b/iu;
 
 function decodeHtml(value: string) {
   const named: Record<string, string> = {
@@ -73,11 +75,7 @@ function normalize(value: string) {
 }
 
 function documentNumberHint(query: string) {
-  return (
-    query.match(
-      /\b\d{1,4}\s*\/\s*20\d{2}\s*\/\s*(?:NĐ-CP|ND-CP|TT-[A-ZĐ0-9-]+|NQ-[A-ZĐ0-9-]+|QĐ-[A-ZĐa-z0-9-]+|QD-[A-Za-z0-9-]+|QH\d*|UBTVQH\d*)\b/iu,
-    )?.[0] ?? query
-  )
+  return (query.match(FULL_DOCUMENT_NUMBER)?.[0] ?? query)
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 300);
@@ -179,7 +177,7 @@ async function searchGazetteDocuments(query: string): Promise<OnlineLegalSource[
         title,
         url,
         snippet,
-        score: exact ? 4.5 : related ? 3.2 : 1.4 + Math.min(1, Math.max(0, baseScore)),
+        score: exact ? 5.2 : related ? 3.4 : 1.4 + Math.min(1, Math.max(0, baseScore)),
         source_label: "Công báo điện tử Chính phủ",
         previewable: true,
         document_number: number,
@@ -193,42 +191,99 @@ async function searchGazetteDocuments(query: string): Promise<OnlineLegalSource[
     .slice(0, 30);
 }
 
-function questionSearchQueries(query: string) {
+export function currentBackboneQueries(query: string) {
+  const normalized = normalizeLegalQuery(query);
+  const queries: string[] = [];
+
+  if (/\b(?:dang ky thue|ma so thue|thay doi thong tin|chuyen dia chi|khoi phuc ma so|cham dut ma so)\b/.test(normalized)) {
+    queries.push("90/2026/TT-BTC", "108/2025/QH15");
+  }
+
+  if (/\b(?:ho kinh doanh|ca nhan kinh doanh|cho thue nha|cho thue bat dong san|doanh thu)\b/.test(normalized)) {
+    queries.push("141/2026/NĐ-CP", "50/2026/TT-BTC", "18/2026/TT-BTC");
+  }
+
+  if (/\b(?:hoa don|may tinh tien|dat coc|chu ky so|nguoi mua|lap hoa don|giao hoa don)\b/.test(normalized)) {
+    queries.push("254/2026/NĐ-CP", "91/2026/TT-BTC");
+  }
+
+  if (/\b(?:quan ly thue|tam hoan xuat canh|no thue|cuong che|khai thue|nop thue|thoi han)\b/.test(normalized)) {
+    queries.push("108/2025/QH15", "252/2026/NĐ-CP", "89/2026/TT-BTC");
+  }
+
+  if (/\b(?:thu nhap doanh nghiep|tndn|tam nop|doanh nghiep moi thanh lap)\b/.test(normalized)) {
+    queries.push("141/2026/NĐ-CP", "320/2025/NĐ-CP");
+  }
+
+  return Array.from(new Set(queries)).slice(0, 4);
+}
+
+export function questionSearchQueries(query: string) {
   const hint = extractSearchHint(query);
   if (!hint.asksQuestion) return [query];
 
   const currentYear = new Date().getFullYear();
   const normalized = normalizeLegalQuery(query);
-  const queries = [query, `${query} ${currentYear} sửa đổi bổ sung`];
+  const topical: string[] = [];
 
   if (/\b(?:ho kinh doanh|ca nhan kinh doanh)\b/.test(normalized)) {
-    queries.push(`chính sách thuế hộ kinh doanh cá nhân kinh doanh ${currentYear}`);
+    topical.push(`chính sách thuế hộ kinh doanh cá nhân kinh doanh ${currentYear}`);
   } else if (/\b(?:hoa don|may tinh tien)\b/.test(normalized)) {
-    queries.push(`quản lý thuế hóa đơn điện tử ${currentYear}`);
+    topical.push(`quản lý thuế hóa đơn điện tử ${currentYear}`);
   } else if (/\b(?:thu nhap ca nhan|quyet toan|tncn)\b/.test(normalized)) {
-    queries.push(`thuế thu nhập cá nhân quyết toán ${currentYear}`);
+    topical.push(`thuế thu nhập cá nhân quyết toán ${currentYear}`);
   } else if (/\b(?:gia tri gia tang|gtgt)\b/.test(normalized)) {
-    queries.push(`thuế giá trị gia tăng ${currentYear} sửa đổi bổ sung`);
+    topical.push(`thuế giá trị gia tăng ${currentYear} sửa đổi bổ sung`);
   } else if (/\b(?:thu nhap doanh nghiep|tndn)\b/.test(normalized)) {
-    queries.push(`thuế thu nhập doanh nghiệp ${currentYear} sửa đổi bổ sung`);
+    topical.push(`thuế thu nhập doanh nghiệp ${currentYear} sửa đổi bổ sung`);
   }
 
-  return Array.from(new Set(queries)).slice(0, 3);
+  return Array.from(
+    new Set([
+      ...currentBackboneQueries(query),
+      query,
+      `${query} ${currentYear} sửa đổi bổ sung thay thế`,
+      ...topical,
+    ]),
+  ).slice(0, 7);
 }
 
 function mergeSources(groups: OnlineLegalSource[][]) {
-  const byUrl = new Map<string, OnlineLegalSource>();
+  const byKey = new Map<string, OnlineLegalSource>();
   for (const source of groups.flat()) {
-    const existing = byUrl.get(source.url);
-    if (!existing || source.score > existing.score) {
-      byUrl.set(source.url, source);
-    }
+    const key = source.document_number ? `number:${normalize(source.document_number)}` : `url:${source.url}`;
+    const existing = byKey.get(key);
+    if (!existing || source.score > existing.score) byKey.set(key, source);
   }
-  return [...byUrl.values()];
+  return [...byKey.values()].sort((left, right) => right.score - left.score);
+}
+
+function inferDocumentType(number: string, value: string) {
+  const normalized = normalizeLegalQuery(`${number} ${value}`);
+  if (normalized.includes("nd-cp") || normalized.includes("nghi dinh")) return "Nghị định";
+  if (normalized.includes("tt-") || normalized.includes("thong tu")) return "Thông tư";
+  if (normalized.includes("qh") || normalized.includes("luat")) return "Luật";
+  if (normalized.includes("nq-") || normalized.includes("nghi quyet")) return "Nghị quyết";
+  if (normalized.includes("qd-") || normalized.includes("quyet dinh")) return "Quyết định";
+  return "Văn bản pháp luật";
+}
+
+function inferIssuer(number: string, value: string) {
+  const normalized = normalizeLegalQuery(`${number} ${value}`);
+  if (normalized.includes("tt-btc") || normalized.includes("bo tai chinh")) return "Bộ Tài chính";
+  if (normalized.includes("nd-cp") || normalized.includes("chinh phu")) return "Chính phủ";
+  if (/\bqh\d*\b/.test(normalized) || normalized.includes("quoc hoi")) return "Quốc hội";
+  return "";
+}
+
+function inferIssuedDate(value: string) {
+  const match = value.match(/\b(\d{1,2})[/-](\d{1,2})[/-](20\d{2})\b/);
+  if (!match) return null;
+  return `${match[3]}-${String(Number(match[2])).padStart(2, "0")}-${String(Number(match[1])).padStart(2, "0")}`;
 }
 
 function parseGovernmentResults(html: string, hint: string): OnlineLegalSource[] {
-  const rows: Array<{ url: string; title: string; snippet: string; score: number }> = [];
+  const rows: OnlineLegalSource[] = [];
   const normalizedHint = normalize(hint);
 
   for (const match of html.matchAll(/<a\b[^>]*href=["']([^"']*(?:docid|docId)=\d+[^"']*)["'][^>]*>([\s\S]*?)<\/a>/giu)) {
@@ -246,25 +301,31 @@ function parseGovernmentResults(html: string, hint: string): OnlineLegalSource[]
     const start = Math.max(0, (match.index ?? 0) - 450);
     const end = Math.min(html.length, (match.index ?? 0) + match[0].length + 1_100);
     const snippet = stripTags(html.slice(start, end)).slice(0, 1_400);
-    const normalizedTitle = normalize(title);
-    const normalizedSnippet = normalize(snippet);
-    const exactTitle = normalizedHint.length >= 4 && normalizedTitle.includes(normalizedHint);
-    const related = normalizedHint.length >= 4 && normalizedSnippet.includes(normalizedHint);
-    rows.push({ url, title, snippet, score: exactTitle ? 1.35 : related ? 0.84 : 0.55 });
-  }
-
-  return rows
-    .sort((left, right) => right.score - left.score)
-    .slice(0, 18)
-    .map((row) => ({
-      id: `government-${createHash("sha256").update(row.url).digest("hex").slice(0, 20)}`,
-      title: row.title,
-      url: row.url,
-      snippet: row.snippet || "Kết quả từ Hệ thống văn bản Chính phủ.",
-      score: row.score,
+    const combined = `${title} ${snippet}`;
+    const number = combined.match(FULL_DOCUMENT_NUMBER)?.[0]?.replace(/\s+/g, "") ?? "";
+    const normalizedNumber = normalize(number);
+    const exact = Boolean(number && normalizedNumber === normalizedHint);
+    const related = Boolean(
+      normalizedHint.length >= 4 &&
+        (normalize(title).includes(normalizedHint) || normalize(snippet).includes(normalizedHint)),
+    );
+    const type = inferDocumentType(number, combined);
+    rows.push({
+      id: `government-${createHash("sha256").update(url).digest("hex").slice(0, 20)}`,
+      title,
+      url,
+      snippet: snippet || "Kết quả từ Hệ thống văn bản Chính phủ.",
+      score: exact ? 4.8 : related ? 1.8 : 0.65,
       source_label: "Hệ thống văn bản Chính phủ",
       previewable: true,
-    }));
+      document_number: number || undefined,
+      document_type: type,
+      issuer: inferIssuer(number, combined) || undefined,
+      issued_date: inferIssuedDate(combined),
+    });
+  }
+
+  return rows.sort((left, right) => right.score - left.score).slice(0, 18);
 }
 
 async function searchGovernmentDocuments(query: string) {
@@ -299,41 +360,30 @@ async function searchGovernmentDocuments(query: string) {
 
 export async function discoverOfficialSources(query: string): Promise<OfficialSourceDiscovery> {
   const queries = questionSearchQueries(query);
-  const gazetteSettled = await Promise.allSettled(queries.map((item) => searchGazetteDocuments(item)));
-  const gazetteGroups = gazetteSettled
+  const exactQueries = queries.filter((item) => FULL_DOCUMENT_NUMBER.test(item)).slice(0, 4);
+  const governmentQueries = exactQueries.length ? exactQueries : [query];
+
+  const [gazetteSettled, governmentSettled] = await Promise.all([
+    Promise.allSettled(queries.map((item) => searchGazetteDocuments(item))),
+    Promise.allSettled(governmentQueries.map((item) => searchGovernmentDocuments(item))),
+  ]);
+
+  const groups = [...gazetteSettled, ...governmentSettled]
     .filter((result): result is PromiseFulfilledResult<OnlineLegalSource[]> => result.status === "fulfilled")
     .map((result) => result.value);
-  const gazetteSources = mergeSources(gazetteGroups);
-
-  if (gazetteSources.length) {
+  const sources = mergeSources(groups).slice(0, 40);
+  if (sources.length) {
     return {
-      draft_answer: "Đã tìm thấy nguồn chính thức và tệp toàn văn trên Công báo điện tử Chính phủ.",
-      sources: gazetteSources,
+      draft_answer:
+        "Đã đối chiếu đồng thời Công báo điện tử Chính phủ và Hệ thống văn bản Chính phủ, ưu tiên các văn bản trục hiện hành đúng nhóm nghiệp vụ.",
+      sources,
     };
   }
 
-  const gazetteMessages = gazetteSettled
+  const messages = [...gazetteSettled, ...governmentSettled]
     .filter((result): result is PromiseRejectedResult => result.status === "rejected")
     .map((result) => (result.reason instanceof Error ? result.reason.message : ""))
     .filter(Boolean);
-
-  try {
-    const sources = await searchGovernmentDocuments(query);
-    if (sources.length) {
-      return {
-        draft_answer: "Đã tìm thấy nguồn chính thức trên Hệ thống văn bản Chính phủ và đang đọc toàn văn.",
-        sources,
-      };
-    }
-  } catch (governmentError) {
-    const messages = [
-      ...gazetteMessages,
-      governmentError instanceof Error ? governmentError.message : "",
-    ]
-      .filter(Boolean)
-      .join(" ");
-    throw new Error(messages || "Không kết nối được các nguồn pháp luật chính thức.");
-  }
-
+  if (messages.length) throw new Error(Array.from(new Set(messages)).join(" "));
   throw new Error("Không tìm thấy văn bản khớp trên các nguồn pháp luật chính thức. Hãy kiểm tra lại số hiệu, năm và cơ quan ban hành.");
 }
