@@ -45,7 +45,7 @@ const SUBJECTS: Array<{ label: string; pattern: RegExp }> = [
 
 const INTENTS: Array<{ label: string; pattern: RegExp }> = [
   { label: "thuế suất, mức thuế và cách tính", pattern: /\b(?:thue suat|muc thue|bao nhieu phan tram|cach tinh|tinh thue|so thue phai nop)\b/ },
-  { label: "ngưỡng doanh thu, miễn thuế, không chịu thuế", pattern: /\b(?:nguong|doanh thu|mien thue|khong chiu thue|khong phai nop)\b/ },
+  { label: "ngưỡng doanh thu, miễn thuế, không chịu thuế", pattern: /\b(?:nguong|doanh thu|mien thue|giam thue|khong chiu thue|khong phai nop)\b/ },
   { label: "khai thuế, hồ sơ và mẫu biểu", pattern: /\b(?:khai thue|to khai|ho so|mau bieu|mau nao|phu luc)\b/ },
   { label: "thời hạn khai, nộp và xử lý", pattern: /\b(?:thoi han|han nop|bao gio|cham nhat|bao nhieu ngay)\b/ },
   { label: "hóa đơn và chứng từ", pattern: /\b(?:hoa don|chung tu|may tinh tien)\b/ },
@@ -59,7 +59,7 @@ const INTENTS: Array<{ label: string; pattern: RegExp }> = [
 ];
 
 const QUESTION_PATTERN =
-  /\?|\b(?:bao nhieu|the nao|duoc khong|co phai|phai khong|tai sao|can lam gi|bao gio|han nop|thoi han|mau nao|cach tinh|ap dung|xu ly|phan tich|giai thich|doi chieu|huong dan|khai thue|nop thue|hoan thue|khau tru|quyet toan|hoa don|doanh thu|thue suat)\b/;
+  /\?|\b(?:bao nhieu|the nao|duoc khong|co phai|phai khong|tai sao|can lam gi|bao gio|han nop|thoi han|mau nao|cach tinh|ap dung|xu ly|phan tich|giai thich|doi chieu|huong dan|khai thue|nop thue|hoan thue|khau tru|quyet toan|hoa don|doanh thu|thue suat|chi phi duoc tru|mien thue|giam thue|khong chiu thue|dang ky thue|ma so thue|xu phat|cham nop|phan bo|khai tap trung)\b/;
 
 const DOCUMENT_REFERENCE_PATTERN =
   /\b(?:nghi dinh|thong tu|nghi quyet|quyet dinh|luat|nd|tt|nq|qd)\s*(?:so\s*)?\d{1,4}\s*[/-]\s*20\d{2}(?:\s*[/-]\s*[a-z0-9-]+)?\b/;
@@ -69,7 +69,7 @@ export function analyzeTaxQuestion(query: string): TaxQuestionPlan {
   const explicitYears = Array.from(new Set(normalized.match(/\b20\d{2}\b/g) ?? []));
   return {
     normalized,
-    isQuestion: QUESTION_PATTERN.test(normalized) || normalized.split(" ").filter(Boolean).length >= 7,
+    isQuestion: QUESTION_PATTERN.test(normalized),
     hasDocumentReference: DOCUMENT_REFERENCE_PATTERN.test(normalized),
     taxAreas: TAX_AREAS.filter((item) => item.pattern.test(normalized)).map((item) => item.label).slice(0, 3),
     subjects: SUBJECTS.filter((item) => item.pattern.test(normalized)).map((item) => item.label).slice(0, 3),
@@ -98,7 +98,12 @@ export function clarificationForTaxQuestion(query: string, plan = analyzeTaxQues
 }
 
 function formatDate(date: Date) {
-  return `${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")}/${date.getFullYear()}`;
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
 }
 
 export function enrichTaxQuestion(query: string, plan = analyzeTaxQuestion(query), now = new Date()) {
