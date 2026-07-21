@@ -3,8 +3,8 @@ import {
   analyzeTaxQuestion,
   answerGroundingIssues,
   buildTaxSearchQueries,
-  taxSourceRelevance,
 } from "./question-intelligence";
+import { taxSourceRelevance } from "./tax-source-relevance";
 import type { OnlineLegalSource } from "./types";
 
 export class GeminiUnavailableError extends Error {
