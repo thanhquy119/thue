@@ -3,7 +3,7 @@ import test from "node:test";
 import {
   extractAnchoredReferences,
   isAnchoredLegalQuestion,
-} from "../lib/legal/anchored-question.ts";
+} from "../lib/legal/anchored-reference.ts";
 
 test("analysis request keeps the cited finance circular as its anchor", () => {
   const query = "Phân tích văn bản bổ sung dựa trên Thông tư 89/2026/BTC";
