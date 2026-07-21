@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./candidates.css";
 import "./refinements.css";
+import CacheVersion from "./cache-version";
 import SavedDocuments from "./saved-documents";
 
 export const metadata: Metadata = {
@@ -33,5 +34,5 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="vi"><body>{children}<SavedDocuments /></body></html>;
+  return <html lang="vi"><body><CacheVersion />{children}<SavedDocuments /></body></html>;
 }
