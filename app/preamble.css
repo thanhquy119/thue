@@ -1,53 +1,57 @@
-/* Chỉ làm đẹp phần mở đầu; các Điều/Khoản phía sau giữ nguyên. */
+/*
+ * Phần mở đầu được nhận diện theo vai trò nội dung thay vì vị trí nth-child.
+ * Nhờ vậy các nguồn PDF/DOCX có số dòng, dòng trống hoặc nhãn phụ khác nhau
+ * vẫn dùng chung một bố cục ổn định.
+ */
 .readerText > .legalProvision:first-child .legalBlocks {
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   column-gap: clamp(32px, 7vw, 84px);
   row-gap: 0;
+  padding-left: 0;
 }
 
 .readerText > .legalProvision:first-child .legalBlock {
+  min-width: 0;
+  max-width: 100%;
   grid-column: 1 / -1;
 }
 
-/* Cơ quan ban hành. */
-.readerText > .legalProvision:first-child .legalBlock:nth-child(1) {
+.readerText > .legalProvision:first-child .preamble-authority {
   grid-column: 1;
   grid-row: 1 / span 2;
   align-self: start;
-  margin-left: 0;
-  padding: 4px 8px;
+  margin: 0;
+  padding: 4px 12px;
   text-align: center;
-  font-weight: 760;
+  font-weight: 780;
   line-height: 1.5;
   text-transform: uppercase;
 }
 
-/* Quốc hiệu. */
-.readerText > .legalProvision:first-child .legalBlock:nth-child(2) {
+.readerText > .legalProvision:first-child .preamble-national {
   grid-column: 2;
   grid-row: 1;
-  margin-left: 0;
-  padding: 4px 8px;
+  margin: 0;
+  padding: 4px 12px;
   text-align: center;
-  font-weight: 820;
+  font-weight: 840;
   line-height: 1.5;
   text-transform: uppercase;
 }
 
-/* Tiêu ngữ. */
-.readerText > .legalProvision:first-child .legalBlock:nth-child(3) {
+.readerText > .legalProvision:first-child .preamble-motto {
   grid-column: 2;
   grid-row: 2;
-  margin-left: 0;
-  padding: 2px 8px 8px;
+  margin: 0;
+  padding: 2px 12px 8px;
   text-align: center;
   font-weight: 650;
   line-height: 1.45;
 }
 
-.readerText > .legalProvision:first-child .legalBlock:nth-child(1)::after,
-.readerText > .legalProvision:first-child .legalBlock:nth-child(3)::after {
+.readerText > .legalProvision:first-child .preamble-authority::after,
+.readerText > .legalProvision:first-child .preamble-motto::after {
   content: "";
   display: block;
   width: 72px;
@@ -56,89 +60,105 @@
   opacity: 0.65;
 }
 
-/* Số hiệu và địa danh, ngày tháng. */
-.readerText > .legalProvision:first-child .legalBlock:nth-child(4) {
+.readerText > .legalProvision:first-child .preamble-number {
   grid-column: 1;
   grid-row: 3;
   margin: 24px 0 0;
-  padding: 5px 8px;
+  padding: 5px 12px;
   text-align: left;
+  font-weight: 540;
 }
 
-.readerText > .legalProvision:first-child .legalBlock:nth-child(5) {
+.readerText > .legalProvision:first-child .preamble-dateline {
   grid-column: 2;
   grid-row: 3;
   margin: 24px 0 0;
-  padding: 5px 8px;
+  padding: 5px 12px;
   text-align: right;
   font-style: italic;
 }
 
-/* Tên loại văn bản. */
-.readerText > .legalProvision:first-child .legalBlock:nth-child(6) {
-  grid-column: 1 / -1;
-  grid-row: 4;
+.readerText > .legalProvision:first-child .preamble-type {
   margin: 34px 0 0;
   padding: 6px 10px;
   text-align: center;
   font-size: 18px;
-  font-weight: 850;
+  font-weight: 860;
   line-height: 1.4;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-/* Trích yếu nội dung văn bản. */
-.readerText > .legalProvision:first-child .legalBlock:nth-child(7) {
-  grid-column: 1 / -1;
-  grid-row: 5;
-  max-width: 860px;
+.readerText > .legalProvision:first-child .preamble-title {
+  width: min(860px, 100%);
   margin: 2px auto 30px;
   padding: 4px 10px;
   text-align: center;
-  font-weight: 650;
+  font-weight: 680;
   line-height: 1.65;
+  overflow-wrap: anywhere;
 }
 
-/* Phần căn cứ và nội dung dẫn nhập trở về cách đọc thông thường. */
-.readerText > .legalProvision:first-child .legalBlock:nth-child(n + 8) {
+/* Các căn cứ và lời dẫn luôn trở về dòng toàn chiều rộng, không phụ thuộc
+   phần đầu của nguồn được tách thành bao nhiêu dòng. */
+.readerText > .legalProvision:first-child .preamble-title + .legalBlock,
+.readerText > .legalProvision:first-child .preamble-type + .legalBlock:not(.preamble-title) {
+  margin-top: 24px;
+}
+
+.readerText > .legalProvision:first-child .legalBlock.paragraph,
+.readerText > .legalProvision:first-child .legalBlock.clause,
+.readerText > .legalProvision:first-child .legalBlock.point,
+.readerText > .legalProvision:first-child .legalBlock.heading {
   grid-column: 1 / -1;
+  text-align: left;
 }
 
 @media (max-width: 760px) {
   .readerText > .legalProvision:first-child .legalBlocks {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    column-gap: 0;
   }
 
-  .readerText > .legalProvision:first-child .legalBlock:nth-child(-n + 7) {
+  .readerText > .legalProvision:first-child .preamble-authority,
+  .readerText > .legalProvision:first-child .preamble-national,
+  .readerText > .legalProvision:first-child .preamble-motto,
+  .readerText > .legalProvision:first-child .preamble-number,
+  .readerText > .legalProvision:first-child .preamble-dateline,
+  .readerText > .legalProvision:first-child .preamble-type,
+  .readerText > .legalProvision:first-child .preamble-title {
+    width: 100%;
     grid-column: 1;
     grid-row: auto;
-  }
-
-  .readerText > .legalProvision:first-child .legalBlock:nth-child(1),
-  .readerText > .legalProvision:first-child .legalBlock:nth-child(2),
-  .readerText > .legalProvision:first-child .legalBlock:nth-child(3),
-  .readerText > .legalProvision:first-child .legalBlock:nth-child(4),
-  .readerText > .legalProvision:first-child .legalBlock:nth-child(5),
-  .readerText > .legalProvision:first-child .legalBlock:nth-child(6),
-  .readerText > .legalProvision:first-child .legalBlock:nth-child(7) {
     margin-left: 0;
+    margin-right: 0;
     text-align: center;
   }
 
-  .readerText > .legalProvision:first-child .legalBlock:nth-child(2) {
+  .readerText > .legalProvision:first-child .preamble-national {
     margin-top: 18px;
   }
 
-  .readerText > .legalProvision:first-child .legalBlock:nth-child(4) {
+  .readerText > .legalProvision:first-child .preamble-number {
     margin-top: 22px;
   }
 
-  .readerText > .legalProvision:first-child .legalBlock:nth-child(5) {
+  .readerText > .legalProvision:first-child .preamble-dateline {
     margin-top: 0;
   }
 
-  .readerText > .legalProvision:first-child .legalBlock:nth-child(6) {
+  .readerText > .legalProvision:first-child .preamble-type {
     margin-top: 28px;
+  }
+
+  .readerText > .legalProvision:first-child .preamble-title {
+    margin-bottom: 26px;
+  }
+
+  .readerText > .legalProvision:first-child .legalBlock.paragraph,
+  .readerText > .legalProvision:first-child .legalBlock.clause,
+  .readerText > .legalProvision:first-child .legalBlock.point,
+  .readerText > .legalProvision:first-child .legalBlock.heading {
+    text-align: left;
   }
 }
