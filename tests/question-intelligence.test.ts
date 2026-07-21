@@ -17,6 +17,13 @@ test("classifies a detailed VAT refund question", () => {
   assert.ok(plan.intents.includes("thời hạn khai, nộp và xử lý"));
 });
 
+test("does not rewrite a long natural document lookup as a question", () => {
+  const query = "Luật quản lý thuế số 108 năm 2025 của Quốc hội";
+  const plan = analyzeTaxQuestion(query);
+  assert.equal(plan.isQuestion, false);
+  assert.equal(enrichTaxQuestion(query, plan), query);
+});
+
 test("asks for clarification when a tax-rate question is too vague", () => {
   const query = "Thuế suất bao nhiêu?";
   const message = clarificationForTaxQuestion(query);
