@@ -9,7 +9,7 @@
     "start": "next start",
     "lint": "eslint . --ignore-pattern .next",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test tests/legal-format.test.ts",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
