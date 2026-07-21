@@ -131,8 +131,33 @@ function typePattern(type: string) {
   return new RegExp(`(?:^|\\s)(${type.replace(/\s+/g, "\\s+")})(?=\\s|$|[:.–—-])`, "iu");
 }
 
+function inferDocumentTypeFromNumber(number: string | null) {
+  const upper = number?.toLocaleUpperCase("vi") || "";
+  if (/\/NĐ-CP\b/u.test(upper)) return "NGHỊ ĐỊNH";
+  if (/\/TT-/u.test(upper)) return "THÔNG TƯ";
+  if (/\/NQ-/u.test(upper)) return "NGHỊ QUYẾT";
+  if (/\/QĐ-/u.test(upper)) return "QUYẾT ĐỊNH";
+  if (/\/QH\d*\b/u.test(upper)) return "LUẬT";
+  return null;
+}
+
 function findDocumentType(headerText: string, number: string | null) {
   const cleanHeader = headerText.replace(BOILERPLATE, " ");
+  const expectedType = inferDocumentTypeFromNumber(number);
+  if (expectedType) {
+    const expectedMatch = cleanHeader.match(typePattern(expectedType));
+    if (expectedMatch?.index != null) {
+      const leading = expectedMatch[0].length - expectedMatch[1].length;
+      return {
+        type: expectedType,
+        index: expectedMatch.index + leading,
+        length: expectedMatch[1].length,
+        source: cleanHeader,
+      };
+    }
+    return { type: expectedType, index: -1, length: 0, source: cleanHeader };
+  }
+
   const matches = DOCUMENT_TYPES.flatMap((type) => {
     const match = cleanHeader.match(typePattern(type));
     if (match?.index == null) return [];
@@ -140,13 +165,6 @@ function findDocumentType(headerText: string, number: string | null) {
     return [{ type, index: match.index + leading, length: match[1].length }];
   }).sort((left, right) => left.index - right.index || right.length - left.length);
   if (matches.length) return { ...matches[0], source: cleanHeader };
-
-  const upper = number?.toLocaleUpperCase("vi") || "";
-  if (/\/NĐ-CP\b/u.test(upper)) return { type: "NGHỊ ĐỊNH", index: -1, length: 0, source: cleanHeader };
-  if (/\/TT-/u.test(upper)) return { type: "THÔNG TƯ", index: -1, length: 0, source: cleanHeader };
-  if (/\/NQ-/u.test(upper)) return { type: "NGHỊ QUYẾT", index: -1, length: 0, source: cleanHeader };
-  if (/\/QĐ-/u.test(upper)) return { type: "QUYẾT ĐỊNH", index: -1, length: 0, source: cleanHeader };
-  if (/\/QH\d*\b/u.test(upper)) return { type: "LUẬT", index: -1, length: 0, source: cleanHeader };
   return { type: "VĂN BẢN", index: -1, length: 0, source: cleanHeader };
 }
 
