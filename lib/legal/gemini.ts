@@ -4,6 +4,7 @@ import {
   answerGroundingIssues,
   buildTaxSearchQueries,
 } from "./question-intelligence";
+import { disqualifyTaxSource } from "./tax-source-disqualifier";
 import { taxSourceRelevance } from "./tax-source-relevance";
 import type { OnlineLegalSource } from "./types";
 
@@ -196,13 +197,16 @@ async function callGemini(input: string, system: string) {
   );
 }
 
+function sourceText(source: OnlineLegalSource) {
+  return `${source.document_number ?? ""} ${source.document_type ?? ""} ${source.title} ${source.snippet} ${source.issuer ?? ""}`;
+}
+
 function mergeOfficialSources(groups: OnlineLegalSource[][], query: string) {
   const byUrl = new Map<string, OnlineLegalSource>();
   for (const source of groups.flat()) {
-    const relevance = taxSourceRelevance(
-      query,
-      `${source.document_number ?? ""} ${source.document_type ?? ""} ${source.title} ${source.snippet} ${source.issuer ?? ""}`,
-    );
+    const candidateText = sourceText(source);
+    if (disqualifyTaxSource(query, candidateText)) continue;
+    const relevance = taxSourceRelevance(query, candidateText);
     const candidate = { ...source, score: source.score + Math.max(0, relevance) };
     const existing = byUrl.get(source.url);
     if (!existing || candidate.score > existing.score) byUrl.set(source.url, candidate);
@@ -232,12 +236,7 @@ export async function discoverOfficialSources(query: string): Promise<GeminiDisc
     fulfilled.map((result) => result.sources),
     query,
   )
-    .filter((source) =>
-      taxSourceRelevance(
-        query,
-        `${source.document_number ?? ""} ${source.document_type ?? ""} ${source.title} ${source.snippet} ${source.issuer ?? ""}`,
-      ) >= minimumRelevance,
-    )
+    .filter((source) => taxSourceRelevance(query, sourceText(source)) >= minimumRelevance)
     .sort((left, right) => right.score - left.score)
     .slice(0, 30);
 
