@@ -22,3 +22,9 @@
   line-height: 1.08;
   letter-spacing: -0.045em;
 }
+
+/* Câu hỏi đã có phần trả lời phía trên thì không hiển thị lại trạng thái
+   "Chưa thể hiển thị toàn văn" với cùng nội dung. */
+.answerPanel + .emptyResult {
+  display: none;
+}
