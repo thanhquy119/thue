@@ -54,3 +54,10 @@ test("document type uses the earliest header label instead of a cited type in th
   assert.equal(blocks[5].text, "THÔNG TƯ");
   assert.match(blocks[6].text, /Nghị định số 252\/2026\/NĐ-CP/u);
 });
+
+test("document number keeps the correct type when the type line is missing", () => {
+  const blocks = splitLegalBlocks(`BỘ TÀI CHÍNH\nCỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM\nĐộc lập - Tự do - Hạnh phúc\nSố: 89/2026/TT-BTC\nHà Nội, ngày 30 tháng 6 năm 2026\nQuy định chi tiết một số điều của Nghị định số 252/2026/NĐ-CP của Chính phủ\nCăn cứ Luật Quản lý thuế;`);
+
+  assert.equal(blocks.find((block) => block.kind === "preamble-type")?.text, "THÔNG TƯ");
+  assert.match(blocks.find((block) => block.kind === "preamble-title")?.text || "", /Nghị định số 252\/2026\/NĐ-CP/u);
+});
