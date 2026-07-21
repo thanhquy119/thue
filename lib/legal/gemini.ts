@@ -1,5 +1,10 @@
 import { discoverOfficialSources as discoverViaRss } from "./discovery";
-import { answerGroundingIssues } from "./question-intelligence";
+import {
+  analyzeTaxQuestion,
+  answerGroundingIssues,
+  buildTaxSearchQueries,
+  taxSourceRelevance,
+} from "./question-intelligence";
 import type { OnlineLegalSource } from "./types";
 
 export class GeminiUnavailableError extends Error {
@@ -191,8 +196,57 @@ async function callGemini(input: string, system: string) {
   );
 }
 
+function mergeOfficialSources(groups: OnlineLegalSource[][], query: string) {
+  const byUrl = new Map<string, OnlineLegalSource>();
+  for (const source of groups.flat()) {
+    const relevance = taxSourceRelevance(
+      query,
+      `${source.document_number ?? ""} ${source.document_type ?? ""} ${source.title} ${source.snippet} ${source.issuer ?? ""}`,
+    );
+    const candidate = { ...source, score: source.score + Math.max(0, relevance) };
+    const existing = byUrl.get(source.url);
+    if (!existing || candidate.score > existing.score) byUrl.set(source.url, candidate);
+  }
+  return [...byUrl.values()];
+}
+
 export async function discoverOfficialSources(query: string): Promise<GeminiDiscovery> {
-  return discoverViaRss(query);
+  const plan = analyzeTaxQuestion(query);
+  if (!plan.isQuestion || plan.hasDocumentReference) return discoverViaRss(query);
+
+  const searches = buildTaxSearchQueries(query, plan);
+  const settled = await Promise.allSettled(searches.map((search) => discoverViaRss(search)));
+  const fulfilled = settled
+    .filter((result): result is PromiseFulfilledResult<GeminiDiscovery> => result.status === "fulfilled")
+    .map((result) => result.value);
+
+  if (!fulfilled.length) {
+    const firstError = settled.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    throw firstError?.reason instanceof Error
+      ? firstError.reason
+      : new Error("Không kết nối được nguồn pháp luật chính thức.");
+  }
+
+  const minimumRelevance = plan.taxAreas.length ? 1.4 : 0.6;
+  const sources = mergeOfficialSources(
+    fulfilled.map((result) => result.sources),
+    query,
+  )
+    .filter((source) =>
+      taxSourceRelevance(
+        query,
+        `${source.document_number ?? ""} ${source.document_type ?? ""} ${source.title} ${source.snippet} ${source.issuer ?? ""}`,
+      ) >= minimumRelevance,
+    )
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 30);
+
+  return {
+    draft_answer: sources.length
+      ? "Đã tìm thấy nguồn chính thức phù hợp với lĩnh vực và nghiệp vụ trong câu hỏi."
+      : "Chưa tìm thấy nguồn chính thức đủ liên quan để kết luận an toàn.",
+    sources,
+  };
 }
 
 export async function answerFromOfficialEvidence(query: string, evidence: OfficialEvidence[]) {
