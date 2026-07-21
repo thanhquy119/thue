@@ -11,18 +11,35 @@ function normalize(value: string) {
     .trim();
 }
 
+function registrationCandidate(): SearchCandidate {
+  return {
+    id: "verified-90-2026-tt-btc",
+    number: "90/2026/TT-BTC",
+    title: "Quy định về đăng ký thuế; thay thế Thông tư số 86/2024/TT-BTC từ ngày 01/07/2026",
+    type: "Thông tư",
+    issuer: "Bộ Tài chính",
+    issued_date: "2026-06-30",
+    source_url: "https://chinhphu.vn/?classid=1&docid=218839&pageid=27160",
+    source_label: "Cổng Thông tin điện tử Chính phủ",
+  };
+}
+
+function taxAdministrationLawCandidate(): SearchCandidate {
+  return {
+    id: "verified-108-2025-qh15",
+    number: "108/2025/QH15",
+    title: "Luật Quản lý thuế có hiệu lực từ ngày 01/07/2026",
+    type: "Luật",
+    issuer: "Quốc hội",
+    issued_date: "2025-12-10",
+    source_url: "https://vanban.chinhphu.vn/?classid=1&docid=218681&pageid=27160",
+    source_label: "Cổng Thông tin điện tử Chính phủ",
+  };
+}
+
 function currentRuleCandidates(): SearchCandidate[] {
   return [
-    {
-      id: "verified-90-2026-tt-btc",
-      number: "90/2026/TT-BTC",
-      title: "Quy định về đăng ký thuế; thay thế Thông tư số 86/2024/TT-BTC từ ngày 01/07/2026",
-      type: "Thông tư",
-      issuer: "Bộ Tài chính",
-      issued_date: "2026-06-30",
-      source_url: "https://chinhphu.vn/?classid=1&docid=218839&pageid=27160",
-      source_label: "Cổng Thông tin điện tử Chính phủ",
-    },
+    registrationCandidate(),
     {
       id: "verified-141-2026-nd-cp",
       number: "141/2026/NĐ-CP",
@@ -61,6 +78,34 @@ function asksHistoricalPeriod(normalized: string) {
   return years.some((year) => Number(year) <= 2025);
 }
 
+function isBroadRegistrationOverviewQuestion(query: string) {
+  const normalized = normalize(query);
+  const asksRegistration = /\b(?:dang ky thue|quy dinh dang ky thue|thu tuc dang ky thue)\b/.test(normalized);
+  const asksOverview = /\b(?:quy dinh|nhu the nao|tong quan|diem moi|nam 2026|hien nay|hien hanh)\b/.test(normalized);
+  const hasSpecificAction = /\b(?:lan dau|thay doi|chuyen dia chi|cham dut|khoi phuc|ma so thue|nguoi phu thuoc)\b/.test(normalized);
+  const hasSpecificSubject = /\b(?:doanh nghiep|cong ty|to chuc|ho kinh doanh|ca nhan|nguoi phu thuoc|nha cung cap nuoc ngoai)\b/.test(normalized);
+  return asksRegistration && asksOverview && !hasSpecificAction && !hasSpecificSubject && !asksHistoricalPeriod(normalized);
+}
+
+function registrationOverviewResponse(query: string): TaxSearchResponse {
+  return {
+    query_normalized: normalize(query),
+    query_kind: "question",
+    direct_answer:
+      "Từ ngày 01/07/2026, căn cứ chính về đăng ký thuế là Thông tư số 90/2026/TT-BTC, thay thế Thông tư số 86/2024/TT-BTC; đồng thời Luật Quản lý thuế số 108/2025/QH15 bắt đầu có hiệu lực. Vì vậy, hồ sơ phát sinh từ ngày 01/07/2026 cần đối chiếu quy định mới, không dùng riêng Thông tư 86.\n\n" +
+      "Các nhóm nội dung chính gồm: đăng ký thuế lần đầu; thay đổi thông tin đăng ký thuế; chấm dứt và khôi phục hiệu lực mã số thuế; đăng ký đối với tổ chức, doanh nghiệp; đăng ký đối với hộ kinh doanh, hộ gia đình, cá nhân; và đăng ký đối với một số chủ thể nước ngoài hoặc cá nhân không cư trú kinh doanh trên nền tảng thương mại điện tử.\n\n" +
+      "Hồ sơ đăng ký thuế có thể được tiếp nhận điện tử qua Cổng Dịch vụ công quốc gia, ứng dụng định danh quốc gia hoặc Hệ thống thông tin quản lý thuế theo lộ trình triển khai. Trường hợp thay đổi địa chỉ làm thay đổi cơ quan thuế quản lý trực tiếp, quy định mới không yêu cầu người nộp thuế phải hoàn thành nghĩa vụ với cơ quan thuế nơi chuyển đi trước khi thay đổi địa chỉ; trường hợp thuộc diện rủi ro cần kiểm tra tại trụ sở sẽ được cơ quan thuế thông báo riêng.\n\n" +
+      "Do thủ tục và hồ sơ khác nhau theo từng đối tượng, để tra đúng biểu mẫu và thời hạn cần nêu rõ một trong các trường hợp: doanh nghiệp/tổ chức, hộ kinh doanh, cá nhân/người phụ thuộc, nhà cung cấp nước ngoài; đồng thời cho biết đang đăng ký lần đầu, thay đổi thông tin, chuyển địa chỉ, chấm dứt hay khôi phục mã số thuế.",
+    document: null,
+    candidates: [registrationCandidate(), taxAdministrationLawCandidate()],
+    warnings: [
+      "Đây là bản tổng quan. Thành phần hồ sơ, cơ quan tiếp nhận và thời hạn xử lý phụ thuộc đối tượng và loại thủ tục cụ thể.",
+    ],
+    confidence: 0.96,
+    retrieved_at: new Date().toISOString(),
+  };
+}
+
 function isRentalTaxRegistrationQuestion(query: string) {
   const normalized = normalize(query);
   const asksRental = /\b(?:cho thue nha|cho thue bat dong san|cho thue tai san|nha cho thue|bat dong san cho thue)\b/.test(
@@ -71,6 +116,7 @@ function isRentalTaxRegistrationQuestion(query: string) {
 }
 
 export function verifiedQuestionResponse(query: string): TaxSearchResponse | null {
+  if (isBroadRegistrationOverviewQuestion(query)) return registrationOverviewResponse(query);
   if (!isRentalTaxRegistrationQuestion(query)) return null;
 
   return {
