@@ -3,6 +3,20 @@ import test from "node:test";
 import { ensureBinaryConclusion, verifiedQuestionResponse } from "../lib/legal/verified-question-rules.ts";
 import type { TaxSearchResponse } from "../lib/legal/types.ts";
 
+test("broad 2026 registration questions return a current overview", () => {
+  const result = verifiedQuestionResponse("Quy định đăng ký thuế trong năm 2026 như thế nào?");
+  assert.ok(result);
+  assert.match(result.direct_answer, /01\/07\/2026/);
+  assert.match(result.direct_answer, /90\/2026\/TT-BTC/);
+  assert.match(result.direct_answer, /thay thế Thông tư số 86\/2024\/TT-BTC/);
+  assert.ok(result.candidates.some((candidate) => candidate.number === "108/2025/QH15"));
+});
+
+test("specific registration questions stay in the ordinary retrieval flow", () => {
+  const result = verifiedQuestionResponse("Doanh nghiệp chuyển địa chỉ sang tỉnh khác có phải hoàn thành nghĩa vụ thuế trước không?");
+  assert.equal(result, null);
+});
+
 test("current rental registration question returns a clear yes", () => {
   const result = verifiedQuestionResponse("Cho thuê nhà dưới 100 triệu thì có cần đăng ký thuế không?");
   assert.ok(result);
