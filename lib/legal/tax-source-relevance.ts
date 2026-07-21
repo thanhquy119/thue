@@ -1,5 +1,3 @@
-import { analyzeTaxQuestion } from "./question-intelligence";
-
 function normalize(value: string) {
   return value
     .normalize("NFD")
@@ -10,6 +8,20 @@ function normalize(value: string) {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+const QUERY_AREA_PATTERNS: Record<string, RegExp> = {
+  "thuế giá trị gia tăng": /\b(?:gtgt|vat|gia tri gia tang)\b/,
+  "thuế thu nhập cá nhân": /\b(?:tncn|thu nhap ca nhan)\b/,
+  "thuế thu nhập doanh nghiệp": /\b(?:tndn|thu nhap doanh nghiep)\b/,
+  "hóa đơn điện tử": /\b(?:hoa don|may tinh tien)\b/,
+  "quản lý thuế": /\b(?:quan ly thue|khai thue|nop thue|dang ky thue|ma so thue)\b/,
+  "lệ phí môn bài": /\b(?:le phi mon bai|thue mon bai|mon bai)\b/,
+  "thuế nhà thầu": /\b(?:thue nha thau|nha thau nuoc ngoai|fct)\b/,
+  "thuế tiêu thụ đặc biệt": /\b(?:tieu thu dac biet|ttdb)\b/,
+  "thuế xuất nhập khẩu": /\b(?:xuat khau|nhap khau|hai quan)\b/,
+  "thuế tài nguyên và môi trường": /\b(?:thue tai nguyen|bao ve moi truong)\b/,
+  "thuế, tiền sử dụng đất": /\b(?:su dung dat|tien thue dat|thue dat|dat phi nong nghiep)\b/,
+};
 
 const SOURCE_AREA_PATTERNS: Record<string, RegExp> = {
   "thuế giá trị gia tăng": /\b(?:gtgt|gia tri gia tang|thue vat)\b/,
@@ -25,7 +37,7 @@ const SOURCE_AREA_PATTERNS: Record<string, RegExp> = {
   "thuế, tiền sử dụng đất": /\b(?:su dung dat|tien thue dat|thue dat|dat phi nong nghiep)\b/,
 };
 
-const SOURCE_SUBJECT_PATTERNS: Record<string, RegExp> = {
+const QUERY_SUBJECT_PATTERNS: Record<string, RegExp> = {
   "hộ kinh doanh, cá nhân kinh doanh": /\b(?:ho kinh doanh|ca nhan kinh doanh)\b/,
   "doanh nghiệp, tổ chức": /\b(?:doanh nghiep|cong ty|to chuc|hop tac xa)\b/,
   "tổ chức trả thu nhập": /\b(?:to chuc tra thu nhap|don vi tra thu nhap|nguoi su dung lao dong)\b/,
@@ -33,6 +45,23 @@ const SOURCE_SUBJECT_PATTERNS: Record<string, RegExp> = {
   "nhà thầu nước ngoài": /\b(?:nha thau nuoc ngoai|nha cung cap nuoc ngoai)\b/,
   "hoạt động thương mại điện tử": /\b(?:thuong mai dien tu|san thuong mai dien tu|ban hang online|livestream|content creator|youtuber|tiktoker)\b/,
   "đơn vị phụ thuộc, địa điểm kinh doanh": /\b(?:don vi phu thuoc|chi nhanh|dia diem kinh doanh)\b/,
+};
+
+const SOURCE_SUBJECT_PATTERNS = QUERY_SUBJECT_PATTERNS;
+
+const QUERY_INTENT_PATTERNS: Record<string, RegExp> = {
+  "thuế suất, mức thuế và cách tính": /\b(?:thue suat|muc thue|bao nhieu phan tram|cach tinh|tinh thue|so thue phai nop)\b/,
+  "ngưỡng doanh thu, miễn thuế, không chịu thuế": /\b(?:nguong|doanh thu|mien thue|giam thue|khong chiu thue|khong phai nop)\b/,
+  "khai thuế, hồ sơ và mẫu biểu": /\b(?:khai thue|to khai|ho so|mau bieu|mau nao|phu luc)\b/,
+  "thời hạn khai, nộp và xử lý": /\b(?:thoi han|han nop|bao gio|cham nhat|bao nhieu ngay)\b/,
+  "hóa đơn và chứng từ": /\b(?:hoa don|chung tu|may tinh tien)\b/,
+  "khấu trừ thuế, chi phí được trừ": /\b(?:khau tru|chi phi duoc tru|dau vao|giam tru)\b/,
+  "hoàn thuế": /\b(?:hoan thue|hoan gtgt)\b/,
+  "quyết toán thuế": /\b(?:quyet toan|uy quyen quyet toan)\b/,
+  "đăng ký thuế và mã số thuế": /\b(?:dang ky thue|ma so thue|cham dut hieu luc ma so thue)\b/,
+  "xử phạt, tiền chậm nộp và cưỡng chế": /\b(?:xu phat|phat bao nhieu|tien cham nop|cham nop|cuong che|vi pham)\b/,
+  "phân bổ nghĩa vụ thuế, khai tập trung": /\b(?:phan bo|khai tap trung|tinh khac|dia phuong khac)\b/,
+  "sửa đổi, bổ sung, thay thế và đối chiếu": /\b(?:sua doi|bo sung|thay the|bai bo|diem moi|doi chieu|phan tich)\b/,
 };
 
 const SOURCE_INTENT_PATTERNS: Record<string, RegExp> = {
@@ -50,51 +79,48 @@ const SOURCE_INTENT_PATTERNS: Record<string, RegExp> = {
   "sửa đổi, bổ sung, thay thế và đối chiếu": /\b(?:sua doi|bo sung|thay the|bai bo|diem moi)\b/,
 };
 
+const QUESTION_PATTERN =
+  /\?|\b(?:bao nhieu|the nao|duoc khong|co phai|phai khong|tai sao|can lam gi|bao gio|han nop|thoi han|mau nao|cach tinh|ap dung|xu ly|phan tich|giai thich|doi chieu|huong dan|khai thue|nop thue|hoan thue|khau tru|quyet toan|hoa don|doanh thu|thue suat|chi phi duoc tru|mien thue|giam thue|khong chiu thue|dang ky thue|ma so thue|xu phat|cham nop|phan bo|khai tap trung)\b/;
+const DOCUMENT_REFERENCE_PATTERN =
+  /\b(?:nghi dinh|thong tu|nghi quyet|quyet dinh|luat|nd|tt|nq|qd)\s*(?:so\s*)?\d{1,4}\s*[/-]\s*20\d{2}(?:\s*[/-]\s*[a-z0-9-]+)?\b/;
+
 const RETRIEVAL_STOP_WORDS = new Set([
-  "thue",
-  "van",
-  "ban",
-  "quy",
-  "dinh",
-  "hien",
-  "hanh",
-  "nguoi",
-  "dung",
-  "can",
-  "phai",
-  "duoc",
-  "khong",
-  "thi",
-  "va",
-  "cua",
-  "cho",
-  "nam",
+  "thue", "van", "ban", "quy", "dinh", "hien", "hanh", "nguoi", "dung", "can", "phai", "duoc", "khong", "thi", "va", "cua", "cho", "nam",
 ]);
+
+function matchingLabels(patterns: Record<string, RegExp>, value: string) {
+  return Object.entries(patterns)
+    .filter(([, pattern]) => pattern.test(value))
+    .map(([label]) => label);
+}
 
 function countMatches(labels: string[], patterns: Record<string, RegExp>, candidate: string) {
   return labels.filter((label) => patterns[label]?.test(candidate)).length;
 }
 
 export function taxSourceRelevance(query: string, candidate: string) {
-  const plan = analyzeTaxQuestion(query);
-  if (!plan.isQuestion || plan.hasDocumentReference) return 1;
+  const normalizedQuery = normalize(query);
+  const isQuestion = QUESTION_PATTERN.test(normalizedQuery);
+  const hasDocumentReference = DOCUMENT_REFERENCE_PATTERN.test(normalizedQuery);
+  if (!isQuestion || hasDocumentReference) return 1;
 
+  const taxAreas = matchingLabels(QUERY_AREA_PATTERNS, normalizedQuery);
+  const subjects = matchingLabels(QUERY_SUBJECT_PATTERNS, normalizedQuery);
+  const intents = matchingLabels(QUERY_INTENT_PATTERNS, normalizedQuery);
   const normalizedCandidate = normalize(candidate);
-  const areaMatches = countMatches(plan.taxAreas, SOURCE_AREA_PATTERNS, normalizedCandidate);
-  const subjectMatches = countMatches(plan.subjects, SOURCE_SUBJECT_PATTERNS, normalizedCandidate);
-  const intentMatches = countMatches(plan.intents, SOURCE_INTENT_PATTERNS, normalizedCandidate);
+  const areaMatches = countMatches(taxAreas, SOURCE_AREA_PATTERNS, normalizedCandidate);
+  const subjectMatches = countMatches(subjects, SOURCE_SUBJECT_PATTERNS, normalizedCandidate);
+  const intentMatches = countMatches(intents, SOURCE_INTENT_PATTERNS, normalizedCandidate);
   const administrationBridge =
     /\b(?:luat quan ly thue|quan ly thue|thu tuc thue|khai thue|hoan thue)\b/.test(normalizedCandidate);
   const hasTaxMarker =
-    /\b(?:thue|gtgt|tncn|tndn|gia tri gia tang|hoa don|hai quan|le phi|quan ly thue)\b/.test(
-      normalizedCandidate,
-    );
+    /\b(?:thue|gtgt|tncn|tndn|gia tri gia tang|hoa don|hai quan|le phi|quan ly thue)\b/.test(normalizedCandidate);
 
   if (!hasTaxMarker && areaMatches === 0 && !administrationBridge) return -5;
-  if (plan.taxAreas.length && areaMatches === 0 && intentMatches === 0 && !administrationBridge) return -4;
+  if (taxAreas.length && areaMatches === 0 && intentMatches === 0 && !administrationBridge) return -4;
 
   const queryTokens = new Set(
-    plan.normalized
+    normalizedQuery
       .split(/[^a-z0-9]+/)
       .filter((token) => token.length > 2 && !RETRIEVAL_STOP_WORDS.has(token) && !/^20\d{2}$/.test(token)),
   );
