@@ -5,6 +5,7 @@ import { taxSourceRelevance } from "./tax-source-relevance";
 import type { SearchCandidate, SearchHint, TaxSearchResponse } from "./types";
 
 const TYPE_WORDS = /\b(?:nghi dinh|thong tu|nghi quyet|quyet dinh|luat|nd-cp|tt-btc|nd|tt|nq|qd)\b/g;
+const INTERNAL_CONTEXT_MARKER = /\s+Ngữ cảnh tra cứu pháp lý:/iu;
 
 function normalizeNumber(value: string) {
   return normalizeLegalQuery(value).replace(/\s+/g, "");
@@ -83,6 +84,11 @@ function noExactMatchResponse(query: string, hint: SearchHint, result: TaxSearch
   };
 }
 
+function originalUserQuery(query: string, explicitlyProvided?: string) {
+  if (explicitlyProvided?.trim()) return explicitlyProvided.trim();
+  return query.split(INTERNAL_CONTEXT_MARKER)[0]?.trim() || query.trim();
+}
+
 function guardQuestionResult(originalQuery: string, result: TaxSearchResponse): TaxSearchResponse {
   const document = result.document;
   if (!document) return result;
@@ -104,16 +110,17 @@ function guardQuestionResult(originalQuery: string, result: TaxSearchResponse): 
 }
 
 /**
- * Resolve natural document names without maintaining a table of aliases.
- * `query` may contain internal retrieval context; `originalQuery` must remain
- * the user's unchanged wording for legal relevance and fail-closed checks.
+ * `query` may include internal retrieval context. The safety gate always uses
+ * the untouched user wording, either supplied explicitly or derived by
+ * removing the internal context suffix.
  */
 export async function searchTaxLawRobust(
   query: string,
-  originalQuery: string = query,
+  untouchedUserQuery?: string,
 ): Promise<TaxSearchResponse> {
   const hint = extractSearchHint(query);
-  if (hint.asksQuestion) return guardQuestionResult(originalQuery, await searchTaxLaw(query));
+  const userQuery = originalUserQuery(query, untouchedUserQuery);
+  if (hint.asksQuestion) return guardQuestionResult(userQuery, await searchTaxLaw(query));
   if (!hint.type) return searchTaxLaw(query);
 
   let bestResult: TaxSearchResponse | null = null;
