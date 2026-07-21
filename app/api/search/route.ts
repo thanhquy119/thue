@@ -3,6 +3,12 @@ import { NextResponse } from "next/server";
 import { parseLegalHierarchy, slugifyDocument } from "@/lib/legal/ingestion";
 import { cleanUserQuery, containsPromptInjection, normalizeLegalQuery } from "@/lib/legal/query";
 import { searchTaxLawRobust } from "@/lib/legal/robust-search";
+import {
+  answerQuestionFromAnchors,
+  extractAnchoredReferences,
+  isAnchoredLegalQuestion,
+  referenceMatchesDocument,
+} from "@/lib/legal/anchored-question";
 import { consumeMemoryRateLimit, requestFingerprint } from "@/lib/legal/security";
 import type { DocumentDetail, SearchCandidate, TaxSearchResponse } from "@/lib/legal/types";
 
@@ -218,6 +224,42 @@ async function financeCircular89Response(query: string): Promise<TaxSearchRespon
   };
 }
 
+async function anchoredQuestionResponse(query: string): Promise<TaxSearchResponse> {
+  const references = extractAnchoredReferences(query).slice(0, 3);
+  const documents: DocumentDetail[] = [];
+  const seen = new Set<string>();
+
+  for (const reference of references) {
+    try {
+      let document: DocumentDetail | null = null;
+      const isCircular892026 =
+        reference.type === "Thông tư" &&
+        reference.number === "89" &&
+        reference.year === "2026" &&
+        (!reference.suffix || reference.suffix === "TT-BTC");
+
+      if (isCircular892026) {
+        document = await loadCircular892026();
+      } else {
+        const result = await searchTaxLawRobust(reference.lookupQuery);
+        if (result.document && referenceMatchesDocument(reference, result.document)) {
+          document = result.document;
+        }
+      }
+
+      if (!document || isExpiredNumber(document.number) || ["expired", "repealed"].includes(document.status)) continue;
+      const key = normalizeIdentifier(document.number);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      documents.push(document);
+    } catch {
+      // Mỗi văn bản neo được xử lý độc lập; không thay thế bằng kết quả gần giống.
+    }
+  }
+
+  return answerQuestionFromAnchors(query, documents);
+}
+
 export async function POST(request: Request) {
   const limit = consumeMemoryRateLimit(requestFingerprint(request));
   if (!limit.allowed) {
@@ -243,6 +285,12 @@ export async function POST(request: Request) {
   }
 
   try {
+    if (isAnchoredLegalQuestion(query)) {
+      return NextResponse.json(filterExpiredResponse(await anchoredQuestionResponse(query)), {
+        headers: { "cache-control": "no-store" },
+      });
+    }
+
     if (queryRequestsCircular892026(query)) {
       return NextResponse.json(await circular892026Response(), { headers: { "cache-control": "no-store" } });
     }
