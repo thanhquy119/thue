@@ -6,8 +6,8 @@ import {
   buildTaxSearchQueries,
   clarificationForTaxQuestion,
   enrichTaxQuestion,
-  taxSourceRelevance,
 } from "../lib/legal/question-intelligence.ts";
+import { taxSourceRelevance } from "../lib/legal/tax-source-relevance.ts";
 
 test("classifies a detailed VAT refund question", () => {
   const plan = analyzeTaxQuestion("Doanh nghiệp hoàn thuế GTGT thì cần hồ sơ gì và thời hạn xử lý bao lâu?");
