@@ -4,8 +4,10 @@ import "./candidates.css";
 import "./refinements.css";
 import "./question-results.css";
 import "./preamble.css";
+import "./document-tools.css";
 import CacheVersion from "./cache-version";
 import SavedDocuments from "./saved-documents";
+import DocumentTools from "./document-tools";
 
 export const metadata: Metadata = {
   title: "Thuế — Tra cứu và đọc toàn văn pháp luật thuế",
@@ -36,5 +38,5 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="vi"><body><CacheVersion />{children}<SavedDocuments /></body></html>;
+  return <html lang="vi"><body><CacheVersion />{children}<SavedDocuments /><DocumentTools /></body></html>;
 }
