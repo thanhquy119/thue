@@ -1,3 +1,10 @@
+import { answerQuestionFromAnchors } from "./anchored-question";
+import { discoverOfficialSources } from "./gemini";
+import {
+  findLatestLegalUpdate,
+  legalUpdateDescription,
+  relationCandidate,
+} from "./legal-update-relations";
 import { searchTaxLaw } from "./search";
 import { extractSearchHint, lexicalRelevance, normalizeLegalQuery } from "./query";
 import { disqualifyTaxSource } from "./tax-source-disqualifier";
@@ -110,6 +117,146 @@ function guardQuestionResult(originalQuery: string, result: TaxSearchResponse): 
   };
 }
 
+function asksHistoricalPeriod(query: string) {
+  const currentYear = new Date().getFullYear();
+  const years = normalizeLegalQuery(query).match(/\b20\d{2}\b/g) ?? [];
+  return years.some((year) => Number(year) < currentYear);
+}
+
+function asksAboutLegalRelationship(query: string) {
+  return /\b(?:sua doi|bo sung|thay the|bai bo|het hieu luc|van ban nao thay)\b/.test(
+    normalizeLegalQuery(query),
+  );
+}
+
+function uniqueCandidates(candidates: SearchCandidate[]) {
+  const seen = new Set<string>();
+  return candidates.filter((candidate) => {
+    const key = normalizeNumber(candidate.number);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function updateUnavailableResponse(
+  query: string,
+  result: TaxSearchResponse,
+  candidate: SearchCandidate,
+  message: string,
+): TaxSearchResponse {
+  return {
+    ...result,
+    query_normalized: normalizeLegalQuery(query),
+    direct_answer:
+      `Chưa thể kết luận theo văn bản hiện tại. ${message} ` +
+      "Hệ thống chưa mở được đầy đủ văn bản mới để đối chiếu nên không tiếp tục áp dụng riêng căn cứ cũ.",
+    document: null,
+    candidates: uniqueCandidates([candidate, ...(result.candidates ?? [])]),
+    warnings: Array.from(
+      new Set([
+        ...result.warnings,
+        "Đã phát hiện dấu hiệu cập nhật pháp lý mới hơn nhưng chưa đủ toàn văn để xác minh nội dung áp dụng.",
+      ]),
+    ),
+    confidence: Math.min(result.confidence, 0.38),
+  };
+}
+
+async function guardCurrentLawUpdate(
+  userQuery: string,
+  result: TaxSearchResponse,
+): Promise<TaxSearchResponse> {
+  const document = result.document;
+  if (!document || result.query_kind !== "question") return result;
+  if (asksHistoricalPeriod(userQuery) || asksAboutLegalRelationship(userQuery)) return result;
+
+  try {
+    const discovery = await discoverOfficialSources(
+      `${document.number} sửa đổi bổ sung thay thế bãi bỏ`,
+    );
+    const relation = findLatestLegalUpdate(document, discovery.sources);
+    if (!relation) return result;
+
+    const candidate = relationCandidate(relation);
+    const description = legalUpdateDescription(relation.kind);
+    if (relation.kind === "repeal") {
+      return updateUnavailableResponse(
+        userQuery,
+        result,
+        candidate,
+        `${candidate.number} có dấu hiệu ${description} ${document.number}.`,
+      );
+    }
+
+    const opened = await searchTaxLaw(relation.documentNumber);
+    const updatedDocument = opened.document;
+    if (!updatedDocument || normalizeNumber(updatedDocument.number) !== normalizeNumber(relation.documentNumber)) {
+      return updateUnavailableResponse(
+        userQuery,
+        result,
+        candidate,
+        `${candidate.number} có dấu hiệu ${description} ${document.number}.`,
+      );
+    }
+
+    if (updatedDocument.status === "upcoming") {
+      return {
+        ...result,
+        warnings: Array.from(
+          new Set([
+            ...result.warnings,
+            `${updatedDocument.number} đã được ban hành để ${description} ${document.number} nhưng chưa có hiệu lực; hệ thống vẫn giữ căn cứ đang có hiệu lực tại thời điểm hỏi.`,
+          ]),
+        ),
+      };
+    }
+
+    if (!["effective", "partially_effective"].includes(updatedDocument.status)) {
+      return updateUnavailableResponse(
+        userQuery,
+        result,
+        candidate,
+        `${updatedDocument.number} có dấu hiệu ${description} ${document.number}, nhưng trạng thái hiệu lực chưa được xác minh đầy đủ.`,
+      );
+    }
+
+    const refreshed = await answerQuestionFromAnchors(
+      `${userQuery}\nĐã phát hiện ${updatedDocument.number} ${description} ${document.number}. Khi kết luận phải ưu tiên nội dung mới đang có hiệu lực và chỉ dùng văn bản cũ để đối chiếu lịch sử.`,
+      [updatedDocument, document],
+    );
+
+    return {
+      ...refreshed,
+      candidates: uniqueCandidates([
+        ...(refreshed.candidates ?? []),
+        ...(result.candidates ?? []),
+      ]),
+      warnings: Array.from(
+        new Set([
+          ...result.warnings,
+          ...refreshed.warnings,
+          `Hệ thống tự phát hiện ${updatedDocument.number} ${description} ${document.number} và đã ưu tiên văn bản mới khi trả lời.`,
+        ]),
+      ),
+      confidence: Math.min(refreshed.confidence, 0.92),
+    };
+  } catch {
+    const issuedYear = Number(document.issued_date?.slice(0, 4));
+    if (!issuedYear || issuedYear >= new Date().getFullYear()) return result;
+    return {
+      ...result,
+      warnings: Array.from(
+        new Set([
+          ...result.warnings,
+          `Chưa hoàn tất được lượt kiểm tra văn bản sửa đổi, thay thế mới hơn của ${document.number}; cần đối chiếu lại trước khi áp dụng cho hồ sơ thực tế.`,
+        ]),
+      ),
+      confidence: Math.min(result.confidence, 0.64),
+    };
+  }
+}
+
 /**
  * `query` may include internal retrieval context. The safety gate always uses
  * the untouched user wording, either supplied explicitly or derived by
@@ -126,7 +273,8 @@ export async function searchTaxLawRobust(
 
   if (hint.asksQuestion) {
     const result = guardQuestionResult(userQuery, await searchTaxLaw(query));
-    return ensureBinaryConclusion(userQuery, result);
+    const current = await guardCurrentLawUpdate(userQuery, result);
+    return ensureBinaryConclusion(userQuery, current);
   }
   if (!hint.type) return searchTaxLaw(query);
 
