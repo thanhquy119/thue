@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { verifiedExtraQuestionResponse } from "../lib/legal/verified-question-rules-extra.ts";
 import { ensureBinaryConclusion, verifiedQuestionResponse } from "../lib/legal/verified-question-rules.ts";
 import type { TaxSearchResponse } from "../lib/legal/types.ts";
 
 function verified(query: string) {
-  const result = verifiedQuestionResponse(query);
+  const result = verifiedExtraQuestionResponse(query) ?? verifiedQuestionResponse(query);
   assert.ok(result, `Expected a verified answer for: ${query}`);
   return result;
 }
@@ -43,6 +44,7 @@ test("current rental registration question returns a clear yes", () => {
 });
 
 test("historical rental questions stay in the ordinary retrieval flow", () => {
+  assert.equal(verifiedExtraQuestionResponse("Năm 2024 cho thuê nhà 100 triệu có cần đăng ký thuế không?"), null);
   assert.equal(verifiedQuestionResponse("Năm 2024 cho thuê nhà 100 triệu có cần đăng ký thuế không?"), null);
 });
 
