@@ -16,8 +16,10 @@ const CIRCULAR_89_2026_PAGE =
 const CIRCULAR_89_2026_DOCX =
   "https://baocaotaichinh.vn/tintuc/download?file=294987317thong-tu-so-89_2026_tt-btc.docx";
 
+// Chỉ giữ số hiệu đã được xác minh chắc chắn là hết hiệu lực toàn bộ.
+// Không suy đoán từ tuổi văn bản hoặc từ tiêu đề của văn bản bãi bỏ văn bản khác.
 const VERIFIED_EXPIRED_DOCUMENTS = new Set(
-  ["89/2017/TT-BTC", "89/2021/TT-BTC"].map((number) => normalizeIdentifier(number)),
+  ["89/2017/TT-BTC"].map((number) => normalizeIdentifier(number)),
 );
 
 function normalizeIdentifier(value: string) {
