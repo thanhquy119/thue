@@ -25,3 +25,19 @@ test("enterprise questions reject sources limited to household businesses", () =
   );
   assert.equal(rejected, true);
 });
+
+test("current tax-registration questions reject Circular 86/2024/TT-BTC", () => {
+  const rejected = disqualifyTaxSource(
+    "Cho thuê nhà dưới 100 triệu thì có cần đăng ký thuế không?",
+    "Thông tư số 86/2024/TT-BTC quy định về đăng ký thuế",
+  );
+  assert.equal(rejected, true);
+});
+
+test("historical or explicit Circular 86 questions may still retrieve it", () => {
+  const rejected = disqualifyTaxSource(
+    "Năm 2024 Thông tư 86/2024/TT-BTC quy định đăng ký thuế thế nào?",
+    "Thông tư số 86/2024/TT-BTC quy định về đăng ký thuế",
+  );
+  assert.equal(rejected, false);
+});
