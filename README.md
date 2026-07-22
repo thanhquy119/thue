@@ -24,11 +24,13 @@ Thêm API key lấy từ Google AI Studio:
 
 ```env
 GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-3.5-flash
+GEMINI_MODEL=gemini-3.1-flash-lite
+OCR_GEMINI_MODEL=gemini-3.1-flash-lite
+ENABLE_OCR_LAB=false
 RATE_LIMIT_SALT=mot-chuoi-bi-mat-ngau-nhien
 ```
 
-Trên Vercel, thêm ba biến trên trong Project → Settings → Environment Variables.
+Trên Vercel, thêm các biến cần dùng trong Project → Settings → Environment Variables.
 
 ## Chạy
 
@@ -43,6 +45,20 @@ Kiểm tra trước khi deploy:
 npm run verify
 ```
 
+## OCR Lab thử nghiệm
+
+Nhánh thử nghiệm có trang `/ocr-lab` để so sánh lớp chữ sẵn có trong PDF với OCR nhiều lượt trước khi tích hợp vào luồng tra cứu chính.
+
+- OCR Lab tự bật ở môi trường local và Vercel Preview.
+- Production chỉ bật khi đặt `ENABLE_OCR_LAB=true`.
+- Người thử nhập liên kết trực tiếp tới PDF thuộc miền cơ quan nhà nước đã cho phép.
+- Mỗi trang được đọc hai lượt độc lập: một lượt chép nguyên văn và một lượt tập trung kiểm tra số hiệu, Điều/Khoản/Điểm, dấu tiếng Việt và các cặp ký tự dễ nhầm.
+- Khi hai lượt khác nhau đáng kể, hệ thống chạy thêm lượt đối chiếu có ảnh gốc làm căn cứ.
+- Hệ thống chấm điểm lớp chữ PDF và OCR, hiển thị độ giống nhau từng trang và đưa ra khuyến nghị giữ lớp chữ cũ, ưu tiên OCR hoặc kiểm tra thủ công.
+- Kết quả OCR Lab không được lưu cache, không thay thế dữ liệu chính thức và không tác động trang tra cứu hiện tại.
+
+Để hạn chế thời gian và chi phí trong giai đoạn thử, giao diện chỉ OCR tối đa 6 trang mỗi lần. Chỉ sau khi kiểm tra đủ nhiều mẫu PDF scan mới nên tích hợp fallback OCR vào `extractFromUrl`.
+
 ## Cơ chế cache
 
 - Kết quả hỏi đáp không được cache công khai vì câu hỏi có thể chứa dữ liệu riêng tư.
@@ -53,5 +69,3 @@ npm run verify
 ## Giới hạn thực tế
 
 Không hệ thống nào có thể bảo đảm lấy được toàn văn của mọi văn bản chỉ bằng web search. Trường hợp nguồn chặn bot, liên kết Google redirect không giải được, PDF chỉ là ảnh scan hoặc file quá lớn, ứng dụng sẽ báo không thể trích xuất thay vì hiển thị nội dung tóm tắt như thể đó là toàn văn.
-
-
