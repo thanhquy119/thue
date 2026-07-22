@@ -103,6 +103,7 @@ function isFillerOnly(line: string) {
 function appendCell(base: string, addition: string) {
   if (!addition) return base;
   if (!base) return addition;
+  if (normalizeComparable(base) === normalizeComparable(addition)) return base;
   return `${base} ${addition}`.replace(/\s+/g, " ").trim();
 }
 
