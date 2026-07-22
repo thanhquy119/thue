@@ -66,6 +66,48 @@
   cursor: pointer;
 }
 
+.ocrSpeechInstruction {
+  margin: 22px 0 0;
+  border-left: 3px solid #111;
+  padding-left: 13px;
+  color: #555550;
+  font-size: 13px;
+}
+
+.ocrLayoutAudit {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ocrLayoutAuditItem {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 25px minmax(0, 1fr);
+  gap: 10px;
+  border: 1px solid #deded9;
+  border-radius: 13px;
+  background: #fafaf8;
+  padding: 13px 14px;
+}
+
+.ocrLayoutAuditItem > span {
+  width: 23px;
+  height: 23px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #16774a;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.ocrLayoutAuditItem.is-warn > span { background: #9a6710; }
+.ocrLayoutAuditItem strong { display: block; font-size: 13px; }
+.ocrLayoutAuditItem p { margin: 3px 0 0; color: #666660; font-size: 11px; line-height: 1.45; }
+
 .ocrMainPreview .readerText {
   margin-top: 48px;
 }
@@ -84,14 +126,31 @@
 }
 
 .ocrMainPreview .legalBlock {
-  cursor: default;
+  cursor: pointer;
   text-align: justify;
   text-align-last: left;
   text-justify: inter-word;
   overflow-wrap: anywhere;
 }
 
-.ocrMainPreview .legalBlock:hover { background: transparent; }
+.ocrMainPreview .ocrSpeechUnit {
+  scroll-margin-top: 130px;
+  transition: background 140ms ease, box-shadow 140ms ease;
+}
+
+.ocrMainPreview .legalBlock.ocrSpeechUnit:hover,
+.ocrMainPreview h4.ocrSpeechUnit:hover,
+.ocrMainPreview .ocrDocTable tbody tr.ocrSpeechUnit:hover {
+  background: var(--soft);
+}
+
+.ocrMainPreview .ocrSpeechUnit:focus-visible {
+  outline: 3px solid rgba(17, 17, 17, 0.24);
+  outline-offset: 3px;
+}
+
+.ocrMainPreview h4.ocrSpeechUnit { cursor: pointer; }
+.ocrMainPreview .ocrDocTable tbody tr.ocrSpeechUnit { cursor: pointer; }
 
 .ocrMainPreview .legalBlock.heading {
   text-align: left;
@@ -148,13 +207,16 @@
   box-shadow: inset 4px 0 0 #111;
 }
 
-.ocrMainPreview .ocrSpeechSegment.isSpeechActive,
-.ocrMainPreview .ocrSpeechTable.isSpeechActive {
+.ocrMainPreview .ocrSpeechUnit.isSpeechActive {
   background: var(--acid);
   box-shadow: inset 3px 0 0 var(--ink);
 }
 
-.ocrMainPreview .ocrMainProvision.isSpeechActive > h4 {
+.ocrMainPreview .ocrDocTable tbody tr.ocrSpeechUnit.isSpeechActive > * {
+  background: var(--acid);
+}
+
+.ocrMainPreview .ocrMainProvision.isSpeechActive > h4:not(.isSpeechActive) {
   color: #0f6d42;
 }
 
@@ -202,6 +264,7 @@
     width: 100%;
   }
 
+  .ocrLayoutAudit { grid-template-columns: 1fr; }
   .ocrMainPreview .readerText { margin-top: 34px; }
 
   .ocrMainPreview .readerText > .legalProvision:first-child:not(.ocrMainProvision--preamble) .legalBlocks {
