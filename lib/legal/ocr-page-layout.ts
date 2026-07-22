@@ -111,9 +111,95 @@ function normalizeContinuationRow(row: string[], previous: TableBlock, notices: 
 function looksLikeContinuationText(block: OcrPreviewBlock) {
   if (block.kind !== "paragraph") return false;
   const value = block.text.trim();
-  if (!value || value.length > 420) return false;
+  if (!value || value.length > 520) return false;
   if (/^(?:Điều|Chương|Mục|Phần|Phụ lục|Mẫu số|CỘNG HÒA|THÔNG TƯ|NGHỊ ĐỊNH|QUYẾT ĐỊNH)\b/iu.test(value)) return false;
   return /^[a-zà-ỹđ(,;:]/u.test(value) || !/[.!?:;]$/u.test(value);
+}
+
+function numericIndex(value: string) {
+  return /^\d+$/u.test(value.trim()) ? Number(value.trim()) : null;
+}
+
+function bodyRows(table: TableBlock) {
+  return table.rows.slice(table.headerRows);
+}
+
+function tableHeadersEqual(left: TableBlock, right: TableBlock) {
+  if (!left.headerRows || !right.headerRows || left.columnCount !== right.columnCount) return false;
+  const leftHeader = left.rows.slice(0, left.headerRows).flat().map(comparable).join("|");
+  const rightHeader = right.rows.slice(0, right.headerRows).flat().map(comparable).join("|");
+  return leftHeader === rightHeader;
+}
+
+function rowsAppearSequential(left: TableBlock, right: TableBlock) {
+  const leftRows = bodyRows(left);
+  const rightRows = bodyRows(right);
+  const last = numericIndex(leftRows[leftRows.length - 1]?.[0] ?? "");
+  const first = numericIndex(rightRows[0]?.[0] ?? "");
+  if (last === null || first === null) return false;
+  return first === last + 1 || first === last;
+}
+
+function compatibleTableFragments(left: TableBlock, right: TableBlock) {
+  if (tableHeadersEqual(left, right)) return true;
+  if (left.firstColumn !== "index") return false;
+  if (right.headerRows) return false;
+  return rowsAppearSequential(left, right);
+}
+
+function attachParagraphToLastRow(table: TableBlock, blocks: OcrPreviewBlock[]) {
+  if (!blocks.length || !blocks.every(looksLikeContinuationText)) return false;
+  const lastRow = table.rows[table.rows.length - 1];
+  if (!lastRow || table.rows.length <= table.headerRows) return false;
+  const schema = tableSchema(table);
+  const target = schema.contentColumn >= 0 ? schema.contentColumn : Math.min(1, table.columnCount - 1);
+  const text = blocks.map((block) => block.kind === "paragraph" ? block.text : "").join(" ").trim();
+  lastRow[target] = appendText(lastRow[target] ?? "", text);
+  return true;
+}
+
+function mergeAdjacentTablesOnPage(page: OcrPreviewPage) {
+  const output: OcrPreviewBlock[] = [];
+  let index = 0;
+
+  while (index < page.blocks.length) {
+    const block = page.blocks[index];
+    if (block?.kind !== "table") {
+      if (block) output.push(block);
+      index += 1;
+      continue;
+    }
+
+    const merged = cloneTable(block);
+    let cursor = index + 1;
+    while (cursor < page.blocks.length) {
+      const between: OcrPreviewBlock[] = [];
+      while (cursor < page.blocks.length && page.blocks[cursor]?.kind !== "table") {
+        const candidate = page.blocks[cursor];
+        if (!candidate || !looksLikeContinuationText(candidate)) break;
+        between.push(candidate);
+        cursor += 1;
+      }
+
+      const next = page.blocks[cursor];
+      if (next?.kind !== "table") break;
+      const nextTable = next as TableBlock;
+      if (!compatibleTableFragments(merged, nextTable)) break;
+      if (between.length) attachParagraphToLastRow(merged, between);
+
+      const notices = [...(merged.notices ?? []), ...(nextTable.notices ?? [])];
+      const rows = nextTable.headerRows ? bodyRows(nextTable) : nextTable.rows;
+      const normalizedRows = rows.map((row) => normalizeContinuationRow(row, merged, notices));
+      merged.rows.push(...normalizedRows);
+      merged.notices = [...new Set(notices)];
+      cursor += 1;
+    }
+
+    output.push(merged);
+    index = cursor;
+  }
+
+  page.blocks = output;
 }
 
 function attachLeadingContinuation(previousPage: OcrPreviewPage, currentPage: OcrPreviewPage) {
@@ -122,19 +208,7 @@ function attachLeadingContinuation(previousPage: OcrPreviewPage, currentPage: Oc
   if (!previousResult || !currentResult) return;
 
   const leading = currentPage.blocks.slice(0, currentResult.index);
-  const continuation = leading.filter(looksLikeContinuationText);
-  if (!continuation.length || continuation.length !== leading.length) return;
-
-  const previousTable = previousResult.table;
-  const lastBodyIndex = previousTable.rows.length - 1;
-  if (lastBodyIndex < previousTable.headerRows) return;
-  const lastRow = previousTable.rows[lastBodyIndex];
-  if (!lastRow) return;
-
-  const schema = tableSchema(previousTable);
-  const target = schema.contentColumn >= 0 ? schema.contentColumn : Math.min(1, previousTable.columnCount - 1);
-  const continuationText = continuation.map((block) => block.kind === "paragraph" ? block.text : "").join(" ").trim();
-  lastRow[target] = appendText(lastRow[target] ?? "", continuationText);
+  if (!attachParagraphToLastRow(previousResult.table, leading)) return;
   currentPage.blocks.splice(0, currentResult.index);
 }
 
@@ -173,12 +247,15 @@ export function buildOcrPreviewPages(pages: Array<{ page: number; text: string }
     }))
     .sort((left, right) => left.page - right.page);
 
+  prepared.forEach(mergeAdjacentTablesOnPage);
+
   for (let index = 1; index < prepared.length; index += 1) {
     const previous = prepared[index - 1];
     const current = prepared[index];
     if (!previous || !current || current.page !== previous.page + 1) continue;
     attachLeadingContinuation(previous, current);
     carryTableSchema(previous, current);
+    mergeAdjacentTablesOnPage(current);
   }
 
   return prepared;
