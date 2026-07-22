@@ -1,40 +1,48 @@
+.ocrDocTableGroup {
+  width: 100%;
+  min-width: 0;
+  margin: 24px 0;
+}
+
+.ocrDocTableContinuation {
+  width: fit-content;
+  margin: 0 0 7px;
+  border-radius: 999px;
+  background: #f2f2ee;
+  color: #6a6a64;
+  padding: 5px 9px;
+  font: 700 10px/1.2 Arial, sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .ocrDocTableWrap {
   width: 100%;
   max-width: 100%;
-  margin: 24px 0;
-  overflow-x: auto;
-  overscroll-behavior-inline: contain;
-  scrollbar-gutter: stable;
+  margin: 0;
+  overflow-x: clip;
 }
 
 .ocrDocTable {
   width: 100%;
+  min-width: 0;
   border-collapse: collapse;
-  table-layout: auto;
-  font-size: 15px;
-  line-height: 1.38;
+  table-layout: fixed;
+  font-size: 14px;
+  line-height: 1.34;
 }
-
-.ocrDocTable[data-columns="2"] { min-width: 560px; }
-.ocrDocTable[data-columns="3"] { min-width: 650px; }
-.ocrDocTable[data-columns="4"] { min-width: 740px; }
-.ocrDocTable[data-columns="5"] { min-width: 840px; }
-.ocrDocTable[data-columns="6"] { min-width: 980px; }
-.ocrDocTable[data-columns="7"],
-.ocrDocTable[data-columns="8"],
-.ocrDocTable[data-columns="9"],
-.ocrDocTable[data-columns="10"] { min-width: 1120px; }
 
 .ocrDocTable th,
 .ocrDocTable td {
   min-width: 0;
   width: auto;
   border: 1px solid #373733;
-  padding: 10px 11px;
+  padding: 9px 8px;
   vertical-align: middle;
   white-space: normal;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   word-break: normal;
+  hyphens: none;
 }
 
 .ocrDocTable thead th {
@@ -48,11 +56,30 @@
   font-weight: 400;
 }
 
+.ocrDocTableColumn--index { width: 7%; }
+.ocrDocTableColumn--content { width: 35%; }
+.ocrDocTableColumn--pass { width: 7%; }
+.ocrDocTableColumn--fail { width: 9%; }
+.ocrDocTableColumn--comment { width: 23%; }
+.ocrDocTableColumn--request { width: 19%; }
+
+.ocrDocTable[data-columns="2"] .ocrDocTableColumn--index { width: 21%; }
+.ocrDocTable[data-columns="2"] .ocrDocTableColumn--content,
+.ocrDocTable[data-columns="2"] .ocrDocTableColumn--other { width: auto; }
+
+.ocrDocTable[data-columns="3"] .ocrDocTableColumn--index { width: 10%; }
+.ocrDocTable[data-columns="3"] .ocrDocTableColumn--content { width: 68%; }
+.ocrDocTable[data-columns="3"] .ocrDocTableColumn--other { width: 22%; }
+
+.ocrDocTable[data-columns="4"] .ocrDocTableColumn--index { width: 8%; }
+.ocrDocTable[data-columns="4"] .ocrDocTableColumn--content { width: 65%; }
+
+.ocrDocTable[data-columns="5"] .ocrDocTableColumn--index { width: 8%; }
+.ocrDocTable[data-columns="5"] .ocrDocTableColumn--content,
+.ocrDocTable[data-columns="5"] .ocrDocTableColumn--other { width: 23%; }
+
 .ocrDocTable--index th:first-child,
 .ocrDocTable--index td:first-child {
-  width: 68px;
-  min-width: 68px;
-  max-width: 82px;
   text-align: center;
   white-space: nowrap;
 }
@@ -60,36 +87,77 @@
 .ocrDocTable--label th:first-child,
 .ocrDocTable--label td:first-child {
   width: 145px;
-  min-width: 125px;
   text-align: center;
   white-space: nowrap;
 }
 
 .ocrDocTableCheckboxCell {
-  min-width: 72px;
   text-align: center;
   font-family: Arial, sans-serif;
-  font-size: 17px;
+  font-size: 16px;
   white-space: nowrap !important;
 }
 
-.ocrPaperContent > .ocrDocTableWrap:first-child {
+.ocrDocTableNotices {
+  margin-top: 8px;
+  border-left: 2px solid #c9a642;
+  background: #fffaf0;
+  color: #6e591b;
+  padding: 8px 10px;
+  font: 12px/1.45 Arial, sans-serif;
+}
+
+.ocrDocTableNotices p {
+  margin: 0;
+}
+
+.ocrDocTableNotices p + p {
+  margin-top: 4px;
+}
+
+.ocrPaperContent > .ocrDocTableGroup:first-child {
   margin-top: 14px;
 }
 
 @media (max-width: 760px) {
   .ocrDocTableWrap {
+    width: calc(100% + 12px);
     margin-right: -6px;
     margin-left: -6px;
-    width: calc(100% + 12px);
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-gutter: stable;
   }
 
   .ocrDocTable {
+    table-layout: auto;
     font-size: 14px;
   }
+
+  .ocrDocTable[data-columns="2"] { min-width: 560px; }
+  .ocrDocTable[data-columns="3"] { min-width: 650px; }
+  .ocrDocTable[data-columns="4"] { min-width: 740px; }
+  .ocrDocTable[data-columns="5"] { min-width: 840px; }
+  .ocrDocTable[data-columns="6"] { min-width: 980px; }
+  .ocrDocTable[data-columns="7"],
+  .ocrDocTable[data-columns="8"],
+  .ocrDocTable[data-columns="9"],
+  .ocrDocTable[data-columns="10"] { min-width: 1120px; }
 
   .ocrDocTable th,
   .ocrDocTable td {
     padding: 9px 10px;
+    overflow-wrap: anywhere;
+  }
+
+  .ocrDocTable--index th:first-child,
+  .ocrDocTable--index td:first-child {
+    min-width: 62px;
+    max-width: 78px;
+  }
+
+  .ocrDocTable--label th:first-child,
+  .ocrDocTable--label td:first-child {
+    min-width: 125px;
   }
 }
