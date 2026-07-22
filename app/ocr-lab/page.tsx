@@ -10,7 +10,7 @@ import "./ocr-main-preview.css";
 
 export const metadata: Metadata = {
   title: "OCR Lab — Thuế",
-  description: "Xem OCR theo đúng bố cục trang chính, nghe thử nội dung và so sánh các model trước khi tích hợp.",
+  description: "Xem OCR theo đúng bố cục trang chính, chọn đúng vị trí để nghe và duyệt ma trận định dạng trước khi tích hợp.",
 };
 
 export default function OcrLabPage() {
@@ -23,10 +23,10 @@ export default function OcrLabPage() {
 
       <section className="ocrLabHero">
         <p>OCR LAB · KHÔNG ẢNH HƯỞNG BẢN HIỆN TẠI</p>
-        <h1>Kiểm tra OCR trước khi đưa vào sử dụng.</h1>
+        <h1>Duyệt kỹ OCR trước khi đưa vào sử dụng.</h1>
         <div className="ocrLabIntro">
-          <p>Hệ thống giữ nguyên lớp chữ PDF đang hoạt động tốt, đồng thời OCR từng trang, xử lý logo/con dấu/nhiễu và cho phép chạy toàn bộ tệp theo từng đợt nhỏ.</p>
-          <p>Kết quả được dựng ngay theo giao diện đọc của bản main, có tìm trong văn bản và nghe thử trước khi quyết định merge.</p>
+          <p>Hãy thử trước ma trận định dạng không tốn quota, sau đó mới chạy các trang khó của PDF chính thức bằng Gemini. Kết quả luôn được giữ riêng, chưa ghi vào kho văn bản.</p>
+          <p>Bản xem thử dùng bố cục của main. Có thể chạm trực tiếp vào tiêu đề Điều, đoạn văn hoặc hàng bảng để đọc liên tục từ đúng vị trí đã chọn.</p>
         </div>
       </section>
 
