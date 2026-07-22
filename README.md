@@ -69,3 +69,4 @@ Nhánh thử nghiệm có trang `/ocr-lab` để so sánh lớp chữ sẵn có 
 ## Giới hạn thực tế
 
 Không hệ thống nào có thể bảo đảm lấy được toàn văn của mọi văn bản chỉ bằng web search. Trường hợp nguồn chặn bot, liên kết Google redirect không giải được, PDF chỉ là ảnh scan hoặc file quá lớn, ứng dụng sẽ báo không thể trích xuất thay vì hiển thị nội dung tóm tắt như thể đó là toàn văn.
+.
