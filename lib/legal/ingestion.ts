@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { get as httpsGet } from "node:https";
 import JSZip from "jszip";
 import WordExtractor from "word-extractor";
-import { runProductionPdfOcr } from "./ocr-production";
+import { runProductionPdfOcr } from "./ocr-production.ts";
 
 const MAX_SOURCE_BYTES = 18_000_000;
 const ALLOWED_HOSTS = new Set([
