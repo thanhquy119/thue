@@ -212,6 +212,20 @@ function attachLeadingContinuation(previousPage: OcrPreviewPage, currentPage: Oc
   currentPage.blocks.splice(0, currentResult.index);
 }
 
+function mergeRepeatedFirstRow(previous: TableBlock, rows: string[][], notices: string[]) {
+  const previousLast = previous.rows[previous.rows.length - 1];
+  const first = rows[0];
+  if (!previousLast || !first) return rows;
+  const previousIndex = numericIndex(previousLast[0] ?? "");
+  const currentIndex = numericIndex(first[0] ?? "");
+  if (previousIndex === null || currentIndex === null || previousIndex !== currentIndex) return rows;
+  for (let index = 0; index < previous.columnCount; index += 1) {
+    previousLast[index] = appendText(previousLast[index] ?? "", first[index] ?? "");
+  }
+  notices.push(`Hàng ${currentIndex} bị cắt qua hai trang đã được ghép vào cùng một hàng.`);
+  return rows.slice(1);
+}
+
 function carryTableSchema(previousPage: OcrPreviewPage, currentPage: OcrPreviewPage) {
   const previousResult = lastTable(previousPage.blocks);
   const currentResult = firstTable(currentPage.blocks);
@@ -219,14 +233,28 @@ function carryTableSchema(previousPage: OcrPreviewPage, currentPage: OcrPreviewP
 
   const previous = previousResult.table;
   const current = currentResult.table;
-  if (!previous.headerRows || current.headerRows) return;
-  if (previous.firstColumn !== "index") return;
+  if (!previous.headerRows) return;
 
+  if (current.headerRows) {
+    if (!tableHeadersEqual(previous, current)) return;
+    const repeated = cloneTable(current);
+    repeated.continued = true;
+    repeated.notices = [...new Set([...(repeated.notices ?? []), "Bảng lặp lại hàng tiêu đề ở trang mới và được đánh dấu là phần tiếp theo."])];
+    currentPage.blocks[currentResult.index] = repeated;
+    return;
+  }
+
+  if (previous.firstColumn !== "index") return;
   const firstBodyValue = current.rows[0]?.[0]?.trim() ?? "";
   if (!/^(?:\d+|\.{2,}|…+)$/u.test(firstBodyValue)) return;
 
   const notices = [...(current.notices ?? [])];
-  const rows = current.rows.map((row) => normalizeContinuationRow(row, previous, notices));
+  const normalized = current.rows.map((row) => normalizeContinuationRow(row, previous, notices));
+  const rows = mergeRepeatedFirstRow(previous, normalized, notices);
+  if (!rows.length) {
+    currentPage.blocks.splice(currentResult.index, 1);
+    return;
+  }
   const stitched: TableBlock = {
     ...cloneTable(current),
     rows: [...previous.rows.slice(0, previous.headerRows).map((row) => [...row]), ...rows],
