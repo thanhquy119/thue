@@ -1,4 +1,4 @@
-import { buildOcrPreviewBlocks, type OcrPreviewBlock } from "./ocr-layout";
+import { buildOcrPreviewBlocks, type OcrPreviewBlock } from "./ocr-layout.ts";
 
 type TableBlock = Extract<OcrPreviewBlock, { kind: "table" }> & {
   continued?: boolean;
