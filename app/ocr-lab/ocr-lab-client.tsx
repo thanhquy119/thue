@@ -2,16 +2,18 @@
 
 import { FormEvent, useRef, useState } from "react";
 import { buildOcrPreviewBlocks, type OcrPreviewBlock } from "@/lib/legal/ocr-layout";
+import { OCR_SAMPLES } from "@/lib/legal/ocr-samples";
 
 type PageResult = {
   page: number;
   similarity: number;
-  chosenPass: "literal" | "structure" | "consensus";
+  chosenPass: "literal" | "structure" | "consensus" | "embedded";
   chosenScore: number;
   literalScore: number;
   structureScore: number;
   consensusScore: number | null;
   text: string;
+  notices?: string[];
 };
 
 type LabResult = {
@@ -34,6 +36,13 @@ function recommendationLabel(value: LabResult["recommendation"]) {
   if (value === "prefer_ocr") return "OCR đang tốt hơn lớp chữ PDF";
   if (value === "keep_embedded") return "Nên giữ lớp chữ PDF hiện tại";
   return "Cần kiểm tra thủ công trước khi dùng";
+}
+
+function passLabel(value: PageResult["chosenPass"]) {
+  if (value === "consensus") return "Đối chiếu";
+  if (value === "literal") return "Lượt A";
+  if (value === "structure") return "Lượt B";
+  return "Lớp chữ PDF";
 }
 
 function recommendation(embeddedScore: number, ocrScore: number): LabResult["recommendation"] {
@@ -64,10 +73,10 @@ function mergeResults(results: LabResult[]): LabResult {
   const warnings = [...new Set(
     results
       .flatMap((result) => result.warnings)
-      .filter((warning) => !/^Đợt này đã OCR trang/iu.test(warning)),
+      .filter((warning) => !/^Đợt này đã (?:OCR|xử lý) trang/iu.test(warning)),
   )];
   if (pages.length === totalPages) {
-    warnings.push(`Đã hoàn tất OCR toàn bộ ${totalPages} trang trong chế độ thử nghiệm theo từng đợt nhỏ.`);
+    warnings.push(`Đã hoàn tất phân tích toàn bộ ${totalPages} trang trong chế độ thử nghiệm theo từng đợt nhỏ.`);
   } else {
     warnings.push(`Đã xử lý ${pages.length}/${totalPages} trang; kết quả đang được cập nhật dần.`);
   }
@@ -160,12 +169,20 @@ function FormattedPreview({ pages }: { pages: PageResult[] }) {
       <div className="ocrPaperStack">
         {pages.map((page) => (
           <article className="ocrPaperPage" key={page.page}>
-            <div className="ocrPaperNumber">Trang {page.page}</div>
-            <div className="ocrPaperContent">
-              {buildOcrPreviewBlocks(page.text).map((block, index) => (
-                <PreviewBlock block={block} key={`${page.page}-${index}`} />
-              ))}
+            <div className="ocrPaperNumber">
+              Trang {page.page} · {passLabel(page.chosenPass)}
             </div>
+            <div className="ocrPaperContent">
+              {page.text ? buildOcrPreviewBlocks(page.text).map((block, index) => (
+                <PreviewBlock block={block} key={`${page.page}-${index}`} />
+              )) : <p className="ocrEmptyPage">Không tìm thấy nội dung chữ đủ tin cậy trên trang này.</p>}
+            </div>
+            {page.notices?.length ? (
+              <details className="ocrPageNotices">
+                <summary>Chi tiết xử lý trang {page.page}</summary>
+                {page.notices.map((notice) => <p key={notice}>{notice}</p>)}
+              </details>
+            ) : null}
           </article>
         ))}
       </div>
@@ -208,7 +225,7 @@ export default function OcrLabClient() {
 
     try {
       if (pageMode !== "full") {
-        setProgress(`Đang OCR ${pageMode} trang đầu…`);
+        setProgress(`Đang phân tích ${pageMode} trang đầu…`);
         const payload = await requestBatch(controller, { maxPages: Number(pageMode) });
         setResult(payload);
         setProgress(`Đã xử lý ${payload.processedPages}/${payload.totalPages} trang.`);
@@ -224,7 +241,7 @@ export default function OcrLabClient() {
       const totalPages = first.totalPages;
       for (let start = 3; start <= totalPages; start += 2) {
         const pages = [start, start + 1].filter((page) => page <= totalPages);
-        setProgress(`Đang OCR trang ${pages.join("–")}/${totalPages}…`);
+        setProgress(`Đang phân tích trang ${pages.join("–")}/${totalPages}…`);
         try {
           batches.push(await requestBatch(controller, { pages }));
         } catch (batchError) {
@@ -240,7 +257,7 @@ export default function OcrLabClient() {
       setProgress(`Đã hoàn tất toàn bộ ${totalPages} trang.`);
     } catch (requestError) {
       if (controller.signal.aborted) {
-        setError("Đã dừng quá trình OCR toàn tệp. Các trang hoàn tất trước đó vẫn được giữ trên màn hình.");
+        setError("Đã dừng quá trình phân tích toàn tệp. Các trang hoàn tất trước đó vẫn được giữ trên màn hình.");
       } else {
         setError(requestError instanceof Error ? requestError.message : "Không thể chạy OCR thử nghiệm.");
       }
@@ -254,8 +271,39 @@ export default function OcrLabClient() {
     controllerRef.current?.abort();
   }
 
+  function chooseSample(sampleUrl: string) {
+    setUrl(sampleUrl);
+    setError("");
+    setProgress("");
+    setResult(null);
+  }
+
   return (
     <>
+      <section className="ocrSamples">
+        <header>
+          <div>
+            <span>Bộ mẫu kiểm thử chính thức</span>
+            <h2>PDF lấy trực tiếp từ Văn bản Chính phủ</h2>
+          </div>
+          <small>Chạm một mẫu để điền đường dẫn; sau đó chọn số trang hoặc toàn bộ tệp.</small>
+        </header>
+        <div className="ocrSampleGrid">
+          {OCR_SAMPLES.map((sample) => (
+            <button
+              type="button"
+              key={sample.url}
+              onClick={() => chooseSample(sample.url)}
+              className={url === sample.url ? "isSelected" : ""}
+              disabled={loading}
+            >
+              <strong>{sample.label}</strong>
+              <span>{sample.description}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
       <form className="ocrLabForm" onSubmit={submit}>
         <label>
           <span>Liên kết trực tiếp tới PDF chính thức</span>
@@ -281,7 +329,7 @@ export default function OcrLabClient() {
       </form>
 
       {pageMode === "full" ? (
-        <p className="ocrFullHint">Chế độ toàn tệp chia PDF thành từng đợt 1–2 trang để tránh timeout. Kết quả và bản trình bày xuất hiện dần sau mỗi đợt.</p>
+        <p className="ocrFullHint">Chế độ toàn tệp chia PDF thành từng đợt 1–2 trang để tránh timeout. Trang có lớp chữ tốt được giữ nguyên; OCR chỉ tập trung vào trang scan hoặc trang có lớp chữ kém.</p>
       ) : null}
       {progress ? <p className="ocrProgress" role="status">{progress}</p> : null}
       {error ? <p className="ocrLabError" role="alert">{error}</p> : null}
@@ -295,7 +343,7 @@ export default function OcrLabClient() {
               <small>{result.embedded.characters.toLocaleString("vi-VN")} ký tự</small>
             </article>
             <article>
-              <span>OCR nhiều lượt</span>
+              <span>Kết quả sau xử lý</span>
               <strong>{scoreLabel(result.ocr.score)}</strong>
               <small>{result.ocr.characters.toLocaleString("vi-VN")} ký tự</small>
             </article>
@@ -318,8 +366,8 @@ export default function OcrLabClient() {
               <pre>{result.embedded.text || "PDF không có lớp chữ đủ dùng."}</pre>
             </article>
             <article>
-              <header><h2>Kết quả OCR đã đối chiếu</h2><span>{scoreLabel(result.ocr.score)}</span></header>
-              <pre>{result.ocr.text}</pre>
+              <header><h2>Kết quả sau OCR và đối chiếu</h2><span>{scoreLabel(result.ocr.score)}</span></header>
+              <pre>{result.ocr.text || "Không tìm thấy nội dung chữ đủ tin cậy."}</pre>
             </article>
           </div>
 
@@ -332,10 +380,10 @@ export default function OcrLabClient() {
               {result.ocr.pages.map((page) => (
                 <div className="ocrPageRow" key={page.page}>
                   <span>{page.page}</span>
-                  <span>{scoreLabel(page.literalScore)}</span>
-                  <span>{scoreLabel(page.structureScore)}</span>
-                  <span>{scoreLabel(page.similarity)}</span>
-                  <span>{page.chosenPass === "consensus" ? "Đối chiếu" : page.chosenPass === "literal" ? "Lượt A" : "Lượt B"}</span>
+                  <span>{page.chosenPass === "embedded" ? "—" : scoreLabel(page.literalScore)}</span>
+                  <span>{page.chosenPass === "embedded" ? "—" : scoreLabel(page.structureScore)}</span>
+                  <span>{page.chosenPass === "embedded" ? "—" : scoreLabel(page.similarity)}</span>
+                  <span>{passLabel(page.chosenPass)}</span>
                 </div>
               ))}
             </div>
