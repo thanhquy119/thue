@@ -1,6 +1,11 @@
 import { geminiModel, hasGeminiConfig } from "./gemini";
 import { isAllowedLegalSource } from "./ingestion";
 import {
+  cleanVisualArtifacts,
+  hasVisualArtifactHints,
+  prepareOcrImageVariants,
+} from "./ocr-artifacts";
+import {
   cleanOcrText,
   ocrTokenSimilarity,
   removeRepeatedPageEdges,
@@ -77,7 +82,7 @@ async function callGeminiWithImage(image: Buffer, prompt: string, timeoutMs = 45
               parts: [
                 {
                   text:
-                    "Bạn là bộ OCR cho văn bản pháp luật Việt Nam. Chỉ chép lại ký tự nhìn thấy trong ảnh, không dùng trí nhớ, không diễn giải và không tự bổ sung nội dung.",
+                    "Bạn là bộ OCR cho văn bản pháp luật Việt Nam. Chép trung thực nội dung có ý nghĩa pháp lý nhìn thấy trong ảnh. Bỏ các yếu tố chỉ mang tính trình bày hoặc kỹ thuật như chữ LOGO, watermark, khung viền, đường kẻ trang trí, số trang đứng riêng, metadata máy quét và dòng chứng thực điện tử kiểu SAO Y kèm thời gian. Vẫn phải giữ tiêu đề, Điều/Khoản/Điểm, bảng, danh sách, ô lựa chọn, ghi chú và chú thích nếu chúng làm thay đổi ý nghĩa. Không dùng trí nhớ để tự bổ sung nội dung. Khi chữ bị logo hoặc vết scan che và không thể đọc chắc chắn, ghi [không đọc rõ] thay vì đoán.",
                 },
               ],
             },
@@ -122,43 +127,62 @@ async function callGeminiWithImage(image: Buffer, prompt: string, timeoutMs = 45
 }
 
 const LITERAL_PROMPT =
-  "OCR nguyên văn trang này. Chỉ trả về phần chữ, không Markdown và không giải thích. Giữ đúng dấu tiếng Việt, chữ hoa/thường, số hiệu, ngày tháng, Điều/Khoản/Điểm, dấu câu và xuống dòng. Không sửa câu theo hiểu biết riêng. Ký tự thật sự không đọc được thì ghi ?.";
+  "OCR nội dung trang này theo đúng thứ tự đọc. Chỉ trả về phần chữ, không Markdown và không giải thích. Bỏ chữ LOGO, watermark, số trang đứng riêng, khung viền, đường kẻ, metadata scan và dòng SAO Y kèm ngày giờ. Giữ nguyên dấu tiếng Việt, chữ hoa/thường, số hiệu, ngày tháng, Điều/Khoản/Điểm, dấu câu, bảng, ô lựa chọn, ghi chú có ý nghĩa và xuống dòng hợp lý. Không sửa câu theo hiểu biết riêng. Phần bị che mà không chắc chắn phải ghi [không đọc rõ].";
 
 const STRUCTURE_PROMPT =
-  "Đọc lại độc lập toàn bộ trang văn bản pháp luật này. Chỉ xuất bản chép nguyên văn. Đặc biệt kiểm tra các lỗi OCR thường gặp: 0/O, 1/I/l, 5/S, dấu tiếng Việt, NĐ-CP, TT-BTC, QH, Điều, Khoản, Điểm, số tiền và ngày tháng. Không được suy đoán hoặc viết lại cho trôi chảy.";
+  "Đọc lại độc lập trang scan văn bản pháp luật này trên bản ảnh đã tăng tương phản. Chỉ xuất bản chép nội dung có ý nghĩa. Không chép chữ LOGO, watermark, số trang, metadata SAO Y, tên ứng dụng scan, khung và đường trang trí. Đặc biệt kiểm tra 0/O, 1/I/l, 5/S, dấu tiếng Việt, NĐ-CP, TT-BTC, QH, Điều, Khoản, Điểm, số tiền, ngày tháng, các tiêu đề bị logo chồng lên và chữ ở vùng nhiễu. Giữ ghi chú, bảng, dấu đầu dòng và ô lựa chọn nếu chúng chứa nội dung. Không suy đoán; dùng [không đọc rõ] khi không đủ chắc chắn.";
 
-function consensusPrompt(literal: string, structure: string) {
-  return `Hãy đối chiếu ảnh với hai bản OCR dưới đây và trả về một bản chép nguyên văn duy nhất. Chỉ chọn ký tự được nhìn thấy trong ảnh; không được tự sửa luật, bổ sung câu hoặc diễn giải. Giữ bố cục xuống dòng hợp lý.\n\nBẢN A:\n${literal}\n\nBẢN B:\n${structure}`;
+const TOP_BAND_PROMPT =
+  "Đây là phần phía trên của cùng một trang đã được phóng lớn. Hãy chép riêng toàn bộ tiêu đề và nội dung có ý nghĩa nhìn thấy trong vùng này. Bỏ chữ LOGO/watermark và khung trang trí. Nếu logo chồng lên một cụm chữ, chỉ khôi phục các ký tự còn xác định chắc chắn từ nét chữ và ngữ cảnh ngay trên ảnh; phần không chắc ghi [không đọc rõ]. Không thêm nội dung ngoài ảnh.";
+
+function consensusPrompt(literal: string, structure: string, topBand = "") {
+  const recovered = topBand ? `\n\nBẢN ĐỌC VÙNG ĐẦU TRANG ĐÃ PHÓNG LỚN:\n${topBand}` : "";
+  return `Hãy đối chiếu ảnh gốc với các bản OCR dưới đây và trả về một bản chép nội dung duy nhất theo đúng thứ tự đọc. Loại bỏ chữ LOGO, watermark, số trang đứng riêng, metadata SAO Y/ngày giờ, tên ứng dụng scan, khung và đường trang trí. Giữ mọi nội dung có ý nghĩa pháp lý, kể cả tiêu đề, bảng, ghi chú, danh sách và ô lựa chọn. Với phần bị logo hoặc nhiễu che, chỉ dùng ký tự có thể xác nhận từ ảnh; nếu không chắc ghi [không đọc rõ]. Không tự sửa luật, bổ sung câu hoặc diễn giải.\n\nBẢN A:\n${literal}\n\nBẢN B:\n${structure}${recovered}`;
+}
+
+function cleanedDraft(text: string, pass: OcrDraft["pass"]): OcrDraft {
+  const cleaned = cleanVisualArtifacts(text).text;
+  return {
+    text: cleaned,
+    score: scoreLegalOcrText(cleaned),
+    pass,
+  };
 }
 
 async function comparePage(image: Buffer, page: number): Promise<OcrPageComparison> {
+  const variants = await prepareOcrImageVariants(image);
   const [literalResponse, structureResponse] = await Promise.all([
-    callGeminiWithImage(image, LITERAL_PROMPT),
-    callGeminiWithImage(image, STRUCTURE_PROMPT),
+    callGeminiWithImage(variants.original, LITERAL_PROMPT),
+    callGeminiWithImage(variants.enhanced, STRUCTURE_PROMPT),
   ]);
 
-  const literal: OcrDraft = {
-    text: literalResponse.text,
-    score: scoreLegalOcrText(literalResponse.text),
-    pass: "literal",
-  };
-  const structure: OcrDraft = {
-    text: structureResponse.text,
-    score: scoreLegalOcrText(structureResponse.text),
-    pass: "structure",
-  };
+  const literal = cleanedDraft(literalResponse.text, "literal");
+  const structure = cleanedDraft(structureResponse.text, "structure");
   const similarity = ocrTokenSimilarity(literal.text, structure.text);
   const drafts: OcrDraft[] = [literal, structure];
   let consensusScore: number | null = null;
 
-  if (similarity < 0.94 || Math.max(literal.score, structure.score) < 0.78) {
+  const needsRecovery =
+    similarity < 0.94 ||
+    Math.max(literal.score, structure.score) < 0.78 ||
+    hasVisualArtifactHints(literalResponse.text) ||
+    hasVisualArtifactHints(structureResponse.text);
+
+  if (needsRecovery) {
+    let topBandText = "";
     try {
-      const response = await callGeminiWithImage(image, consensusPrompt(literal.text, structure.text));
-      const consensus: OcrDraft = {
-        text: response.text,
-        score: scoreLegalOcrText(response.text),
-        pass: "consensus",
-      };
+      const topBandResponse = await callGeminiWithImage(variants.topBand, TOP_BAND_PROMPT);
+      topBandText = cleanVisualArtifacts(topBandResponse.text).text;
+    } catch {
+      // Vẫn có thể đối chiếu bằng hai lượt toàn trang.
+    }
+
+    try {
+      const response = await callGeminiWithImage(
+        variants.original,
+        consensusPrompt(literal.text, structure.text, topBandText),
+      );
+      const consensus = cleanedDraft(response.text, "consensus");
       consensusScore = consensus.score;
       drafts.push(consensus);
     } catch {
@@ -189,7 +213,7 @@ async function safeFetchPdf(urlValue: string, redirects = 0): Promise<{ url: str
     const response = await fetch(urlValue, {
       redirect: "manual",
       signal: controller.signal,
-      headers: { "user-agent": "ThueLegalReader-OcrLab/1.1" },
+      headers: { "user-agent": "ThueLegalReader-OcrLab/1.2" },
     });
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
@@ -224,8 +248,6 @@ export async function runOcrExperimentSafely(urlValue: string, requestedPages = 
     import("pdf-parse/worker"),
   ]);
 
-  // Buffer của Node có thể dùng chung backing store và không phải lúc nào cũng
-  // chuyển được sang worker. Tạo một Uint8Array thuần, sở hữu ArrayBuffer riêng.
   const transferablePdf = Uint8Array.from(source.buffer);
   const parser = new PDFParse({ data: transferablePdf, CanvasFactory });
 
@@ -233,10 +255,10 @@ export async function runOcrExperimentSafely(urlValue: string, requestedPages = 
   let totalPages = 0;
   let screenshotPages: PdfScreenshotPage[] = [];
   try {
-    // Không chạy getText/getInfo song song: cả hai có thể cùng khởi tạo worker
-    // và cố chuyển một ArrayBuffer trong cùng thời điểm trên Vercel.
     const textResult = await parser.getText();
-    embeddedText = normalizeSpaces(textResult.text.replace(/-- \d+ of \d+ --/g, " "));
+    embeddedText = cleanVisualArtifacts(
+      normalizeSpaces(textResult.text.replace(/-- \d+ of \d+ --/g, " ")),
+    ).text;
 
     const infoResult = await parser.getInfo();
     totalPages = infoResult.total;
@@ -260,16 +282,19 @@ export async function runOcrExperimentSafely(urlValue: string, requestedPages = 
     pageResults.push(await comparePage(image, index + 1));
   }
 
-  const cleanedPages = removeRepeatedPageEdges(pageResults.map((page) => page.text));
+  const repeatedEdgesRemoved = removeRepeatedPageEdges(pageResults.map((page) => page.text));
+  const cleanedPages = repeatedEdgesRemoved.map((page) => cleanVisualArtifacts(page).text);
   const ocrText = cleanedPages.join("\n\n").trim();
   const ocrScore = scoreLegalOcrText(ocrText);
   const embeddedScore = scoreLegalOcrText(embeddedText);
   const truncated = totalPages > pageResults.length;
   const warnings: string[] = [
     "Đây là kết quả thử nghiệm, chưa được dùng thay cho toàn văn chính thức trong luồng tra cứu hiện tại.",
+    "Hệ thống đã tự bỏ logo/watermark, số trang đứng riêng, metadata SAO Y, tên ứng dụng scan, khung và đường trang trí; ghi chú có ý nghĩa pháp lý vẫn được giữ lại.",
   ];
   if (truncated) warnings.push(`Chỉ OCR ${pageResults.length}/${totalPages} trang để đánh giá chất lượng và thời gian xử lý.`);
   if (pageResults.some((page) => page.similarity < 0.8)) warnings.push("Có trang mà hai lượt OCR khác nhau đáng kể; nên kiểm tra thủ công trước khi sử dụng.");
+  if (/\[không đọc rõ\]/iu.test(ocrText)) warnings.push("Có vùng chữ bị logo hoặc nhiễu che mà hệ thống không thể xác nhận chắc chắn; các vị trí này được đánh dấu [không đọc rõ].");
 
   return {
     sourceUrl: source.url,
