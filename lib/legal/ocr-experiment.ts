@@ -9,7 +9,7 @@ const RENDER_WIDTH = 1_800;
 export type OcrDraft = {
   text: string;
   score: number;
-  pass: "literal" | "structure" | "consensus";
+  pass: "literal" | "structure" | "consensus" | "embedded";
 };
 
 export type OcrPageComparison = {
@@ -21,6 +21,7 @@ export type OcrPageComparison = {
   structureScore: number;
   consensusScore: number | null;
   text: string;
+  notices?: string[];
 };
 
 export type OcrExperimentResult = {
@@ -136,6 +137,8 @@ export function selectBestOcrDraft(drafts: OcrDraft[]) {
     if (Math.abs(scoreDifference) > 0.015) return scoreDifference;
     if (left.pass === "consensus" && right.pass !== "consensus") return -1;
     if (right.pass === "consensus" && left.pass !== "consensus") return 1;
+    if (left.pass === "embedded" && right.pass !== "embedded") return 1;
+    if (right.pass === "embedded" && left.pass !== "embedded") return -1;
     return right.text.length - left.text.length;
   })[0];
 }
