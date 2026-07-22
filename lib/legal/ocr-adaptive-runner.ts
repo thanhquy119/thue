@@ -1,10 +1,6 @@
 import { geminiModel, hasGeminiConfig } from "./gemini";
 import { isAllowedLegalSource } from "./ingestion";
-import {
-  cleanVisualArtifacts,
-  hasVisualArtifactHints,
-  prepareOcrImageBands,
-} from "./ocr-artifacts";
+import { cleanVisualArtifacts, prepareOcrImageBands } from "./ocr-artifacts";
 import {
   cleanOcrText,
   scoreLegalOcrText,
@@ -70,8 +66,20 @@ function generationConfig(model: string) {
   };
 }
 
-const BAND_PROMPT =
-  "Nhận dạng ký tự trong mảnh ảnh nhỏ này theo thứ tự từ trên xuống dưới. Chỉ trả chữ nhìn thấy, không giải thích. Bỏ con dấu, LOGO, watermark, khung, đường kẻ trang trí và số trang đứng riêng. Giữ nguyên tiếng Việt, số hiệu, Điều/Khoản/Điểm, dấu câu, danh sách, ô lựa chọn, dòng chấm và các ô bảng. Nếu có hàng bảng, dùng dạng | ô 1 | ô 2 |. Chữ bị che mà không chắc chắn ghi [không đọc rõ]. Nếu mảnh ảnh không có chữ, trả đúng [không có nội dung chữ].";
+const BAND_PROMPT = `Nhận dạng ký tự trong mảnh ảnh nhỏ này theo đúng thứ tự từ trên xuống dưới.
+Chỉ trả nội dung nhìn thấy; không giải thích, không diễn giải và không tự bổ sung.
+Bỏ con dấu, LOGO, watermark, viền trang, đường kẻ trang trí và số trang đứng riêng. Giữ nguyên tiếng Việt, số hiệu, Điều/Khoản/Điểm, dấu câu, danh sách, ô lựa chọn và dòng chấm.
+
+QUY TẮC BẮT BUỘC KHI CÓ BẢNG:
+1. Đặt [TABLE] ở dòng trước bảng và [/TABLE] ở dòng sau bảng.
+2. Mỗi hàng vật lý là đúng một dòng theo dạng | ô 1 | ô 2 | ... |.
+3. Mỗi đường phân cột nhìn thấy phải tương ứng với một dấu |; ô trống vẫn phải giữ vị trí, ví dụ | 3 | Nội dung | □ | □ | | |.
+4. Tất cả hàng thuộc cùng một bảng phải có cùng số ô. Không gộp các cột Đạt, Không đạt, Nhận xét hoặc Yêu cầu giải trình vào cột nội dung.
+5. Nếu đây là phần tiếp nối của bảng và không thấy hàng tiêu đề, vẫn giữ đủ các cột đang nhìn thấy; không biến bảng thành đoạn văn.
+6. Nếu một hàng bị cắt ở mép trên hoặc mép dưới ảnh, ghi phần nhìn thấy vào đúng ô và để trống các ô không nhìn thấy. Không đoán nội dung bị mất.
+7. Ô vuông phải giữ là □ hoặc ☑. Không đổi ô vuông thành ký tự khác.
+
+Chữ bị che mà không chắc chắn ghi [không đọc rõ]. Nếu mảnh ảnh không có chữ, trả đúng [không có nội dung chữ].`;
 
 async function callBandModel(image: Buffer) {
   const models = Array.from(new Set([ocrModel(), "gemini-3.1-flash-lite", "gemini-3-flash-preview"]));
@@ -94,7 +102,7 @@ async function callBandModel(image: Buffer) {
             systemInstruction: {
               parts: [{
                 text:
-                  "Bạn thực hiện nhận dạng ký tự trên một mảnh ảnh nhỏ do người dùng cung cấp. Không dùng trí nhớ, không diễn giải và không bổ sung chữ ngoài ảnh.",
+                  "Bạn thực hiện OCR trên một mảnh ảnh nhỏ. Không dùng trí nhớ, không diễn giải, không bổ sung chữ ngoài ảnh và phải bảo toàn cấu trúc hàng/cột của bảng.",
               }],
             },
             contents: [{
@@ -155,18 +163,51 @@ function normalizeLine(value: string) {
     .trim();
 }
 
+function isTableTag(value: string) {
+  return /^\[\/?TABLE\]$/iu.test(value.trim());
+}
+
+function balanceTableTags(lines: string[]) {
+  const output: string[] = [];
+  let open = false;
+  for (const line of lines) {
+    if (/^\[TABLE\]$/iu.test(line)) {
+      if (open) output.push("[/TABLE]");
+      output.push("[TABLE]");
+      open = true;
+      continue;
+    }
+    if (/^\[\/TABLE\]$/iu.test(line)) {
+      if (open) output.push("[/TABLE]");
+      open = false;
+      continue;
+    }
+    output.push(line);
+  }
+  if (open) output.push("[/TABLE]");
+  return output;
+}
+
 function mergeBandTexts(values: string[]) {
   const output: string[] = [];
   for (const value of values) {
-    for (const rawLine of cleanVisualArtifacts(value).text.split("\n")) {
+    const cleaned = cleanVisualArtifacts(value).text;
+    for (const rawLine of cleaned.split("\n")) {
       const line = rawLine.trim();
       if (!line) continue;
+      if (isTableTag(line)) {
+        output.push(line.toUpperCase());
+        continue;
+      }
       const normalized = normalizeLine(line);
-      const recent = output.slice(-3).some((existing) => normalizeLine(existing) === normalized);
+      const recent = output
+        .slice(-4)
+        .filter((existing) => !isTableTag(existing))
+        .some((existing) => normalizeLine(existing) === normalized);
       if (!recent) output.push(line);
     }
   }
-  return cleanVisualArtifacts(output.join("\n")).text;
+  return cleanVisualArtifacts(balanceTableTags(output).join("\n")).text;
 }
 
 async function ocrFragment(image: Buffer, depth = 0): Promise<{ text: string; notices: string[] }> {
@@ -196,6 +237,7 @@ async function tiledPageOcr(image: Buffer, page: number): Promise<OcrPageCompari
   const texts: string[] = [];
   const notices: string[] = [
     "Trang không có lớp chữ PDF đủ dùng; hệ thống đã chia ảnh thành các vùng nhỏ để tránh bộ lọc recitation.",
+    "OCR được yêu cầu giữ nguyên số cột và đánh dấu từng mảnh bảng để có thể ghép lại giữa các vùng/trang.",
   ];
 
   for (let index = 0; index < bands.length; index += 1) {
@@ -218,12 +260,19 @@ async function tiledPageOcr(image: Buffer, page: number): Promise<OcrPageCompari
   };
 }
 
+function embeddedHasBlockingArtifacts(value: string) {
+  return (
+    /\bLOGO\b|\bWATERMARK\b|\bSAO\s+Y\s*;/iu.test(value) ||
+    /(?:�|■{2,}|◆{2,}|◇{2,}|\?{2,}|\[không đọc rõ\])/iu.test(value)
+  );
+}
+
 function embeddedIsReliable(value: string) {
   const cleaned = cleanVisualArtifacts(value).text;
   if (cleaned.length < 220) return false;
   if (scoreLegalOcrText(cleaned) < 0.72) return false;
-  if (hasVisualArtifactHints(cleaned)) return false;
-  const replacementCount = (cleaned.match(/[�□■◆◇]|\?{2,}/g) ?? []).length;
+  if (embeddedHasBlockingArtifacts(cleaned)) return false;
+  const replacementCount = (cleaned.match(/[�■◆◇]|\?{2,}/g) ?? []).length;
   return replacementCount <= Math.max(1, Math.floor(cleaned.length / 1_500));
 }
 
@@ -252,7 +301,7 @@ async function safeFetchPdf(urlValue: string, redirects = 0): Promise<{ url: str
     const response = await fetch(urlValue, {
       redirect: "manual",
       signal: controller.signal,
-      headers: { "user-agent": "ThueLegalReader-OcrLab/1.5" },
+      headers: { "user-agent": "ThueLegalReader-OcrLab/1.6" },
     });
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
@@ -326,14 +375,15 @@ async function runExplicitPages(urlValue: string, request: OcrBatchRequest): Pro
   for (let index = 0; index < pages.length; index += 1) {
     const embedded = embeddedPages[index] ?? "";
     if (embeddedIsReliable(embedded)) {
-      pageResults.push(embeddedPage(pages[index], embedded));
+      pageResults.push(embeddedPage(pages[index] ?? index + 1, embedded));
     } else {
       const image = screenshots[index]?.data;
+      const pageNumber = pages[index] ?? index + 1;
       pageResults.push(
         image
-          ? await tiledPageOcr(Buffer.from(image), pages[index])
+          ? await tiledPageOcr(Buffer.from(image), pageNumber)
           : {
-              page: pages[index],
+              page: pageNumber,
               similarity: 0,
               chosenPass: "embedded",
               chosenScore: scoreLegalOcrText(embedded),
