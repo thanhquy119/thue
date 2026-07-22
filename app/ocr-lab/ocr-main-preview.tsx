@@ -84,11 +84,13 @@ function prepareProvisions(pages: PageResult[]) {
   const preparedPages = buildOcrPreviewPages(
     pages.map((page) => ({ page: page.page, text: page.text })),
   );
+  const firstPage = preparedPages[0]?.page ?? 1;
+  const startsAtBeginning = firstPage === 1;
   const provisions: PreviewProvision[] = [];
   let current: PreviewProvision = {
-    key: "preamble",
-    title: "Phần mở đầu",
-    startPage: preparedPages[0]?.page ?? 1,
+    key: startsAtBeginning ? "preamble" : "continuation",
+    title: startsAtBeginning ? "Phần mở đầu" : `Nội dung tiếp theo · Trang ${firstPage}`,
+    startPage: firstPage,
     entries: [],
   };
 
@@ -112,7 +114,7 @@ function prepareProvisions(pages: PageResult[]) {
     }
   }
   flush();
-  if (provisions[0]?.key === "preamble") assignPreambleRoles(provisions[0].entries);
+  if (startsAtBeginning && provisions[0]?.key === "preamble") assignPreambleRoles(provisions[0].entries);
   return provisions;
 }
 
@@ -296,7 +298,7 @@ export default function OcrMainPreview({ pages }: { pages: PageResult[] }) {
 
         <div className="readerText">
           {provisions.map((provision, provisionIndex) => (
-            <section className="legalProvision ocrMainProvision" data-page={provision.startPage} key={provision.key}>
+            <section className={`legalProvision ocrMainProvision ocrMainProvision--${provision.key}`} data-page={provision.startPage} key={provision.key}>
               <h4 className="ocrSpeechSegment ocrMainSearchable" data-page={provision.startPage} data-search-text={comparable(provision.title)}>
                 <span>{String(provisionIndex + 1).padStart(2, "0")}.</span>{provision.title}
               </h4>
