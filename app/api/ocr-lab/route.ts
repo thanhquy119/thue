@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { installOcrFetchShim } from "@/lib/legal/ocr-fetch-shim";
-import { runOcrBatch } from "@/lib/legal/ocr-batch-runner";
+import { runAdaptiveOcrBatch } from "@/lib/legal/ocr-adaptive-runner";
 import { ocrLabEnabled } from "@/lib/legal/ocr-experiment";
 
 export const runtime = "nodejs";
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
       : undefined;
 
     if (!url) return NextResponse.json({ error: "Vui lòng nhập liên kết PDF chính thức." }, { status: 400 });
-    const result = await runOcrBatch(url, {
+    const result = await runAdaptiveOcrBatch(url, {
       maxPages: Number.isFinite(maxPages) ? maxPages : 3,
       pages,
     });
