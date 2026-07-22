@@ -54,6 +54,7 @@ test("keeps an unknown second checkbox blank instead of guessing", () => {
       page: 2,
       text: `
 | 2 | Tiêu chí hai □ |
+| 3 | Tiêu chí ba □ □ |
 `,
     },
   ]);
