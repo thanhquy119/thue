@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { get as httpsGet } from "node:https";
 import JSZip from "jszip";
 import WordExtractor from "word-extractor";
+import { runProductionPdfOcr } from "./ocr-production";
 
 const MAX_SOURCE_BYTES = 18_000_000;
 const ALLOWED_HOSTS = new Set([
@@ -32,7 +33,7 @@ export type ExtractedSource = {
   fileName: string | null;
   officialText: string;
   sha256: string;
-  extractionMethod: "html" | "doc" | "docx" | "pdf_text" | "plain_text" | "ocr_required";
+  extractionMethod: "html" | "doc" | "docx" | "pdf_text" | "ocr" | "plain_text" | "ocr_required";
   qualityScore: number;
   requiresOcr: boolean;
   metadata: Record<string, unknown>;
@@ -122,8 +123,26 @@ function scoreText(text: string, method: ExtractedSource["extractionMethod"]) {
   const legalMarkers = (text.match(/\b(?:Điều|Chương|Khoản)\s+[0-9IVXLC]+/giu) ?? []).length;
   const markerScore = Math.min(1, legalMarkers / 8);
   const replacementRatio = (text.match(/�/g) ?? []).length / Math.max(1, text.length);
-  const base = method === "docx" ? 0.58 : method === "doc" ? 0.56 : method === "pdf_text" ? 0.52 : method === "html" ? 0.42 : 0.5;
+  const base = method === "ocr"
+    ? 0.6
+    : method === "docx"
+      ? 0.58
+      : method === "doc"
+        ? 0.56
+        : method === "pdf_text"
+          ? 0.52
+          : method === "html"
+            ? 0.42
+            : 0.5;
   return Math.max(0, Math.min(1, base + lengthScore * 0.2 + markerScore * 0.22 - replacementRatio * 20));
+}
+
+function textHasUsableLegalStructure(text: string, method: "html" | "pdf_text") {
+  if (text.length < 1_200) return false;
+  const markers = (text.match(/\b(?:Điều|Chương|Khoản|Mục)\s+[0-9IVXLC]+/giu) ?? []).length;
+  const replacementRatio = (text.match(/�/g) ?? []).length / Math.max(1, text.length);
+  if (replacementRatio > 0.003) return false;
+  return scoreText(text, method) >= 0.54 && (markers >= 2 || text.length >= 5_000);
 }
 
 async function safeFetch(urlValue: string, redirects = 0): Promise<{ response: Response; buffer: Buffer }> {
@@ -279,6 +298,7 @@ async function extractBuffer(
   let extractionMethod: ExtractedSource["extractionMethod"] = "plain_text";
   let requiresOcr = false;
   let repairedDocxPath = false;
+  let pdfPages = 0;
   const lowerName = fileName?.toLocaleLowerCase("en") ?? "";
 
   if (mimeType.includes("wordprocessingml") || lowerName.endsWith(".docx")) {
@@ -298,12 +318,14 @@ async function extractBuffer(
     ]);
     const parser = new PDFParse({ data: buffer, CanvasFactory });
     try {
+      const info = await parser.getInfo();
+      pdfPages = info.total;
       const result = await parser.getText();
       officialText = normalizeText(result.text.replace(/-- \d+ of \d+ --/g, " "));
     } finally {
       await parser.destroy().catch(() => undefined);
     }
-    if (officialText.length < 1_200) {
+    if (!textHasUsableLegalStructure(officialText, "pdf_text")) {
       extractionMethod = "ocr_required";
       requiresOcr = true;
     } else {
@@ -332,6 +354,40 @@ async function extractBuffer(
       legalMarkerCount: (officialText.match(/\b(?:Điều|Chương|Khoản)\s+[0-9IVXLC]+/giu) ?? []).length,
       requiresOcr,
       repairedDocxPath,
+      pdfPages,
+    },
+  };
+}
+
+async function applyOcrFallback(extracted: ExtractedSource, buffer: Buffer) {
+  if (!extracted.requiresOcr || !extracted.mimeType.includes("pdf")) return extracted;
+  const totalPages = Number(extracted.metadata.pdfPages ?? 0);
+  const ocr = await runProductionPdfOcr(buffer, totalPages).catch(() => null);
+  if (!ocr?.accepted) {
+    return {
+      ...extracted,
+      metadata: {
+        ...extracted.metadata,
+        ocrFallbackAttempted: true,
+        ocrFallbackAccepted: false,
+      },
+    };
+  }
+  const officialText = normalizeText(ocr.text);
+  return {
+    ...extracted,
+    officialText,
+    extractionMethod: "ocr" as const,
+    qualityScore: Math.max(scoreText(officialText, "ocr"), ocr.score),
+    requiresOcr: false,
+    metadata: {
+      ...extracted.metadata,
+      requiresOcr: false,
+      ocrFallbackAttempted: true,
+      ocrFallbackAccepted: true,
+      ocrModel: ocr.model,
+      ocrConfidence: ocr.score,
+      ocrWarnings: ocr.warnings,
     },
   };
 }
@@ -341,7 +397,9 @@ export async function extractFromUrl(sourceUrl: string) {
   const mimeType = response.headers.get("content-type")?.split(";")[0] || "application/octet-stream";
   const resolvedUrl = response.url || sourceUrl;
   if (mimeType.includes("html")) {
-    const attachmentUrl = officialAttachmentUrl(buffer.toString("utf8"), resolvedUrl);
+    const html = buffer.toString("utf8");
+    const landingText = htmlToText(html);
+    const attachmentUrl = officialAttachmentUrl(html, resolvedUrl);
     if (attachmentUrl) {
       const attachment = await safeFetch(attachmentUrl);
       const attachmentMime = attachment.response.headers.get("content-type")?.split(";")[0] || "application/octet-stream";
@@ -351,15 +409,31 @@ export async function extractFromUrl(sourceUrl: string) {
         attachment.response.url || attachmentUrl,
         filenameFrom(attachment.response, attachmentUrl),
       );
-      return { ...extracted, metadata: { ...extracted.metadata, landingPageUrl: resolvedUrl } };
+      if (extracted.requiresOcr && textHasUsableLegalStructure(landingText, "html")) {
+        const landing = await extractBuffer(buffer, mimeType, resolvedUrl, filenameFrom(response, sourceUrl));
+        return {
+          ...landing,
+          metadata: {
+            ...landing.metadata,
+            attachmentUrl: attachment.response.url || attachmentUrl,
+            attachmentRequiresOcr: true,
+            extractionPriority: "html_before_ocr",
+          },
+        };
+      }
+      const resolved = await applyOcrFallback(extracted, attachment.buffer);
+      return { ...resolved, metadata: { ...resolved.metadata, landingPageUrl: resolvedUrl } };
     }
   }
-  return extractBuffer(buffer, mimeType, resolvedUrl, filenameFrom(response, sourceUrl));
+  const extracted = await extractBuffer(buffer, mimeType, resolvedUrl, filenameFrom(response, sourceUrl));
+  return applyOcrFallback(extracted, buffer);
 }
 
 export async function extractFromFile(file: File) {
   if (file.size > MAX_SOURCE_BYTES) throw new Error("Tệp tải lên vượt giới hạn 18 MB.");
-  return extractBuffer(Buffer.from(await file.arrayBuffer()), file.type || "application/octet-stream", null, file.name);
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const extracted = await extractBuffer(buffer, file.type || "application/octet-stream", null, file.name);
+  return applyOcrFallback(extracted, buffer);
 }
 
 export function parseLegalHierarchy(input: string): ParsedProvision[] {
