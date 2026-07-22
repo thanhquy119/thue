@@ -20,16 +20,19 @@ export async function POST(request: Request) {
       pages?: unknown;
     };
     const url = typeof body.url === "string" ? body.url.trim() : "";
-    const maxPages = typeof body.maxPages === "number" ? body.maxPages : Number(body.maxPages ?? 3);
-    const pages = Array.isArray(body.pages)
+    const requestedMaxPages = typeof body.maxPages === "number" ? body.maxPages : Number(body.maxPages ?? 3);
+    const maxPages = Number.isFinite(requestedMaxPages)
+      ? Math.max(1, Math.min(6, Math.floor(requestedMaxPages)))
+      : 3;
+    const requestedPages = Array.isArray(body.pages)
       ? body.pages.map((page) => Number(page)).filter(Number.isFinite)
-      : undefined;
+      : [];
+    const pages = requestedPages.length
+      ? requestedPages
+      : Array.from({ length: maxPages }, (_, index) => index + 1);
 
     if (!url) return NextResponse.json({ error: "Vui lòng nhập liên kết PDF chính thức." }, { status: 400 });
-    const result = await runAdaptiveOcrBatch(url, {
-      maxPages: Number.isFinite(maxPages) ? maxPages : 3,
-      pages,
-    });
+    const result = await runAdaptiveOcrBatch(url, { pages });
     return NextResponse.json(result, {
       headers: {
         "cache-control": "no-store",
