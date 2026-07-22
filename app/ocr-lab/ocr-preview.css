@@ -1,3 +1,81 @@
+.ocrSamples {
+  margin-top: 20px;
+  border: 1px solid #deded9;
+  border-radius: 20px;
+  background: #fff;
+  padding: 20px;
+}
+
+.ocrSamples > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 14px;
+}
+
+.ocrSamples > header span {
+  color: #6a6a65;
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ocrSamples > header h2 {
+  margin: 4px 0 0;
+  font-size: 23px;
+  letter-spacing: -0.035em;
+}
+
+.ocrSamples > header small {
+  max-width: 360px;
+  color: #777771;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.ocrSampleGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ocrSampleGrid button {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  border: 1px solid #deded9;
+  border-radius: 14px;
+  background: #fafaf7;
+  color: #111;
+  padding: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ocrSampleGrid button:hover,
+.ocrSampleGrid button.isSelected {
+  border-color: #111;
+  background: #fff;
+}
+
+.ocrSampleGrid button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.ocrSampleGrid strong {
+  font-size: 14px;
+  letter-spacing: -0.015em;
+}
+
+.ocrSampleGrid span {
+  color: #666660;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .ocrFormActions {
   display: flex;
   align-items: stretch;
@@ -105,6 +183,31 @@
   font-family: "Times New Roman", Times, serif;
   font-size: 17px;
   line-height: 1.55;
+}
+
+.ocrEmptyPage {
+  margin: 80px auto;
+  max-width: 420px;
+  color: #888880;
+  font-family: Arial, sans-serif;
+  text-align: center;
+}
+
+.ocrPageNotices {
+  margin-top: 34px;
+  border-top: 1px solid #e3e3de;
+  padding-top: 14px;
+  color: #686862;
+  font: 12px/1.55 Arial, sans-serif;
+}
+
+.ocrPageNotices summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.ocrPageNotices p {
+  margin: 7px 0 0;
 }
 
 .ocrDocTitle {
@@ -217,12 +320,20 @@
   white-space: nowrap;
 }
 
+@media (max-width: 900px) {
+  .ocrSampleGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 @media (max-width: 760px) {
+  .ocrSamples > header { align-items: start; flex-direction: column; gap: 8px; }
+  .ocrSamples > header small { text-align: left; }
+  .ocrSampleGrid { grid-template-columns: 1fr; }
   .ocrFormActions { display: grid; grid-template-columns: 1fr auto; }
   .ocrFormattedPreview > header { align-items: start; flex-direction: column; gap: 8px; }
   .ocrFormattedPreview > header small { text-align: left; }
   .ocrPaperStack { padding: 10px; gap: 12px; }
   .ocrPaperPage { min-height: 560px; padding: 48px 20px 32px; }
+  .ocrPaperNumber { left: 20px; right: auto; }
   .ocrPaperContent { font-size: 15px; }
   .ocrDocTitle { font-size: 21px; }
   .ocrDocHeading { font-size: 19px; }
