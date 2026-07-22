@@ -26,7 +26,7 @@ function normalize(value: string) {
     .trim();
 }
 
-function normalizeComparable(value: string) {
+function comparable(value: string) {
   return value
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -50,7 +50,7 @@ function isPrimaryTitle(line: string) {
   );
 }
 
-function isHeading(line: string) {
+function headingLevel(line: string) {
   if (/^(?:CHƯƠNG|MỤC|PHẦN)\s+[IVXLCDM\d]+\b/iu.test(line)) return 2;
   if (/^[IVXLCDM]+[.)]\s+/u.test(line)) return 2;
   if (/^\d+[.)]\s+[A-ZÀ-ỸĐ]/u.test(line) && line.length < 180) return 3;
@@ -58,37 +58,31 @@ function isHeading(line: string) {
   return 0;
 }
 
+function pipeCount(value: string) {
+  return value.match(/\|/g)?.length ?? 0;
+}
+
+function parsePipeCells(line: string) {
+  if (!pipeCount(line)) return null;
+  const cells = line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+  return cells.length >= 2 && cells.some(Boolean) ? cells : null;
+}
+
+function parseFormRow(line: string) {
+  const match = line.match(/^Mẫu\s+số\s+(\d{1,3})\s*(?:[|:–—-]\s*)?(.+)$/iu);
+  return match ? [`Mẫu số ${match[1]?.padStart(2, "0")}`, match[2]?.trim() ?? ""] : null;
+}
+
 function isSeparatorCell(value: string) {
   return /^:?-{3,}:?$/u.test(value.trim());
 }
 
-function pipeCount(value: string) {
-  return (value.match(/\|/g) ?? []).length;
-}
-
-function parsePipeCells(line: string): string[] | null {
-  if (pipeCount(line) < 1) return null;
-  const stripped = line.trim().replace(/^\|/, "").replace(/\|$/, "");
-  const cells = stripped.split("|").map((cell) => cell.trim());
-  if (cells.length < 2 || cells.every((cell) => !cell)) return null;
-  return cells;
-}
-
-function parseFormRow(line: string): string[] | null {
-  const match = line.match(/^Mẫu\s+số\s+(\d{1,3})\s*(?:[|:–—-]\s*)?(.+)$/iu);
-  if (!match) return null;
-  return [`Mẫu số ${match[1].padStart(2, "0")}`, match[2].trim()];
-}
-
 function isTableTag(line: string) {
-  return /^\[\/?TABLE\]$/iu.test(line.trim());
+  return /^\[\/?TABLE\]$/iu.test(line);
 }
 
-function isTableLikeLine(line: string, tagged = false) {
-  if (isTableTag(line)) return true;
-  if (tagged) return true;
-  if (pipeCount(line) >= 2) return true;
-  return /^\s*\|/.test(line) && /\|\s*$/.test(line);
+function isTableLikeLine(line: string, tagged: boolean) {
+  return tagged || isTableTag(line) || pipeCount(line) >= 2 || (/^\|/.test(line) && /\|$/.test(line));
 }
 
 function isFillerOnly(line: string) {
@@ -103,81 +97,62 @@ function isFillerOnly(line: string) {
 function appendCell(base: string, addition: string) {
   if (!addition) return base;
   if (!base) return addition;
-  if (normalizeComparable(base) === normalizeComparable(addition)) return base;
+  if (comparable(base) === comparable(addition)) return base;
   return `${base} ${addition}`.replace(/\s+/g, " ").trim();
 }
 
-function mergeRows(base: string[], continuation: string[], columnCount: number) {
-  const merged = Array.from({ length: columnCount }, (_, index) => base[index] ?? "");
+function normalizeRowWidth(row: string[], columns: number) {
+  if (row.length < columns) return [...row, ...Array.from({ length: columns - row.length }, () => "")];
+  if (row.length > columns) return [...row.slice(0, columns - 1), row.slice(columns - 1).filter(Boolean).join(" ")];
+  return [...row];
+}
+
+function mergeRows(base: string[], continuation: string[], columns: number) {
+  const merged = normalizeRowWidth(base, columns);
   continuation.forEach((cell, index) => {
     if (!cell) return;
-    const target = index < columnCount ? index : columnCount - 1;
-    merged[target] = appendCell(merged[target], cell);
+    const target = Math.min(index, columns - 1);
+    merged[target] = appendCell(merged[target] ?? "", cell);
   });
   return merged;
 }
 
-function inferColumnCount(rows: string[][], separatorColumns: number) {
-  if (separatorColumns >= 2) return Math.min(10, separatorColumns);
-  return Math.max(2, Math.min(10, ...rows.map((row) => row.length)));
-}
-
-function normalizeRowWidth(row: string[], columnCount: number) {
-  if (row.length === columnCount) return [...row];
-  if (row.length < columnCount) return [...row, ...Array.from({ length: columnCount - row.length }, () => "")];
-  return [...row.slice(0, columnCount - 1), row.slice(columnCount - 1).filter(Boolean).join(" ")];
-}
-
-function moveTrailingCheckboxes(row: string[], headers: string[]) {
-  if (row.length < 4 || !row[1]) return row;
-  const normalizedHeaders = headers.map(normalizeComparable);
-  const passColumn = normalizedHeaders.findIndex((value) => value === "dat");
-  const failColumn = normalizedHeaders.findIndex((value) => value === "khong dat");
-  if (passColumn < 0 || failColumn < 0 || row[passColumn] || row[failColumn]) return row;
-
-  const matches = row[1].match(/(?:□|☐|☑|✓|✔)/gu) ?? [];
-  if (matches.length < 2) return row;
-  const cleaned = row[1].replace(/(?:\s*(?:□|☐|☑|✓|✔)){2,}\s*$/u, "").trim();
-  const next = [...row];
-  next[1] = cleaned;
-  next[passColumn] = matches[0];
-  next[failColumn] = matches[1];
-  return next;
-}
-
 function headerTokenCount(row: string[]) {
-  const text = normalizeComparable(row.join(" "));
-  const tokens = [
-    "stt",
-    "ho va ten",
-    "noi dung",
-    "linh vuc",
-    "co quan cong tac",
-    "chuc danh",
-    "dat",
-    "khong dat",
-    "nhan xet",
-    "yeu cau giai trinh",
-  ];
-  return tokens.filter((token) => text.includes(token)).length;
+  const text = comparable(row.join(" "));
+  return [
+    "stt", "ho va ten", "noi dung", "linh vuc", "co quan cong tac", "chuc danh",
+    "dat", "khong dat", "nhan xet", "yeu cau giai trinh",
+  ].filter((token) => text.includes(token)).length;
 }
 
 function inferHeaderRows(rows: string[][]) {
-  if (!rows.length) return 0;
-  const firstCell = normalizeComparable(rows[0][0] ?? "");
-  if (firstCell === "stt" || firstCell === "so thu tu" || headerTokenCount(rows[0]) >= 2) return 1;
-  return 0;
+  const first = comparable(rows[0]?.[0] ?? "");
+  return first === "stt" || first === "so thu tu" || headerTokenCount(rows[0] ?? []) >= 2 ? 1 : 0;
 }
 
 function inferFirstColumn(rows: string[][], headerRows: number): OcrTableFirstColumn {
-  const first = normalizeComparable(rows[0]?.[0] ?? "");
+  const first = comparable(rows[0]?.[0] ?? "");
   if (first === "stt" || first === "so thu tu") return "index";
   if (/^mau so\s+\d+/u.test(first)) return "label";
-
   const body = rows.slice(headerRows).map((row) => row[0]?.trim() ?? "").filter(Boolean);
-  const indexLike = body.filter((value) => /^(?:\d+|\.{2,}|…+)$/u.test(value)).length;
-  if (body.length >= 2 && indexLike / body.length >= 0.6) return "index";
-  return "auto";
+  const indexed = body.filter((value) => /^(?:\d+|\.{2,}|…+)$/u.test(value)).length;
+  return body.length >= 2 && indexed / body.length >= 0.6 ? "index" : "auto";
+}
+
+function moveTrailingCheckboxes(row: string[], headers: string[]) {
+  if (!row[1]) return row;
+  const normalized = headers.map(comparable);
+  const passColumn = normalized.findIndex((value) => value === "dat");
+  const failColumn = normalized.findIndex((value) => value === "khong dat");
+  if (passColumn < 0 || failColumn < 0 || row[passColumn] || row[failColumn]) return row;
+  const matches = row[1].match(/(?:□|☐|☑|✓|✔)/gu) ?? [];
+  if (matches.length < 2) return row;
+  const [pass = "□", fail = "□"] = matches;
+  const next = [...row];
+  next[1] = row[1].replace(/(?:\s*(?:□|☐|☑|✓|✔)){2,}\s*$/u, "").trim();
+  next[passColumn] = pass;
+  next[failColumn] = fail;
+  return next;
 }
 
 function buildTable(rawLines: string[]) {
@@ -185,24 +160,15 @@ function buildTable(rawLines: string[]) {
   let separatorColumns = 0;
   let tagged = false;
 
-  for (const rawLine of rawLines) {
-    const line = rawLine.trim();
-    if (/^\[TABLE\]$/iu.test(line)) {
-      tagged = true;
-      continue;
-    }
-    if (/^\[\/TABLE\]$/iu.test(line)) {
-      tagged = false;
-      continue;
-    }
-
+  for (const raw of rawLines) {
+    const line = raw.trim();
+    if (/^\[TABLE\]$/iu.test(line)) { tagged = true; continue; }
+    if (/^\[\/TABLE\]$/iu.test(line)) { tagged = false; continue; }
     const cells = parsePipeCells(line);
     if (!cells) {
       if (tagged && rows.length && !isFillerOnly(line)) {
-        rows[rows.length - 1][rows[rows.length - 1].length - 1] = appendCell(
-          rows[rows.length - 1][rows[rows.length - 1].length - 1],
-          line,
-        );
+        const last = rows[rows.length - 1];
+        if (last) last[last.length - 1] = appendCell(last[last.length - 1] ?? "", line);
       }
       continue;
     }
@@ -213,70 +179,60 @@ function buildTable(rawLines: string[]) {
       separatorColumns = Math.max(separatorColumns, separatorCount);
       continue;
     }
-
     if (separatorCount >= 2) {
       separatorColumns = Math.max(separatorColumns, separatorCount);
-      const continuation = cells.filter((cell, index) => !separatorMask[index] && cell);
-      if (continuation.length && rows.length) {
-        const expected = Math.max(separatorColumns, rows[rows.length - 1].length + continuation.length);
-        const previous = rows[rows.length - 1];
+      const previous = rows[rows.length - 1];
+      if (previous) {
+        const continuation = cells.filter((cell, index) => !separatorMask[index] && cell);
+        const expected = Math.max(separatorColumns, previous.length + continuation.length);
         continuation.forEach((cell) => {
           if (previous.length < expected) previous.push(cell);
-          else previous[previous.length - 1] = appendCell(previous[previous.length - 1], cell);
+          else previous[previous.length - 1] = appendCell(previous[previous.length - 1] ?? "", cell);
         });
       }
       continue;
     }
-
     rows.push(cells);
   }
 
   if (rows.length < 2) return null;
-  const columnCount = inferColumnCount(rows, separatorColumns);
-  let normalizedRows = rows.map((row) => normalizeRowWidth(row, columnCount));
-
+  const columns = separatorColumns >= 2
+    ? Math.min(10, separatorColumns)
+    : Math.max(2, Math.min(10, ...rows.map((row) => row.length)));
+  const normalized = rows.map((row) => normalizeRowWidth(row, columns));
   const merged: string[][] = [];
-  for (const row of normalizedRows) {
+
+  for (const row of normalized) {
     const previous = merged[merged.length - 1];
-    const key = normalizeComparable(row[0] ?? "");
-    const previousKey = normalizeComparable(previous?.[0] ?? "");
-    const nonEmpty = row.filter(Boolean).length;
-
-    if (previous && (!key || (key === previousKey && key.length > 0))) {
-      merged[merged.length - 1] = mergeRows(previous, row, columnCount);
-      continue;
+    const key = comparable(row[0] ?? "");
+    const previousKey = comparable(previous?.[0] ?? "");
+    if (previous && (!key || (key === previousKey && key))) {
+      merged[merged.length - 1] = mergeRows(previous, row, columns);
+    } else {
+      merged.push(row);
     }
-    if (previous && nonEmpty === 1 && !row[0]) {
-      merged[merged.length - 1] = mergeRows(previous, row, columnCount);
-      continue;
-    }
-    merged.push(row);
   }
-  normalizedRows = merged;
 
-  const headerRows = inferHeaderRows(normalizedRows);
-  if (headerRows) {
-    normalizedRows = normalizedRows.map((row, index) => (
-      index < headerRows ? row : moveTrailingCheckboxes(row, normalizedRows[0])
-    ));
-  }
+  const headerRows = inferHeaderRows(merged);
+  const finalRows = headerRows
+    ? merged.map((row, index) => index < headerRows ? row : moveTrailingCheckboxes(row, merged[0] ?? []))
+    : merged;
 
   return {
     kind: "table" as const,
-    rows: normalizedRows,
+    rows: finalRows,
     headerRows,
-    columnCount,
-    firstColumn: inferFirstColumn(normalizedRows, headerRows),
+    columnCount: columns,
+    firstColumn: inferFirstColumn(finalRows, headerRows),
   };
 }
 
 function parseField(line: string) {
   if (isFillerOnly(line) || line.includes("|")) return null;
   const match = line.match(/^(.*?)(?:\.{5,}|…{2,}|_{5,})(.*)$/u);
-  if (!match || !match[1].trim()) return null;
-  const label = match[1].trim();
-  if ((label.match(/\p{L}/gu) ?? []).length < 3) return null;
-  const rawValue = match[2].trim();
+  const label = match?.[1]?.trim() ?? "";
+  if (!label || (label.match(/\p{L}/gu)?.length ?? 0) < 3) return null;
+  const rawValue = match?.[2]?.trim() ?? "";
   return { label, value: isFillerOnly(rawValue) ? "" : rawValue };
 }
 
@@ -287,38 +243,31 @@ function appendParagraph(blocks: OcrPreviewBlock[], text: string) {
     .replace(/\s+/g, " ")
     .trim();
   if (!cleaned || isFillerOnly(cleaned)) return;
-
   const previous = blocks[blocks.length - 1];
   if (previous?.kind === "paragraph" && !/[.;:!?]$/u.test(previous.text)) {
-    previous.text = `${previous.text} ${cleaned}`.replace(/\s+/g, " ").trim();
-    return;
+    previous.text = appendCell(previous.text, cleaned);
+  } else {
+    blocks.push({ kind: "paragraph", text: cleaned });
   }
-  blocks.push({ kind: "paragraph", text: cleaned });
 }
 
 export function buildOcrPreviewBlocks(value: string): OcrPreviewBlock[] {
-  const lines = normalize(value)
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const lines = normalize(value).split("\n").map((line) => line.trim()).filter(Boolean);
   const blocks: OcrPreviewBlock[] = [];
 
   for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
+    const line = lines[index] ?? "";
 
     if (isTableTag(line) || parsePipeCells(line)) {
       const tableLines: string[] = [];
       let cursor = index;
       let tagged = /^\[TABLE\]$/iu.test(line);
       while (cursor < lines.length) {
-        const candidate = lines[cursor];
+        const candidate = lines[cursor] ?? "";
         if (!isTableLikeLine(candidate, tagged)) break;
         tableLines.push(candidate);
         if (/^\[TABLE\]$/iu.test(candidate)) tagged = true;
-        if (/^\[\/TABLE\]$/iu.test(candidate)) {
-          cursor += 1;
-          break;
-        }
+        if (/^\[\/TABLE\]$/iu.test(candidate)) { cursor += 1; break; }
         cursor += 1;
       }
       const table = buildTable(tableLines);
@@ -332,73 +281,41 @@ export function buildOcrPreviewBlocks(value: string): OcrPreviewBlock[] {
     const formRows: string[][] = [];
     let formCursor = index;
     while (formCursor < lines.length) {
-      const row = parseFormRow(lines[formCursor]);
+      const row = parseFormRow(lines[formCursor] ?? "");
       if (!row) break;
       formRows.push(row);
       formCursor += 1;
     }
     if (formRows.length >= 2) {
-      blocks.push({
-        kind: "table",
-        rows: formRows,
-        headerRows: 0,
-        columnCount: 2,
-        firstColumn: "label",
-      });
+      blocks.push({ kind: "table", rows: formRows, headerRows: 0, columnCount: 2, firstColumn: "label" });
       index = formCursor - 1;
       continue;
     }
 
     if (isFillerOnly(line)) continue;
-
     const checkbox = line.match(/^(□|☐|☑|✓|✔|\[\s?[xX]?\s?\])\s*(.+)$/u);
     if (checkbox) {
-      blocks.push({
-        kind: "checkbox",
-        checked: /(?:☑|✓|✔|x)/iu.test(checkbox[1]),
-        text: checkbox[2].trim(),
-      });
+      blocks.push({ kind: "checkbox", checked: /(?:☑|✓|✔|x)/iu.test(checkbox[1] ?? ""), text: checkbox[2]?.trim() ?? "" });
       continue;
     }
 
     const field = parseField(line);
-    if (field) {
-      blocks.push({ kind: "field", ...field });
-      continue;
-    }
-
-    if (/^Ghi chú\s*:/iu.test(line)) {
-      blocks.push({ kind: "note", text: line });
-      continue;
-    }
-
-    if (/^Điều\s+\d+[a-z]?\s*[.:-]/iu.test(line)) {
-      blocks.push({ kind: "article", text: line });
-      continue;
-    }
-
+    if (field) { blocks.push({ kind: "field", ...field }); continue; }
+    if (/^Ghi chú\s*:/iu.test(line)) { blocks.push({ kind: "note", text: line }); continue; }
+    if (/^Điều\s+\d+[a-z]?\s*[.:-]/iu.test(line)) { blocks.push({ kind: "article", text: line }); continue; }
     if (/^(?:Mẫu\s+số\s+\d+|Số\s*:|Hà Nội,\s*ngày|Kèm theo Thông tư)/iu.test(line)) {
       blocks.push({ kind: "heading", text: line, level: 3 });
       continue;
     }
+    if (isPrimaryTitle(line)) { blocks.push({ kind: "title", text: line }); continue; }
 
-    if (isPrimaryTitle(line)) {
-      blocks.push({ kind: "title", text: line });
-      continue;
-    }
-
-    const headingLevel = isHeading(line);
-    if (headingLevel) {
-      blocks.push({ kind: "heading", text: line, level: headingLevel as 2 | 3 });
-      continue;
-    }
-
+    const level = headingLevel(line);
+    if (level) { blocks.push({ kind: "heading", text: line, level: level as 2 | 3 }); continue; }
     const list = line.match(/^((?:\d+|[a-zđ]|[ivxlcdm]+)[.)])\s+(.+)$/iu);
     if (list) {
-      blocks.push({ kind: "list", marker: list[1], text: list[2].trim() });
+      blocks.push({ kind: "list", marker: list[1] ?? "", text: list[2]?.trim() ?? "" });
       continue;
     }
-
     appendParagraph(blocks, line);
   }
 
