@@ -1,0 +1,95 @@
+.ocrDocTableWrap {
+  width: 100%;
+  max-width: 100%;
+  margin: 24px 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-gutter: stable;
+}
+
+.ocrDocTable {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+  font-size: 15px;
+  line-height: 1.38;
+}
+
+.ocrDocTable[data-columns="2"] { min-width: 560px; }
+.ocrDocTable[data-columns="3"] { min-width: 650px; }
+.ocrDocTable[data-columns="4"] { min-width: 740px; }
+.ocrDocTable[data-columns="5"] { min-width: 840px; }
+.ocrDocTable[data-columns="6"] { min-width: 980px; }
+.ocrDocTable[data-columns="7"],
+.ocrDocTable[data-columns="8"],
+.ocrDocTable[data-columns="9"],
+.ocrDocTable[data-columns="10"] { min-width: 1120px; }
+
+.ocrDocTable th,
+.ocrDocTable td {
+  min-width: 0;
+  width: auto;
+  border: 1px solid #373733;
+  padding: 10px 11px;
+  vertical-align: middle;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.ocrDocTable thead th {
+  background: #fafaf7;
+  font-weight: 700;
+  text-align: center;
+}
+
+.ocrDocTable tbody th {
+  background: #fff;
+  font-weight: 400;
+}
+
+.ocrDocTable--index th:first-child,
+.ocrDocTable--index td:first-child {
+  width: 68px;
+  min-width: 68px;
+  max-width: 82px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.ocrDocTable--label th:first-child,
+.ocrDocTable--label td:first-child {
+  width: 145px;
+  min-width: 125px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.ocrDocTableCheckboxCell {
+  min-width: 72px;
+  text-align: center;
+  font-family: Arial, sans-serif;
+  font-size: 17px;
+  white-space: nowrap !important;
+}
+
+.ocrPaperContent > .ocrDocTableWrap:first-child {
+  margin-top: 14px;
+}
+
+@media (max-width: 760px) {
+  .ocrDocTableWrap {
+    margin-right: -6px;
+    margin-left: -6px;
+    width: calc(100% + 12px);
+  }
+
+  .ocrDocTable {
+    font-size: 14px;
+  }
+
+  .ocrDocTable th,
+  .ocrDocTable td {
+    padding: 9px 10px;
+  }
+}
