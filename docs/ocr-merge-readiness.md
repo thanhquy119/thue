@@ -1,6 +1,24 @@
 # OCR merge readiness gate
 
-OCR remains isolated on `experiment/ocr-pipeline`. Do not merge the OCR fallback into `main` until every required case below has passed both automated and visual review.
+OCR remains isolated on `experiment/ocr-pipeline`. Do not merge the OCR fallback into `main` until every required case below has passed automated tests, desktop review and iPhone review.
+
+## Review order
+
+1. Open the no-quota format fixtures in `/ocr-lab` and verify all five layouts.
+2. In every fixture, click a heading, paragraph, checkbox and table row; speech must begin exactly there and continue in document order.
+3. Run the official PDF matrix on representative pages with Gemini 3.5 Flash-Lite.
+4. Retry only difficult pages with Gemini 3.6 Flash.
+5. Record unresolved `[không đọc rõ]`, missing cells or layout warnings. Any unresolved warning blocks merge.
+
+## No-quota format fixture matrix
+
+| Fixture | Required behavior |
+| --- | --- |
+| Nghị định · phần mở đầu chuẩn | Two-column preamble, one combined title, Điều/Khoản/Điểm hierarchy |
+| Thông tư · dòng đầu bị tách | Rejoin split authority, national heading, motto, number and non-Hà-Nội dateline |
+| Bảng 6 cột · qua nhiều trang | Preserve six columns, repeated header, split row and checkbox positions |
+| Biểu mẫu · trường điền và ô chọn | Preserve dotted fields, notes, checkboxes and two-column model list |
+| Đoạn giữa văn bản · không có trang 1 | Never invent a preamble; split Điều headings even without a period |
 
 ## Required official PDF matrix
 
@@ -18,28 +36,56 @@ OCR remains isolated on `experiment/ocr-pipeline`. Do not merge the OCR fallback
 
 All items are merge blockers:
 
+- Recognize authority, national heading, motto, document number, document type and title when page 1 is present.
+- Rejoin safe split preamble lines without guessing missing legal text.
+- Do not classify a selected middle page as `Phần mở đầu`.
+- Detect `Điều 4` and `Điều 4.` consistently while avoiding long inline legal citations.
 - Preserve 2–10 physical table columns, including empty cells.
-- Repeat a previous table header when a table continues on the next page.
-- Join a sentence cut by a page or OCR-band boundary into the correct table cell.
+- Repeat or retain the previous table header when a table continues on the next page.
+- Join a numbered row cut by a page or OCR-band boundary without duplicating that row.
 - Keep `□` and `☑` in their corresponding columns.
 - Never invent a missing checkbox or unreadable cell; leave it blank and emit a review notice.
 - Merge adjacent OCR bands only when row numbering or headers prove they belong to the same table.
-- Do not merge two unrelated numbered tables separated by a heading.
+- Do not merge two unrelated numbered tables or tables from non-consecutive selected pages.
 - Remove scanner metadata, isolated page numbers, decorative rules, logo tokens and repeated dotted filler.
 - Preserve substantive footnotes, legal notes, dotted form fields and signature labels.
-- Treat `[không đọc rõ]`, a missing table column, or an incomplete required checkbox pair as manual-review conditions.
+- Treat `[không đọc rõ]`, a missing table column, an empty required table body or an incomplete checkbox pair as manual-review conditions.
 - A failure on one page must not discard pages already completed.
+- Speech queue must start at the selected DOM unit and continue through later text and table rows in source order.
+
+## Speech behavior blockers
+
+- Clicking any visible Điều title, paragraph, list item, checkbox, field or table row starts speech from that exact unit.
+- The reader highlights only the active unit, not the entire PDF page.
+- Reading continues across page boundaries without announcing or restarting each page in content mode.
+- Table content mode reads the meaningful row; verification mode reads every column and says when a cell is blank.
+- `Dừng`, `Tiếp tục`, `← Mục`, `Mục →`, voice and speed remain usable on desktop and mobile.
+- Keyboard users can start from a unit with Enter or Space.
 
 ## Visual blockers
 
 Review on desktop and iPhone:
 
-- Desktop tables fit inside the simulated paper without starting at a hidden horizontal offset.
+- Preamble alignment matches the current main reader and never changes main CSS or main data.
+- Long document titles occupy one centered title block instead of several unrelated blocks.
+- Desktop tables remain inside the document width without starting at a hidden horizontal offset.
 - Wide tables may scroll only inside the table on narrow screens; the whole document must not move sideways.
 - Continued tables display their header and a visible continuation label.
 - Column widths prioritize the long content column while keeping STT and checkbox columns compact.
-- No text overlaps borders, headings or neighboring rows.
-- Opening a saved document and opening a newly fetched document must produce the same alignment.
+- No text overlaps borders, headings, audit cards or neighboring rows.
+- Search highlighting and speech highlighting can coexist without hiding text.
+- Opening a no-quota fixture and opening a real OCR result must produce the same alignment.
+
+## Approval checklist
+
+Before changing the PR from Draft:
+
+- GitHub Actions: unit tests, TypeScript and Next production build all pass.
+- All five no-quota fixtures pass desktop and iPhone review.
+- Every official PDF row above has been reviewed on its target pages.
+- The layout audit contains no unexplained warning.
+- The user has approved the final preview link.
+- `main` still matches `backup/stable-before-ocr-2026-07-22` for existing reader behavior and stored data.
 
 ## Production rollout
 
@@ -48,4 +94,4 @@ Review on desktop and iPhone:
 3. Store OCR output separately with page-level score, notices, model and source URL.
 4. Do not publish OCR output containing unresolved review notices as official text.
 5. Roll out behind a feature flag, first to preview, then a small production percentage.
-6. Retain `backup/stable-before-ocr-2026-07-22` until the rollout has passed monitoring and rollback drills.
+6. Retain `backup/stable-before-ocr-2026-07-22` until rollout monitoring and rollback drills pass.
