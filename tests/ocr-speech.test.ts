@@ -5,7 +5,7 @@ import { cleanOcrSpeechText, formatOcrTableRow, splitOcrSpeechChunks } from "../
 test("cleans OCR table markers and speaks checkbox states", () => {
   assert.equal(
     cleanOcrSpeechText("[TABLE]\n| 3 | Nội dung | ☑ | □ |\n[/TABLE]"),
-    "3, Nội dung, ô đã đánh dấu, ô chưa đánh dấu,",
+    "3, Nội dung, ô đã đánh dấu, ô chưa đánh dấu",
   );
 });
 
