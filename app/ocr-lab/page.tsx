@@ -3,6 +3,7 @@ import Link from "next/link";
 import OcrLabClient from "./ocr-lab-client";
 import "./ocr-lab.css";
 import "./ocr-preview.css";
+import "./ocr-table.css";
 
 export const metadata: Metadata = {
   title: "OCR Lab — Thuế",
