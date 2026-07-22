@@ -1,0 +1,283 @@
+.ocrLabShell {
+  width: min(1180px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 22px 0 80px;
+  color: #111;
+}
+
+.ocrLabTopbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0 30px;
+  font-size: 12px;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ocrLabBrand {
+  color: #111;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: -0.05em;
+  text-decoration: none;
+  text-transform: none;
+}
+
+.ocrLabBrand span { color: #20a05a; }
+
+.ocrLabHero {
+  border: 1px solid #deded9;
+  border-radius: 26px;
+  background: #fff;
+  padding: clamp(34px, 7vw, 76px);
+}
+
+.ocrLabHero > p {
+  margin: 0 0 20px;
+  color: #555550;
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.18em;
+}
+
+.ocrLabHero h1 {
+  max-width: 900px;
+  margin: 0;
+  font-size: clamp(38px, 6vw, 72px);
+  line-height: 0.98;
+  letter-spacing: -0.065em;
+}
+
+.ocrLabIntro {
+  max-width: 880px;
+  margin-top: 30px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  color: #3d3d39;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.ocrLabIntro p { margin: 0; }
+.ocrLabIntro code { font-size: 0.92em; }
+
+.ocrLabForm {
+  margin-top: 20px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 150px auto;
+  align-items: end;
+  gap: 12px;
+  border: 1px solid #deded9;
+  border-radius: 20px;
+  background: #fff;
+  padding: 20px;
+}
+
+.ocrLabForm label {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.ocrLabForm label > span {
+  color: #666660;
+  font-size: 11px;
+  font-weight: 780;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ocrLabForm input,
+.ocrLabForm select {
+  width: 100%;
+  min-width: 0;
+  height: 48px;
+  border: 1px solid #d6d6d1;
+  border-radius: 12px;
+  background: #fff;
+  color: #111;
+  padding: 0 14px;
+  font: inherit;
+  outline: 0;
+}
+
+.ocrLabForm input:focus,
+.ocrLabForm select:focus {
+  border-color: #111;
+  box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.08);
+}
+
+.ocrLabForm button {
+  min-height: 48px;
+  border: 0;
+  border-radius: 12px;
+  background: #111;
+  color: #fff;
+  padding: 0 20px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.ocrLabForm button:disabled { opacity: 0.55; cursor: wait; }
+
+.ocrLabError {
+  margin: 16px 0 0;
+  border: 1px solid #dfbcbc;
+  border-radius: 14px;
+  background: #fff4f4;
+  padding: 15px 18px;
+  color: #8c2525;
+}
+
+.ocrLabResult { margin-top: 20px; }
+
+.ocrSummaryGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.4fr;
+  gap: 12px;
+}
+
+.ocrSummaryGrid article {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  border: 1px solid #deded9;
+  border-radius: 18px;
+  background: #fff;
+  padding: 22px;
+}
+
+.ocrSummaryGrid article > span {
+  color: #6a6a65;
+  font-size: 11px;
+  font-weight: 780;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ocrSummaryGrid strong {
+  font-size: clamp(28px, 4vw, 42px);
+  line-height: 1;
+  letter-spacing: -0.045em;
+}
+
+.ocrSummaryGrid .ocrRecommendation {
+  font-size: clamp(18px, 2.3vw, 27px);
+  line-height: 1.12;
+}
+
+.ocrSummaryGrid small { color: #777771; line-height: 1.4; }
+
+.ocrWarnings {
+  margin-top: 12px;
+  border: 1px solid #ddcf9a;
+  border-radius: 16px;
+  background: #fff9df;
+  padding: 15px 18px;
+  color: #685512;
+  font-size: 13px;
+}
+
+.ocrWarnings p { margin: 0; }
+.ocrWarnings p + p { margin-top: 6px; }
+
+.ocrComparison {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ocrComparison article {
+  min-width: 0;
+  border: 1px solid #deded9;
+  border-radius: 18px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.ocrComparison header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid #deded9;
+  padding: 16px 18px;
+}
+
+.ocrComparison h2 {
+  margin: 0;
+  font-size: 17px;
+  letter-spacing: -0.02em;
+}
+
+.ocrComparison header span {
+  border-radius: 999px;
+  background: #111;
+  color: #fff;
+  padding: 5px 9px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ocrComparison pre {
+  max-height: 640px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 20px;
+  color: #232320;
+  font: 14px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.ocrPageDetails {
+  margin-top: 12px;
+  border: 1px solid #deded9;
+  border-radius: 18px;
+  background: #fff;
+  padding: 22px;
+}
+
+.ocrPageDetails h2 {
+  margin: 0 0 16px;
+  font-size: 21px;
+  letter-spacing: -0.025em;
+}
+
+.ocrPageTable { display: grid; }
+
+.ocrPageRow {
+  display: grid;
+  grid-template-columns: 0.6fr repeat(4, 1fr);
+  gap: 10px;
+  border-top: 1px solid #ecece8;
+  padding: 12px 4px;
+  font-size: 13px;
+}
+
+.ocrPageHeader {
+  border-top: 0;
+  color: #777771;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 760px) {
+  .ocrLabShell { width: min(100% - 20px, 1180px); padding-top: 12px; }
+  .ocrLabHero { border-radius: 20px; padding: 30px 20px; }
+  .ocrLabHero h1 { font-size: clamp(38px, 12vw, 58px); }
+  .ocrLabIntro { grid-template-columns: 1fr; gap: 12px; }
+  .ocrLabForm { grid-template-columns: 1fr; padding: 16px; }
+  .ocrPageLimit { width: 100%; }
+  .ocrSummaryGrid,
+  .ocrComparison { grid-template-columns: 1fr; }
+  .ocrPageDetails { overflow-x: auto; }
+  .ocrPageTable { min-width: 600px; }
+}
