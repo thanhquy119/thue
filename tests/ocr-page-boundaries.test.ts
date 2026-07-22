@@ -76,9 +76,12 @@ test("never carries table schema across non-consecutive selected pages", () => {
       page: 9,
       text: `
 | 2 | Đây là một bảng độc lập ở trang khác | □ | □ |
+| 3 | Hàng thứ hai của bảng độc lập | □ | □ |
 `,
     },
   ]);
   const table = firstTable(pages[1]!);
   assert.equal(table.continued, undefined);
+  assert.equal(table.headerRows, 0);
+  assert.deepEqual(table.rows[0]?.slice(0, 4), ["2", "Đây là một bảng độc lập ở trang khác", "□", "□"]);
 });
