@@ -1,7 +1,8 @@
 "use client";
 
-import { type FormEvent, useRef, useState } from "react";
-import { buildOcrPreviewBlocks, type OcrPreviewBlock } from "@/lib/legal/ocr-layout";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type OcrPreviewBlock } from "@/lib/legal/ocr-layout";
+import { buildOcrPreviewPages } from "@/lib/legal/ocr-page-layout";
 import { OCR_SAMPLES } from "@/lib/legal/ocr-samples";
 
 type PageResult = {
@@ -26,6 +27,11 @@ type LabResult = {
   ocr: { text: string; score: number; characters: number; pages: PageResult[] };
   recommendation: "prefer_ocr" | "keep_embedded" | "manual_review";
   warnings: string[];
+};
+
+type RenderTableBlock = Extract<OcrPreviewBlock, { kind: "table" }> & {
+  continued?: boolean;
+  notices?: string[];
 };
 
 function scoreLabel(value: number) {
@@ -98,40 +104,81 @@ function tableCellContent(value: string) {
   return value || "\u00a0";
 }
 
-function TableBlock({ block }: { block: Extract<OcrPreviewBlock, { kind: "table" }> }) {
+function comparable(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/giu, "d")
+    .toLocaleLowerCase("vi")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function tableColumnRole(header: string, index: number) {
+  const value = comparable(header);
+  if (value === "stt" || value === "so thu tu" || index === 0) return "index";
+  if (value.includes("noi dung") || value.includes("ho va ten") || value.includes("tieu chi")) return "content";
+  if (value === "dat") return "pass";
+  if (value === "khong dat") return "fail";
+  if (value.includes("nhan xet") || value.includes("danh gia")) return "comment";
+  if (value.includes("giai trinh") || value.includes("bo sung")) return "request";
+  return "other";
+}
+
+function TableBlock({ block }: { block: RenderTableBlock }) {
   const headers = block.rows.slice(0, block.headerRows);
   const body = block.rows.slice(block.headerRows);
   const tableClass = `ocrDocTable ocrDocTable--${block.firstColumn}`;
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const signature = `${block.columnCount}:${block.rows.map((row) => row.join("¦")).join("¶")}`;
+  const roleHeaders = headers[0] ?? Array.from({ length: block.columnCount }, () => "");
+
+  useEffect(() => {
+    if (wrapperRef.current) wrapperRef.current.scrollLeft = 0;
+  }, [signature]);
 
   return (
-    <div className="ocrDocTableWrap">
-      <table className={tableClass} data-columns={block.columnCount}>
-        {headers.length ? (
-          <thead>
-            {headers.map((row, rowIndex) => (
-              <tr key={`header-${rowIndex}`}>
-                {row.map((cell, cellIndex) => (
-                  <th scope="col" key={`header-${rowIndex}-${cellIndex}`}>{tableCellContent(cell)}</th>
-                ))}
+    <div className="ocrDocTableGroup">
+      {block.continued ? <p className="ocrDocTableContinuation">Bảng tiếp theo từ trang trước</p> : null}
+      <div className="ocrDocTableWrap" ref={wrapperRef}>
+        <table className={tableClass} data-columns={block.columnCount}>
+          <colgroup>
+            {Array.from({ length: block.columnCount }, (_, index) => (
+              <col className={`ocrDocTableColumn--${tableColumnRole(roleHeaders[index] ?? "", index)}`} key={index} />
+            ))}
+          </colgroup>
+          {headers.length ? (
+            <thead>
+              {headers.map((row, rowIndex) => (
+                <tr key={`header-${rowIndex}`}>
+                  {row.map((cell, cellIndex) => (
+                    <th scope="col" key={`header-${rowIndex}-${cellIndex}`}>{tableCellContent(cell)}</th>
+                  ))}
+                </tr>
+              ))}
+            </thead>
+          ) : null}
+          <tbody>
+            {body.map((row, rowIndex) => (
+              <tr key={`body-${rowIndex}-${row[0] ?? ""}`}>
+                {row.map((cell, cellIndex) => {
+                  const isRowHeader = cellIndex === 0 && block.firstColumn !== "auto";
+                  const checkboxOnly = /^(?:□|☐|☑|✓|✔)(?:\s+(?:□|☐|☑|✓|✔))*$/u.test(cell.trim());
+                  const className = checkboxOnly ? "ocrDocTableCheckboxCell" : undefined;
+                  return isRowHeader
+                    ? <th scope="row" className={className} key={`body-${rowIndex}-${cellIndex}`}>{tableCellContent(cell)}</th>
+                    : <td className={className} key={`body-${rowIndex}-${cellIndex}`}>{tableCellContent(cell)}</td>;
+                })}
               </tr>
             ))}
-          </thead>
-        ) : null}
-        <tbody>
-          {body.map((row, rowIndex) => (
-            <tr key={`body-${rowIndex}-${row[0] ?? ""}`}>
-              {row.map((cell, cellIndex) => {
-                const isRowHeader = cellIndex === 0 && block.firstColumn !== "auto";
-                const checkboxOnly = /^(?:□|☐|☑|✓|✔)(?:\s+(?:□|☐|☑|✓|✔))*$/u.test(cell.trim());
-                const className = checkboxOnly ? "ocrDocTableCheckboxCell" : undefined;
-                return isRowHeader
-                  ? <th scope="row" className={className} key={`body-${rowIndex}-${cellIndex}`}>{tableCellContent(cell)}</th>
-                  : <td className={className} key={`body-${rowIndex}-${cellIndex}`}>{tableCellContent(cell)}</td>;
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+          </tbody>
+        </table>
+      </div>
+      {block.notices?.length ? (
+        <div className="ocrDocTableNotices">
+          {[...new Set(block.notices)].map((notice) => <p key={notice}>{notice}</p>)}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -170,11 +217,17 @@ function PreviewBlock({ block }: { block: OcrPreviewBlock }) {
       </div>
     );
   }
-  if (block.kind === "table") return <TableBlock block={block} />;
+  if (block.kind === "table") return <TableBlock block={block as RenderTableBlock} />;
   return <p className="ocrDocParagraph">{block.text}</p>;
 }
 
 function FormattedPreview({ pages }: { pages: PageResult[] }) {
+  const preparedPages = useMemo(
+    () => buildOcrPreviewPages(pages.map((page) => ({ page: page.page, text: page.text }))),
+    [pages],
+  );
+  const pageByNumber = useMemo(() => new Map(pages.map((page) => [page.page, page])), [pages]);
+
   return (
     <section className="ocrFormattedPreview">
       <header>
@@ -185,24 +238,25 @@ function FormattedPreview({ pages }: { pages: PageResult[] }) {
         <small>Chỉ dùng để kiểm tra giao diện trước khi merge</small>
       </header>
       <div className="ocrPaperStack">
-        {pages.map((page) => (
-          <article className="ocrPaperPage" key={page.page}>
-            <div className="ocrPaperNumber">Trang {page.page} · {passLabel(page.chosenPass)}</div>
-            <div className="ocrPaperContent">
-              {page.text
-                ? buildOcrPreviewBlocks(page.text).map((block, index) => (
-                    <PreviewBlock block={block} key={`${page.page}-${index}`} />
-                  ))
-                : <p className="ocrEmptyPage">Không tìm thấy nội dung chữ đủ tin cậy trên trang này.</p>}
-            </div>
-            {page.notices?.length ? (
-              <details className="ocrPageNotices">
-                <summary>Chi tiết xử lý trang {page.page}</summary>
-                {page.notices.map((notice) => <p key={notice}>{notice}</p>)}
-              </details>
-            ) : null}
-          </article>
-        ))}
+        {preparedPages.map((prepared) => {
+          const page = pageByNumber.get(prepared.page);
+          return (
+            <article className="ocrPaperPage" key={prepared.page}>
+              <div className="ocrPaperNumber">Trang {prepared.page} · {page ? passLabel(page.chosenPass) : "Đối chiếu"}</div>
+              <div className="ocrPaperContent">
+                {prepared.blocks.length
+                  ? prepared.blocks.map((block, index) => <PreviewBlock block={block} key={`${prepared.page}-${index}`} />)
+                  : <p className="ocrEmptyPage">Không tìm thấy nội dung chữ đủ tin cậy trên trang này.</p>}
+              </div>
+              {page?.notices?.length ? (
+                <details className="ocrPageNotices">
+                  <summary>Chi tiết xử lý trang {prepared.page}</summary>
+                  {page.notices.map((notice) => <p key={notice}>{notice}</p>)}
+                </details>
+              ) : null}
+            </article>
+          );
+        })}
       </div>
     </section>
   );
@@ -255,14 +309,14 @@ export default function OcrLabClient() {
 
       const totalPages = first.totalPages;
       for (let start = 3; start <= totalPages; start += 2) {
-        const pages = [start, start + 1].filter((page) => page <= totalPages);
-        setProgress(`Đang phân tích trang ${pages.join("–")}/${totalPages}…`);
+        const selectedPages = [start, start + 1].filter((page) => page <= totalPages);
+        setProgress(`Đang phân tích trang ${selectedPages.join("–")}/${totalPages}…`);
         try {
-          batches.push(await requestBatch(controller, { pages }));
+          batches.push(await requestBatch(controller, { pages: selectedPages }));
         } catch (batchError) {
           if (controller.signal.aborted) throw batchError;
-          if (pages.length === 1) throw batchError;
-          for (const page of pages) {
+          if (selectedPages.length === 1) throw batchError;
+          for (const page of selectedPages) {
             setProgress(`Đang thử lại riêng trang ${page}/${totalPages}…`);
             batches.push(await requestBatch(controller, { pages: [page] }));
           }
