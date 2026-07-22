@@ -78,6 +78,11 @@
   min-width: 0;
 }
 
+.ocrMainPreview .readerText > .legalProvision:first-child:not(.ocrMainProvision--preamble) .legalBlocks {
+  display: block;
+  padding-left: 40px;
+}
+
 .ocrMainPreview .legalBlock {
   cursor: default;
   text-align: justify;
@@ -198,6 +203,10 @@
   }
 
   .ocrMainPreview .readerText { margin-top: 34px; }
+
+  .ocrMainPreview .readerText > .legalProvision:first-child:not(.ocrMainProvision--preamble) .legalBlocks {
+    padding-left: 30px;
+  }
 
   .ocrMainPreview .legalBlock {
     text-align: left;
