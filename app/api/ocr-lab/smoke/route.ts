@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { installOcrFetchShim } from "@/lib/legal/ocr-fetch-shim";
-import { runOcrBatch } from "@/lib/legal/ocr-batch-runner";
+import { runAdaptiveOcrBatch } from "@/lib/legal/ocr-adaptive-runner";
 import { ocrLabEnabled } from "@/lib/legal/ocr-experiment";
 import { OCR_SAMPLES } from "@/lib/legal/ocr-samples";
 
@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   const page = Math.max(1, Number(searchParams.get("page") ?? 1));
   const sample = OCR_SAMPLES[index];
   try {
-    const result = await runOcrBatch(sample.url, { pages: [page] });
+    const result = await runAdaptiveOcrBatch(sample.url, { pages: [page] });
     return NextResponse.json({
       sample: sample.label,
       page,
