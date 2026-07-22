@@ -30,7 +30,17 @@ export type OcrBatchRequest = {
 type GeminiPayload = {
   candidates?: Array<{
     content?: { parts?: Array<{ text?: unknown; thought?: unknown }> };
+    finishReason?: unknown;
+    finishMessage?: unknown;
   }>;
+  promptFeedback?: { blockReason?: unknown; blockReasonMessage?: unknown };
+  usageMetadata?: {
+    promptTokenCount?: unknown;
+    candidatesTokenCount?: unknown;
+    thoughtsTokenCount?: unknown;
+    totalTokenCount?: unknown;
+  };
+  modelVersion?: unknown;
   error?: { message?: unknown };
 };
 
@@ -57,75 +67,115 @@ function ocrModel() {
 
 function responseText(payload: GeminiPayload) {
   return cleanOcrText(
-    (payload.candidates?.[0]?.content?.parts ?? [])
+    (payload.candidates ?? [])
+      .flatMap((candidate) => candidate.content?.parts ?? [])
       .filter((part) => part.thought !== true && typeof part.text === "string")
       .map((part) => part.text as string)
       .join("\n"),
   );
 }
 
-async function callGeminiWithImage(image: Buffer, prompt: string, timeoutMs = 45_000) {
+function payloadDiagnostic(payload: GeminiPayload) {
+  const candidate = payload.candidates?.[0];
+  const finishReason = typeof candidate?.finishReason === "string" ? candidate.finishReason : "";
+  const finishMessage = typeof candidate?.finishMessage === "string" ? candidate.finishMessage : "";
+  const blockReason = typeof payload.promptFeedback?.blockReason === "string" ? payload.promptFeedback.blockReason : "";
+  const thoughts = Number(payload.usageMetadata?.thoughtsTokenCount ?? 0);
+  const output = Number(payload.usageMetadata?.candidatesTokenCount ?? 0);
+  const details = [
+    finishReason ? `finish=${finishReason}` : "",
+    finishMessage,
+    blockReason ? `block=${blockReason}` : "",
+    thoughts ? `thinking=${thoughts}` : "",
+    output ? `output=${output}` : "",
+  ].filter(Boolean);
+  return details.join(", ");
+}
+
+function generationConfig(model: string) {
+  const config: Record<string, unknown> = {
+    maxOutputTokens: 16_384,
+    candidateCount: 1,
+    responseMimeType: "text/plain",
+  };
+  if (/^gemini-3/iu.test(model)) {
+    config.thinkingConfig = { thinkingLevel: "minimal" };
+  } else {
+    config.thinkingConfig = { thinkingBudget: 0 };
+  }
+  return config;
+}
+
+async function callGeminiWithImage(image: Buffer, prompt: string, timeoutMs = 55_000) {
   if (!hasGeminiConfig()) throw new Error("Gemini chưa được cấu hình cho OCR.");
 
   const models = Array.from(new Set([ocrModel(), "gemini-3.1-flash-lite", "gemini-3-flash-preview"]));
   let lastMessage = "";
 
   for (const model of models) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-        {
-          method: "POST",
-          signal: controller.signal,
-          headers: {
-            "content-type": "application/json",
-            "x-goog-api-key": apiKey(),
-          },
-          body: JSON.stringify({
-            systemInstruction: {
-              parts: [
-                {
-                  text:
-                    "Bạn là bộ OCR cho văn bản pháp luật Việt Nam. Chép trung thực nội dung có ý nghĩa pháp lý nhìn thấy trong ảnh. Bỏ chữ LOGO, watermark, khung viền, đường kẻ trang trí, số trang đứng riêng, metadata máy quét và dòng chứng thực điện tử kiểu SAO Y kèm thời gian. Giữ tiêu đề, Điều/Khoản/Điểm, bảng, biểu mẫu, dòng chấm để điền, danh sách, ô lựa chọn, ghi chú và chú thích có ý nghĩa. Với bảng, mỗi hàng phải nằm trên một dòng và dùng dấu | để phân tách các ô. Không dùng trí nhớ để tự bổ sung. Khi chữ bị che và không thể đọc chắc chắn, ghi [không đọc rõ].",
-                },
-              ],
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs + attempt * 10_000);
+      try {
+        const retryInstruction = attempt
+          ? "\n\nYêu cầu bắt buộc: phải trả về phần chữ đọc được. Nếu trang không có chữ, trả đúng [không có nội dung chữ]. Không được trả phản hồi rỗng."
+          : "";
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+          {
+            method: "POST",
+            signal: controller.signal,
+            headers: {
+              "content-type": "application/json",
+              "x-goog-api-key": apiKey(),
             },
-            contents: [
-              {
-                role: "user",
+            body: JSON.stringify({
+              systemInstruction: {
                 parts: [
                   {
-                    inline_data: {
-                      mime_type: "image/png",
-                      data: image.toString("base64"),
-                    },
+                    text:
+                      "Bạn là bộ OCR cho văn bản pháp luật Việt Nam. Chép trung thực nội dung có ý nghĩa pháp lý nhìn thấy trong ảnh. Bỏ chữ LOGO, watermark, khung viền, đường kẻ trang trí, số trang đứng riêng, metadata máy quét và dòng chứng thực điện tử kiểu SAO Y kèm thời gian. Giữ tiêu đề, Điều/Khoản/Điểm, bảng, biểu mẫu, dòng chấm để điền, danh sách, ô lựa chọn, ghi chú và chú thích có ý nghĩa. Với bảng, mỗi hàng phải nằm trên một dòng và dùng dấu | để phân tách các ô. Không dùng trí nhớ để tự bổ sung. Khi chữ bị che và không thể đọc chắc chắn, ghi [không đọc rõ].",
                   },
-                  { text: prompt },
                 ],
               },
-            ],
-            generationConfig: {
-              temperature: 0,
-              maxOutputTokens: 8_192,
-            },
-          }),
-        },
-      );
-      const payload = (await response.json().catch(() => ({}))) as GeminiPayload;
-      if (response.ok) {
-        const text = responseText(payload);
-        if (text) return { text, model };
-        lastMessage = "Model không trả về nội dung chữ.";
-      } else {
-        lastMessage = typeof payload.error?.message === "string" ? payload.error.message : `Gemini trả lỗi ${response.status}.`;
+              contents: [
+                {
+                  role: "user",
+                  parts: [
+                    {
+                      inline_data: {
+                        mime_type: "image/png",
+                        data: image.toString("base64"),
+                      },
+                    },
+                    { text: `${prompt}${retryInstruction}` },
+                  ],
+                },
+              ],
+              generationConfig: generationConfig(model),
+            }),
+          },
+        );
+        const payload = (await response.json().catch(() => ({}))) as GeminiPayload;
+        if (response.ok) {
+          const text = responseText(payload);
+          if (text && text !== "[không có nội dung chữ]") return { text, model };
+          const diagnostic = payloadDiagnostic(payload);
+          lastMessage = `Model trả phản hồi rỗng${diagnostic ? ` (${diagnostic})` : ""}.`;
+          continue;
+        }
+
+        lastMessage = typeof payload.error?.message === "string"
+          ? payload.error.message
+          : `Gemini trả lỗi ${response.status}.`;
         if (![404, 429, 500, 502, 503, 504].includes(response.status)) break;
+      } catch (error) {
+        lastMessage = error instanceof Error && error.name === "AbortError"
+          ? "OCR quá thời gian."
+          : "Không kết nối được Gemini OCR.";
+      } finally {
+        clearTimeout(timer);
       }
-    } catch (error) {
-      lastMessage = error instanceof Error && error.name === "AbortError" ? "OCR quá thời gian." : "Không kết nối được Gemini OCR.";
-    } finally {
-      clearTimeout(timer);
     }
   }
 
@@ -143,7 +193,7 @@ const TOP_BAND_PROMPT =
 
 function consensusPrompt(literal: string, structure: string, topBand = "") {
   const recovered = topBand ? `\n\nBẢN ĐỌC VÙNG ĐẦU TRANG ĐÃ PHÓNG LỚN:\n${topBand}` : "";
-  return `Đối chiếu ảnh gốc với các bản OCR và trả về một bản chép duy nhất theo đúng thứ tự đọc. Loại LOGO, watermark, số trang đứng riêng, metadata SAO Y/ngày giờ, tên ứng dụng scan, khung và đường trang trí. Giữ toàn bộ nội dung có ý nghĩa pháp lý, bảng, biểu mẫu, dòng chấm, ghi chú, danh sách và ô lựa chọn. Mỗi hàng bảng dùng dạng | ô 1 | ô 2 |. Phần bị che chỉ dùng ký tự xác nhận được từ ảnh; nếu không chắc ghi [không đọc rõ]. Không tự sửa luật, bổ sung câu hoặc diễn giải.\n\nBẢN A:\n${literal}\n\nBẢN B:\n${structure}${recovered}`;
+  return `Đối chiếu ảnh gốc với các bản OCR và trả về một bản chép duy nhất theo đúng thứ tự đọc. Loại LOGO, watermark, số trang đứng riêng, metadata SAO Y/ngày giờ, tên ứng dụng scan, khung và đường trang trí. Giữ toàn bộ nội dung có ý nghĩa pháp lý, bảng, biểu mẫu, dòng chấm, ghi chú, danh sách và ô lựa chọn. Mỗi hàng bảng dùng dạng | ô 1 | ô 2 |. Phần bị che chỉ dùng ký tự xác nhận được từ ảnh; nếu không chắc ghi [không đọc rõ]. Không tự sửa luật, bổ sung câu hoặc diễn giải.\n\nBẢN A:\n${literal || "[lượt A không có kết quả]"}\n\nBẢN B:\n${structure || "[lượt B không có kết quả]"}${recovered}`;
 }
 
 function cleanedDraft(text: string, pass: OcrDraft["pass"]): OcrDraft {
@@ -155,45 +205,86 @@ function cleanedDraft(text: string, pass: OcrDraft["pass"]): OcrDraft {
   };
 }
 
-async function comparePage(image: Buffer, page: number): Promise<OcrPageComparison> {
+function settledMessage(result: PromiseSettledResult<{ text: string; model: string }>, label: string) {
+  if (result.status === "fulfilled") return "";
+  return `${label}: ${result.reason instanceof Error ? result.reason.message : "không có kết quả"}`;
+}
+
+async function comparePage(image: Buffer, page: number, embeddedFallback = ""): Promise<OcrPageComparison> {
   const variants = await prepareOcrImageVariants(image);
-  const [literalResponse, structureResponse] = await Promise.all([
+  const [literalResult, structureResult] = await Promise.allSettled([
     callGeminiWithImage(variants.original, LITERAL_PROMPT),
     callGeminiWithImage(variants.enhanced, STRUCTURE_PROMPT),
   ]);
 
-  const literal = cleanedDraft(literalResponse.text, "literal");
-  const structure = cleanedDraft(structureResponse.text, "structure");
-  const similarity = ocrTokenSimilarity(literal.text, structure.text);
-  const drafts: OcrDraft[] = [literal, structure];
+  const notices = [
+    settledMessage(literalResult, "Lượt A"),
+    settledMessage(structureResult, "Lượt B"),
+  ].filter(Boolean);
+  const literal = literalResult.status === "fulfilled"
+    ? cleanedDraft(literalResult.value.text, "literal")
+    : null;
+  const structure = structureResult.status === "fulfilled"
+    ? cleanedDraft(structureResult.value.text, "structure")
+    : null;
+  const drafts: OcrDraft[] = [literal, structure].filter((draft): draft is OcrDraft => Boolean(draft?.text));
+  const similarity = literal && structure ? ocrTokenSimilarity(literal.text, structure.text) : 0;
   let consensusScore: number | null = null;
 
+  const rawLiteral = literalResult.status === "fulfilled" ? literalResult.value.text : "";
+  const rawStructure = structureResult.status === "fulfilled" ? structureResult.value.text : "";
   const needsRecovery =
+    drafts.length < 2 ||
     similarity < 0.94 ||
-    Math.max(literal.score, structure.score) < 0.78 ||
-    hasVisualArtifactHints(literalResponse.text) ||
-    hasVisualArtifactHints(structureResponse.text);
+    Math.max(literal?.score ?? 0, structure?.score ?? 0) < 0.78 ||
+    hasVisualArtifactHints(rawLiteral) ||
+    hasVisualArtifactHints(rawStructure);
 
-  if (needsRecovery) {
+  if (needsRecovery && drafts.length) {
     let topBandText = "";
     try {
       const topBandResponse = await callGeminiWithImage(variants.topBand, TOP_BAND_PROMPT);
       topBandText = cleanVisualArtifacts(topBandResponse.text).text;
-    } catch {
-      // Vẫn đối chiếu được bằng hai lượt toàn trang.
+    } catch (error) {
+      notices.push(`Vùng đầu trang: ${error instanceof Error ? error.message : "không có kết quả"}`);
     }
 
     try {
       const response = await callGeminiWithImage(
         variants.original,
-        consensusPrompt(literal.text, structure.text, topBandText),
+        consensusPrompt(literal?.text ?? "", structure?.text ?? "", topBandText),
       );
       const consensus = cleanedDraft(response.text, "consensus");
       consensusScore = consensus.score;
-      drafts.push(consensus);
-    } catch {
-      // Giữ hai bản độc lập nếu bước đối chiếu thất bại.
+      if (consensus.text) drafts.push(consensus);
+    } catch (error) {
+      notices.push(`Đối chiếu: ${error instanceof Error ? error.message : "không có kết quả"}`);
     }
+  }
+
+  if (!drafts.length) {
+    const fallback = cleanVisualArtifacts(embeddedFallback).text;
+    const embedded: OcrDraft = {
+      text: fallback,
+      score: scoreLegalOcrText(fallback),
+      pass: "embedded",
+    };
+    notices.push(
+      fallback
+        ? "Hai lượt OCR không trả chữ; trang này tạm dùng lớp chữ PDF để không làm hỏng toàn bộ tiến trình."
+        : "Trang này không có kết quả OCR và cũng không có lớp chữ PDF đủ dùng.",
+    );
+    return {
+      page,
+      similarity,
+      chosenPass: embedded.pass,
+      chosenScore: embedded.score,
+      literalScore: 0,
+      structureScore: 0,
+      consensusScore,
+      text: embedded.text,
+      notices,
+    };
   }
 
   const chosen = selectBestOcrDraft(drafts);
@@ -202,10 +293,11 @@ async function comparePage(image: Buffer, page: number): Promise<OcrPageComparis
     similarity,
     chosenPass: chosen.pass,
     chosenScore: chosen.score,
-    literalScore: literal.score,
-    structureScore: structure.score,
+    literalScore: literal?.score ?? 0,
+    structureScore: structure?.score ?? 0,
     consensusScore,
     text: chosen.text,
+    notices: notices.length ? notices : undefined,
   };
 }
 
@@ -219,7 +311,7 @@ async function safeFetchPdf(urlValue: string, redirects = 0): Promise<{ url: str
     const response = await fetch(urlValue, {
       redirect: "manual",
       signal: controller.signal,
-      headers: { "user-agent": "ThueLegalReader-OcrLab/1.3" },
+      headers: { "user-agent": "ThueLegalReader-OcrLab/1.4" },
     });
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
@@ -277,6 +369,7 @@ export async function runOcrBatch(
   const parser = new PDFParse({ data: transferablePdf, CanvasFactory });
 
   let embeddedText = "";
+  let embeddedPages: string[] = [];
   let totalPages = 0;
   let selectedPages: number[] = [];
   let screenshotPages: PdfScreenshotPage[] = [];
@@ -285,10 +378,20 @@ export async function runOcrBatch(
     totalPages = infoResult.total;
     selectedPages = requestedPageNumbers(totalPages, request);
 
-    const textResult = await parser.getText({ partial: selectedPages });
-    embeddedText = cleanVisualArtifacts(
-      normalizeSpaces(textResult.text.replace(/-- \d+ of \d+ --/g, " ")),
-    ).text;
+    embeddedPages = [];
+    for (const page of selectedPages) {
+      try {
+        const pageText = await parser.getText({ partial: [page] });
+        embeddedPages.push(
+          cleanVisualArtifacts(
+            normalizeSpaces(pageText.text.replace(/-- \d+ of \d+ --/g, " ")),
+          ).text,
+        );
+      } catch {
+        embeddedPages.push("");
+      }
+    }
+    embeddedText = embeddedPages.filter(Boolean).join("\n\n");
 
     const screenshots = await parser.getScreenshot({
       desiredWidth: RENDER_WIDTH,
@@ -306,12 +409,12 @@ export async function runOcrBatch(
   const pageResults: OcrPageComparison[] = [];
   for (let index = 0; index < screenshotPages.length; index += 1) {
     const image = Buffer.from(screenshotPages[index].data);
-    pageResults.push(await comparePage(image, selectedPages[index]));
+    pageResults.push(await comparePage(image, selectedPages[index], embeddedPages[index] ?? ""));
   }
 
   const repeatedEdgesRemoved = removeRepeatedPageEdges(pageResults.map((page) => page.text));
   const cleanedPages = repeatedEdgesRemoved.map((page) => cleanVisualArtifacts(page).text);
-  const ocrText = cleanedPages.join("\n\n").trim();
+  const ocrText = cleanedPages.filter(Boolean).join("\n\n").trim();
   const ocrScore = scoreLegalOcrText(ocrText);
   const embeddedScore = scoreLegalOcrText(embeddedText);
   const truncated = totalPages > pageResults.length;
@@ -319,8 +422,10 @@ export async function runOcrBatch(
     "Đây là kết quả thử nghiệm, chưa được dùng thay cho toàn văn chính thức trong luồng tra cứu hiện tại.",
     "Hệ thống đã tự bỏ logo/watermark, số trang đứng riêng, metadata SAO Y, tên ứng dụng scan, khung và đường trang trí; ghi chú có ý nghĩa pháp lý vẫn được giữ lại.",
   ];
-  if (truncated) warnings.push(`Đợt này đã OCR trang ${selectedPages.join(", ")} trong tổng số ${totalPages} trang.`);
-  if (pageResults.some((page) => page.similarity < 0.8)) warnings.push("Có trang mà hai lượt OCR khác nhau đáng kể; nên kiểm tra thủ công trước khi sử dụng.");
+  if (truncated) warnings.push(`Đợt này đã xử lý trang ${selectedPages.join(", ")} trong tổng số ${totalPages} trang.`);
+  if (pageResults.some((page) => page.similarity < 0.8 && page.chosenPass !== "embedded")) warnings.push("Có trang mà hai lượt OCR khác nhau đáng kể; nên kiểm tra thủ công trước khi sử dụng.");
+  const fallbackPages = pageResults.filter((page) => page.chosenPass === "embedded").map((page) => page.page);
+  if (fallbackPages.length) warnings.push(`Gemini không trả chữ ở trang ${fallbackPages.join(", ")}; hệ thống đã giữ lớp chữ PDF của các trang đó thay vì làm dừng toàn bộ tệp.`);
   if (/\[không đọc rõ\]/iu.test(ocrText)) warnings.push("Có vùng chữ bị logo, con dấu hoặc nhiễu che mà hệ thống không thể xác nhận chắc chắn; vị trí đó được đánh dấu [không đọc rõ].");
 
   return {
