@@ -14,6 +14,7 @@ export function cleanOcrSpeechText(value: string) {
     .replace(/\s+([,.;:!?])/gu, "$1")
     .replace(/([,.;:!?])(?=\S)/gu, "$1 ")
     .replace(/\s+/gu, " ")
+    .replace(/^[,;:\s]+|[,;:\s]+$/gu, "")
     .trim();
 }
 
