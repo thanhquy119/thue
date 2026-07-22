@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { installOcrFetchShim } from "@/lib/legal/ocr-fetch-shim";
+import { runOcrBatch } from "@/lib/legal/ocr-batch-runner";
 import { ocrLabEnabled } from "@/lib/legal/ocr-experiment";
-import { runOcrExperimentSafely } from "@/lib/legal/ocr-runner";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -14,12 +14,22 @@ export async function POST(request: Request) {
   }
 
   try {
-    const body = (await request.json()) as { url?: unknown; maxPages?: unknown };
+    const body = (await request.json()) as {
+      url?: unknown;
+      maxPages?: unknown;
+      pages?: unknown;
+    };
     const url = typeof body.url === "string" ? body.url.trim() : "";
     const maxPages = typeof body.maxPages === "number" ? body.maxPages : Number(body.maxPages ?? 3);
+    const pages = Array.isArray(body.pages)
+      ? body.pages.map((page) => Number(page)).filter(Number.isFinite)
+      : undefined;
 
     if (!url) return NextResponse.json({ error: "Vui lòng nhập liên kết PDF chính thức." }, { status: 400 });
-    const result = await runOcrExperimentSafely(url, Number.isFinite(maxPages) ? maxPages : 3);
+    const result = await runOcrBatch(url, {
+      maxPages: Number.isFinite(maxPages) ? maxPages : 3,
+      pages,
+    });
     return NextResponse.json(result, {
       headers: {
         "cache-control": "no-store",
