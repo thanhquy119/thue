@@ -123,25 +123,30 @@ function clampChannel(value: number) {
   return Math.max(0, Math.min(255, Math.round(value)));
 }
 
+async function enhancedCanvas(image: Buffer) {
+  const decoded = await loadImage(image);
+  const width = decoded.width;
+  const height = decoded.height;
+  const canvas = createCanvas(width, height);
+  const context = canvas.getContext("2d");
+  context.drawImage(decoded, 0, 0, width, height);
+
+  const pixels = context.getImageData(0, 0, width, height);
+  const data = pixels.data;
+  for (let offset = 0; offset < data.length; offset += 4) {
+    const gray = data[offset] * 0.299 + data[offset + 1] * 0.587 + data[offset + 2] * 0.114;
+    const contrasted = gray > 242 ? 255 : clampChannel((gray - 128) * 1.32 + 128);
+    data[offset] = contrasted;
+    data[offset + 1] = contrasted;
+    data[offset + 2] = contrasted;
+  }
+  context.putImageData(pixels, 0, 0);
+  return { canvas, width, height };
+}
+
 export async function prepareOcrImageVariants(image: Buffer): Promise<OcrImageVariants> {
   try {
-    const decoded = await loadImage(image);
-    const width = decoded.width;
-    const height = decoded.height;
-    const canvas = createCanvas(width, height);
-    const context = canvas.getContext("2d");
-    context.drawImage(decoded, 0, 0, width, height);
-
-    const pixels = context.getImageData(0, 0, width, height);
-    const data = pixels.data;
-    for (let offset = 0; offset < data.length; offset += 4) {
-      const gray = data[offset] * 0.299 + data[offset + 1] * 0.587 + data[offset + 2] * 0.114;
-      const contrasted = gray > 242 ? 255 : clampChannel((gray - 128) * 1.32 + 128);
-      data[offset] = contrasted;
-      data[offset + 1] = contrasted;
-      data[offset + 2] = contrasted;
-    }
-    context.putImageData(pixels, 0, 0);
+    const { canvas, width, height } = await enhancedCanvas(image);
     const enhanced = canvas.toBuffer("image/png");
 
     const sourceBandHeight = Math.max(1, Math.min(height, Math.round(height * 0.42)));
@@ -157,5 +162,42 @@ export async function prepareOcrImageVariants(image: Buffer): Promise<OcrImageVa
     };
   } catch {
     return { original: image, enhanced: image, topBand: image };
+  }
+}
+
+export async function prepareOcrImageBands(image: Buffer, count = 6): Promise<Buffer[]> {
+  try {
+    const { canvas, width, height } = await enhancedCanvas(image);
+    const bandCount = Math.max(2, Math.min(10, Math.floor(count)));
+    const baseHeight = height / bandCount;
+    const overlap = Math.max(8, Math.round(height * 0.012));
+    const bands: Buffer[] = [];
+
+    for (let index = 0; index < bandCount; index += 1) {
+      const rawTop = Math.round(index * baseHeight);
+      const rawBottom = Math.round((index + 1) * baseHeight);
+      const top = Math.max(0, rawTop - (index ? overlap : 0));
+      const bottom = Math.min(height, rawBottom + (index < bandCount - 1 ? overlap : 0));
+      const sourceHeight = Math.max(1, bottom - top);
+      const scale = width < 2_000 ? Math.min(1.35, 2_000 / Math.max(1, width)) : 1;
+      const bandCanvas = createCanvas(Math.round(width * scale), Math.round(sourceHeight * scale));
+      const bandContext = bandCanvas.getContext("2d");
+      bandContext.drawImage(
+        canvas,
+        0,
+        top,
+        width,
+        sourceHeight,
+        0,
+        0,
+        bandCanvas.width,
+        bandCanvas.height,
+      );
+      bands.push(bandCanvas.toBuffer("image/png"));
+    }
+
+    return bands;
+  } catch {
+    return [image];
   }
 }
