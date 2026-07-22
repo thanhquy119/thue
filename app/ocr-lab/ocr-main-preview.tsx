@@ -1,125 +1,35 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { OcrPreviewBlock } from "@/lib/legal/ocr-layout";
-import { buildOcrPreviewPages } from "@/lib/legal/ocr-page-layout";
+import {
+  auditOcrMainLayout,
+  buildOcrMainProvisions,
+  comparableOcrText,
+  ocrBlockText,
+  type OcrMainPreviewEntry,
+} from "@/lib/legal/ocr-main-layout";
 import type { PageResult } from "./ocr-lab-types";
+
+const SPEECH_START_EVENT = "ocr-main-speech-start";
 
 type RenderTableBlock = Extract<OcrPreviewBlock, { kind: "table" }> & {
   continued?: boolean;
   notices?: string[];
 };
 
-type PreviewEntry = {
-  block: OcrPreviewBlock;
-  page: number;
-  preambleRole?: string;
-};
-
-type PreviewProvision = {
-  key: string;
-  title: string;
-  startPage: number;
-  entries: PreviewEntry[];
-};
-
-function comparable(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/giu, "d")
-    .toLocaleLowerCase("vi")
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+function requestSpeechStart(id: string) {
+  window.dispatchEvent(new CustomEvent(SPEECH_START_EVENT, { detail: { id } }));
 }
 
-function blockText(block: OcrPreviewBlock) {
-  if (block.kind === "field") return [block.label, block.value].filter(Boolean).join(" ");
-  if (block.kind === "list") return `${block.marker} ${block.text}`;
-  if (block.kind === "table") return block.rows.flat().filter(Boolean).join(" ");
-  return block.text;
-}
-
-function isArticleHeading(block: OcrPreviewBlock) {
-  if (block.kind === "article") return true;
-  if (block.kind !== "paragraph" && block.kind !== "heading") return false;
-  return /^Điều\s+\d+[a-z]?\b\s*[.：:\-–—]/iu.test(block.text);
-}
-
-function assignPreambleRoles(entries: PreviewEntry[]) {
-  const texts = entries.map((entry) => comparable(blockText(entry.block)));
-  const national = texts.findIndex((text) => text.includes("cong hoa xa hoi chu nghia viet nam"));
-  const motto = texts.findIndex((text) => text.includes("doc lap") && text.includes("tu do") && text.includes("hanh phuc"));
-  const number = texts.findIndex((text) => /^so\s+\d/u.test(text) || /^so$/u.test(text));
-  const dateline = texts.findIndex((text) => /(?:ha noi|thanh pho|tinh).*ngay.*thang.*nam/u.test(text));
-  const type = texts.findIndex((text) => /^(?:nghi dinh|thong tu|nghi quyet|quyet dinh|luat|thong bao)$/u.test(text));
-
-  const authority = texts
-    .map((text, index) => ({ text, index }))
-    .find(({ text, index }) => {
-      if (!text || [national, motto, number, dateline, type].includes(index)) return false;
-      if (index > Math.max(number >= 0 ? number : 8, national >= 0 ? national : 8)) return false;
-      if (/van ban quy pham phap luat|sao y|nguyen van/u.test(text)) return false;
-      return /^(?:chinh phu|bo |uy ban|hoi dong|quoc hoi|chu tich|toa an|vien kiem sat)/u.test(text);
-    })?.index ?? -1;
-
-  if (authority >= 0) entries[authority]!.preambleRole = "preamble-authority";
-  if (national >= 0) entries[national]!.preambleRole = "preamble-national";
-  if (motto >= 0) entries[motto]!.preambleRole = "preamble-motto";
-  if (number >= 0) entries[number]!.preambleRole = "preamble-number";
-  if (dateline >= 0) entries[dateline]!.preambleRole = "preamble-dateline";
-  if (type >= 0) entries[type]!.preambleRole = "preamble-type";
-
-  if (type >= 0) {
-    for (let index = type + 1; index < entries.length; index += 1) {
-      const text = texts[index] ?? "";
-      if (/^(?:can cu|theo de nghi|bo truong|chinh phu ban hanh)/u.test(text)) break;
-      if (text) entries[index]!.preambleRole = "preamble-title";
-    }
-  }
-}
-
-function prepareProvisions(pages: PageResult[]) {
-  const preparedPages = buildOcrPreviewPages(
-    pages.map((page) => ({ page: page.page, text: page.text })),
-  );
-  const firstPage = preparedPages[0]?.page ?? 1;
-  const startsAtBeginning = firstPage === 1;
-  const provisions: PreviewProvision[] = [];
-  let current: PreviewProvision = {
-    key: startsAtBeginning ? "preamble" : "continuation",
-    title: startsAtBeginning ? "Phần mở đầu" : `Nội dung tiếp theo · Trang ${firstPage}`,
-    startPage: firstPage,
-    entries: [],
-  };
-
-  const flush = () => {
-    if (current.entries.length) provisions.push(current);
-  };
-
-  for (const prepared of preparedPages) {
-    for (const block of prepared.blocks) {
-      if (isArticleHeading(block)) {
-        flush();
-        current = {
-          key: `article-${prepared.page}-${provisions.length}`,
-          title: blockText(block),
-          startPage: prepared.page,
-          entries: [],
-        };
-      } else {
-        current.entries.push({ block, page: prepared.page });
-      }
-    }
-  }
-  flush();
-  if (startsAtBeginning && provisions[0]?.key === "preamble") assignPreambleRoles(provisions[0].entries);
-  return provisions;
+function speechKey(event: KeyboardEvent<HTMLElement>, id: string) {
+  if (event.key !== "Enter" && event.key !== " ") return;
+  event.preventDefault();
+  requestSpeechStart(id);
 }
 
 function tableColumnRole(header: string, index: number) {
-  const value = comparable(header);
+  const value = comparableOcrText(header);
   if (value === "stt" || value === "so thu tu" || index === 0) return "index";
   if (value.includes("noi dung") || value.includes("ho va ten") || value.includes("tieu chi")) return "content";
   if (value === "dat") return "pass";
@@ -129,7 +39,7 @@ function tableColumnRole(header: string, index: number) {
   return "other";
 }
 
-function TableBlock({ block, page }: { block: RenderTableBlock; page: number }) {
+function TableBlock({ block, page, speechId }: { block: RenderTableBlock; page: number; speechId: string }) {
   const headers = block.rows.slice(0, block.headerRows);
   const body = block.rows.slice(block.headerRows);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -142,9 +52,9 @@ function TableBlock({ block, page }: { block: RenderTableBlock; page: number }) 
 
   return (
     <div
-      className="ocrDocTableGroup ocrSpeechTable ocrMainSearchable"
+      className="ocrDocTableGroup ocrMainSearchable"
       data-page={page}
-      data-search-text={comparable(block.rows.flat().join(" "))}
+      data-search-text={comparableOcrText(block.rows.flat().join(" "))}
     >
       {block.continued ? <p className="ocrDocTableContinuation">Bảng tiếp theo từ trang trước</p> : null}
       <div className="ocrDocTableWrap" ref={wrapperRef}>
@@ -164,18 +74,32 @@ function TableBlock({ block, page }: { block: RenderTableBlock; page: number }) 
             </thead>
           ) : null}
           <tbody>
-            {body.map((row, rowIndex) => (
-              <tr key={`body-${rowIndex}-${row[0] ?? ""}`}>
-                {row.map((cell, cellIndex) => {
-                  const rowHeader = cellIndex === 0 && block.firstColumn !== "auto";
-                  const checkbox = /^(?:□|☐|☑|✓|✔)(?:\s+(?:□|☐|☑|✓|✔))*$/u.test(cell.trim());
-                  const className = checkbox ? "ocrDocTableCheckboxCell" : undefined;
-                  return rowHeader
-                    ? <th scope="row" className={className} key={cellIndex}>{cell || "\u00a0"}</th>
-                    : <td className={className} key={cellIndex}>{cell || "\u00a0"}</td>;
-                })}
-              </tr>
-            ))}
+            {body.map((row, rowIndex) => {
+              const rowSpeechId = `${speechId}-row-${rowIndex}`;
+              return (
+                <tr
+                  className="ocrSpeechUnit"
+                  data-page={page}
+                  data-speech-id={rowSpeechId}
+                  data-speech-kind="table-row"
+                  key={`body-${rowIndex}-${row[0] ?? ""}`}
+                  role="button"
+                  tabIndex={0}
+                  title="Đọc từ hàng này"
+                  onClick={() => requestSpeechStart(rowSpeechId)}
+                  onKeyDown={(event) => speechKey(event, rowSpeechId)}
+                >
+                  {row.map((cell, cellIndex) => {
+                    const rowHeader = cellIndex === 0 && block.firstColumn !== "auto";
+                    const checkbox = /^(?:□|☐|☑|✓|✔)(?:\s+(?:□|☐|☑|✓|✔))*$/u.test(cell.trim());
+                    const className = checkbox ? "ocrDocTableCheckboxCell" : undefined;
+                    return rowHeader
+                      ? <th scope="row" className={className} key={cellIndex}>{cell || "\u00a0"}</th>
+                      : <td className={className} key={cellIndex}>{cell || "\u00a0"}</td>;
+                  })}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -188,44 +112,58 @@ function TableBlock({ block, page }: { block: RenderTableBlock; page: number }) 
   );
 }
 
-function PreviewBlock({ entry }: { entry: PreviewEntry }) {
+function PreviewBlock({ entry, speechId }: { entry: OcrMainPreviewEntry; speechId: string }) {
   const { block, page, preambleRole = "" } = entry;
-  if (block.kind === "table") return <TableBlock block={block as RenderTableBlock} page={page} />;
+  if (block.kind === "table") return <TableBlock block={block as RenderTableBlock} page={page} speechId={speechId} />;
 
-  const text = blockText(block);
-  const data = { "data-page": page, "data-search-text": comparable(text) };
+  const text = ocrBlockText(block);
+  const data = {
+    "data-page": page,
+    "data-search-text": comparableOcrText(text),
+    "data-speech-id": speechId,
+    "data-speech-kind": "text",
+  };
   const role = preambleRole ? ` ${preambleRole}` : "";
+  const common = {
+    role: "button",
+    tabIndex: 0,
+    title: "Đọc từ đoạn này",
+    onClick: () => requestSpeechStart(speechId),
+    onKeyDown: (event: KeyboardEvent<HTMLElement>) => speechKey(event, speechId),
+  };
 
   if (block.kind === "checkbox") {
     return (
-      <div className={`legalBlock paragraph ocrDocCheckbox ocrSpeechSegment ocrMainSearchable${role}`} {...data}>
+      <div className={`legalBlock paragraph ocrDocCheckbox ocrSpeechUnit ocrMainSearchable${role}`} {...data} {...common}>
         <span aria-hidden="true">{block.checked ? "☑" : "☐"}</span><p>{block.text}</p>
       </div>
     );
   }
   if (block.kind === "field") {
     return (
-      <div className={`legalBlock paragraph ocrDocField ocrSpeechSegment ocrMainSearchable${role}`} {...data}>
+      <div className={`legalBlock paragraph ocrDocField ocrSpeechUnit ocrMainSearchable${role}`} {...data} {...common}>
         <span>{block.label}</span><i aria-hidden="true" />{block.value ? <strong>{block.value}</strong> : null}
       </div>
     );
   }
   if (block.kind === "list") {
     return (
-      <div className={`legalBlock point ocrDocList ocrSpeechSegment ocrMainSearchable${role}`} {...data}>
+      <div className={`legalBlock point ocrDocList ocrSpeechUnit ocrMainSearchable${role}`} {...data} {...common}>
         <strong>{block.marker}</strong><p>{block.text}</p>
       </div>
     );
   }
   if (block.kind === "note") {
-    return <aside className={`legalBlock paragraph ocrDocNote ocrSpeechSegment ocrMainSearchable${role}`} {...data}>{block.text}</aside>;
+    return <aside className={`legalBlock paragraph ocrDocNote ocrSpeechUnit ocrMainSearchable${role}`} {...data} {...common}>{block.text}</aside>;
   }
   const kind = block.kind === "heading" || block.kind === "title" ? "heading" : "paragraph";
-  return <div className={`legalBlock ${kind} ocrSpeechSegment ocrMainSearchable${role}`} {...data}>{text}</div>;
+  return <div className={`legalBlock ${kind} ocrSpeechUnit ocrMainSearchable${role}`} {...data} {...common}>{text}</div>;
 }
 
 export default function OcrMainPreview({ pages }: { pages: PageResult[] }) {
-  const provisions = useMemo(() => prepareProvisions(pages), [pages]);
+  const sourcePages = useMemo(() => pages.map((page) => ({ page: page.page, text: page.text })), [pages]);
+  const provisions = useMemo(() => buildOcrMainProvisions(sourcePages), [sourcePages]);
+  const audit = useMemo(() => auditOcrMainLayout(provisions, sourcePages), [provisions, sourcePages]);
   const rootRef = useRef<HTMLElement>(null);
   const matchesRef = useRef<HTMLElement[]>([]);
   const previousQueryRef = useRef("");
@@ -248,7 +186,7 @@ export default function OcrMainPreview({ pages }: { pages: PageResult[] }) {
 
   function search(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const normalized = comparable(query);
+    const normalized = comparableOcrText(query);
     if (!normalized) {
       clearMatches();
       matchesRef.current = [];
@@ -270,7 +208,7 @@ export default function OcrMainPreview({ pages }: { pages: PageResult[] }) {
     const tokens = normalized.split(" ").filter(Boolean);
     const nodes = Array.from(rootRef.current?.querySelectorAll<HTMLElement>(".ocrMainSearchable") ?? []);
     const matches = nodes.filter((node) => {
-      const haystack = node.dataset.searchText ?? comparable(node.textContent ?? "");
+      const haystack = node.dataset.searchText ?? comparableOcrText(node.textContent ?? "");
       return tokens.every((token) => haystack.includes(token));
     });
     matches.forEach((node, index) => {
@@ -296,17 +234,43 @@ export default function OcrMainPreview({ pages }: { pages: PageResult[] }) {
           </form>
         </div>
 
-        <div className="readerText">
-          {provisions.map((provision, provisionIndex) => (
-            <section className={`legalProvision ocrMainProvision ocrMainProvision--${provision.key}`} data-page={provision.startPage} key={provision.key}>
-              <h4 className="ocrSpeechSegment ocrMainSearchable" data-page={provision.startPage} data-search-text={comparable(provision.title)}>
-                <span>{String(provisionIndex + 1).padStart(2, "0")}.</span>{provision.title}
-              </h4>
-              <div className="legalBlocks">
-                {provision.entries.map((entry, index) => <PreviewBlock entry={entry} key={`${provision.key}-${entry.page}-${index}`} />)}
-              </div>
-            </section>
+        <p className="ocrSpeechInstruction">Chạm vào tiêu đề Điều, một đoạn văn hoặc một hàng trong bảng để bắt đầu đọc đúng từ vị trí đó.</p>
+        <section className="ocrLayoutAudit" aria-label="Kiểm tra nhanh bố cục OCR">
+          {audit.map((check) => (
+            <article className={`ocrLayoutAuditItem is-${check.status}`} key={check.id}>
+              <span>{check.status === "pass" ? "✓" : "!"}</span>
+              <div><strong>{check.label}</strong><p>{check.detail}</p></div>
+            </article>
           ))}
+        </section>
+
+        <div className="readerText">
+          {provisions.map((provision, provisionIndex) => {
+            const headingSpeechId = `${provision.key}-heading`;
+            return (
+              <section className={`legalProvision ocrMainProvision ocrMainProvision--${provision.key}`} data-page={provision.startPage} key={provision.key}>
+                <h4
+                  className="ocrSpeechUnit ocrMainSearchable"
+                  data-page={provision.startPage}
+                  data-search-text={comparableOcrText(provision.title)}
+                  data-speech-id={headingSpeechId}
+                  data-speech-kind="heading"
+                  role="button"
+                  tabIndex={0}
+                  title="Đọc từ tiêu đề này"
+                  onClick={() => requestSpeechStart(headingSpeechId)}
+                  onKeyDown={(event) => speechKey(event, headingSpeechId)}
+                >
+                  <span>{String(provisionIndex + 1).padStart(2, "0")}.</span>{provision.title}
+                </h4>
+                <div className="legalBlocks">
+                  {provision.entries.map((entry, index) => (
+                    <PreviewBlock entry={entry} speechId={`${provision.key}-entry-${index}`} key={`${provision.key}-${entry.page}-${index}`} />
+                  ))}
+                </div>
+              </section>
+            );
+          })}
         </div>
 
         <p className="verificationNote">Đây là bố cục xem trước giống trang chính. Nội dung OCR chưa được ghi vào kho văn bản và vẫn cần vượt qua kiểm tra chất lượng trước khi merge.</p>
