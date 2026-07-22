@@ -1,15 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import OcrDomSpeechReader from "./ocr-dom-speech-reader";
+import OcrMainSpeechReader from "./ocr-main-speech-reader";
 import OcrLabClient from "./ocr-lab-client";
 import "./ocr-lab.css";
 import "./ocr-preview.css";
 import "./ocr-table.css";
 import "./ocr-speech.css";
+import "./ocr-main-preview.css";
 
 export const metadata: Metadata = {
   title: "OCR Lab — Thuế",
-  description: "So sánh lớp chữ PDF với OCR nhiều lượt và nghe thử nội dung trước khi tích hợp vào luồng tra cứu chính.",
+  description: "Xem OCR theo đúng bố cục trang chính, nghe thử nội dung và so sánh các model trước khi tích hợp.",
 };
 
 export default function OcrLabPage() {
@@ -24,13 +25,13 @@ export default function OcrLabPage() {
         <p>OCR LAB · KHÔNG ẢNH HƯỞNG BẢN HIỆN TẠI</p>
         <h1>Kiểm tra OCR trước khi đưa vào sử dụng.</h1>
         <div className="ocrLabIntro">
-          <p>Hệ thống giữ nguyên lớp chữ PDF đang hoạt động tốt, đồng thời OCR từng trang nhiều lượt, xử lý logo/con dấu/nhiễu và cho phép chạy toàn bộ tệp theo từng đợt nhỏ.</p>
-          <p>Kết quả có thêm bản trình bày và trình đọc thử cho Điều/Khoản, biểu mẫu, dòng điền và bảng. Trang này chỉ chạy trên preview; dữ liệu chưa được đưa vào kho văn bản chính thức.</p>
+          <p>Hệ thống giữ nguyên lớp chữ PDF đang hoạt động tốt, đồng thời OCR từng trang, xử lý logo/con dấu/nhiễu và cho phép chạy toàn bộ tệp theo từng đợt nhỏ.</p>
+          <p>Kết quả được dựng ngay theo giao diện đọc của bản main, có tìm trong văn bản và nghe thử trước khi quyết định merge.</p>
         </div>
       </section>
 
       <OcrLabClient />
-      <OcrDomSpeechReader />
+      <OcrMainSpeechReader />
     </main>
   );
 }
