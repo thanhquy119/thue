@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useRef, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { buildOcrPreviewBlocks, type OcrPreviewBlock } from "@/lib/legal/ocr-layout";
 import { OCR_SAMPLES } from "@/lib/legal/ocr-samples";
 
@@ -75,11 +75,11 @@ function mergeResults(results: LabResult[]): LabResult {
       .flatMap((result) => result.warnings)
       .filter((warning) => !/^Đợt này đã (?:OCR|xử lý) trang/iu.test(warning)),
   )];
-  if (pages.length === totalPages) {
-    warnings.push(`Đã hoàn tất phân tích toàn bộ ${totalPages} trang trong chế độ thử nghiệm theo từng đợt nhỏ.`);
-  } else {
-    warnings.push(`Đã xử lý ${pages.length}/${totalPages} trang; kết quả đang được cập nhật dần.`);
-  }
+  warnings.push(
+    pages.length === totalPages
+      ? `Đã hoàn tất phân tích toàn bộ ${totalPages} trang trong chế độ thử nghiệm theo từng đợt nhỏ.`
+      : `Đã xử lý ${pages.length}/${totalPages} trang; kết quả đang được cập nhật dần.`,
+  );
 
   return {
     sourceUrl: results[0].sourceUrl,
@@ -87,20 +87,53 @@ function mergeResults(results: LabResult[]): LabResult {
     totalPages,
     processedPages: pages.length,
     truncated: pages.length < totalPages,
-    embedded: {
-      text: embeddedText,
-      score: embeddedScore,
-      characters: embeddedText.length,
-    },
-    ocr: {
-      text: ocrText,
-      score: ocrScore,
-      characters: ocrText.length,
-      pages,
-    },
+    embedded: { text: embeddedText, score: embeddedScore, characters: embeddedText.length },
+    ocr: { text: ocrText, score: ocrScore, characters: ocrText.length, pages },
     recommendation: recommendation(embeddedScore, ocrScore),
     warnings,
   };
+}
+
+function tableCellContent(value: string) {
+  return value || "\u00a0";
+}
+
+function TableBlock({ block }: { block: Extract<OcrPreviewBlock, { kind: "table" }> }) {
+  const headers = block.rows.slice(0, block.headerRows);
+  const body = block.rows.slice(block.headerRows);
+  const tableClass = `ocrDocTable ocrDocTable--${block.firstColumn}`;
+
+  return (
+    <div className="ocrDocTableWrap">
+      <table className={tableClass} data-columns={block.columnCount}>
+        {headers.length ? (
+          <thead>
+            {headers.map((row, rowIndex) => (
+              <tr key={`header-${rowIndex}`}>
+                {row.map((cell, cellIndex) => (
+                  <th scope="col" key={`header-${rowIndex}-${cellIndex}`}>{tableCellContent(cell)}</th>
+                ))}
+              </tr>
+            ))}
+          </thead>
+        ) : null}
+        <tbody>
+          {body.map((row, rowIndex) => (
+            <tr key={`body-${rowIndex}-${row[0] ?? ""}`}>
+              {row.map((cell, cellIndex) => {
+                const isRowHeader = cellIndex === 0 && block.firstColumn !== "auto";
+                const checkboxOnly = /^(?:□|☐|☑|✓|✔)(?:\s+(?:□|☐|☑|✓|✔))*$/u.test(cell.trim());
+                const className = checkboxOnly ? "ocrDocTableCheckboxCell" : undefined;
+                return isRowHeader
+                  ? <th scope="row" className={className} key={`body-${rowIndex}-${cellIndex}`}>{tableCellContent(cell)}</th>
+                  : <td className={className} key={`body-${rowIndex}-${cellIndex}`}>{tableCellContent(cell)}</td>;
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 function PreviewBlock({ block }: { block: OcrPreviewBlock }) {
@@ -137,22 +170,7 @@ function PreviewBlock({ block }: { block: OcrPreviewBlock }) {
       </div>
     );
   }
-  if (block.kind === "table") {
-    return (
-      <div className="ocrDocTableWrap">
-        <table className="ocrDocTable">
-          <tbody>
-            {block.rows.map((row, index) => (
-              <tr key={`${row[0]}-${index}`}>
-                <th>{row[0]}</th>
-                <td>{row[1]}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
-  }
+  if (block.kind === "table") return <TableBlock block={block} />;
   return <p className="ocrDocParagraph">{block.text}</p>;
 }
 
@@ -169,13 +187,13 @@ function FormattedPreview({ pages }: { pages: PageResult[] }) {
       <div className="ocrPaperStack">
         {pages.map((page) => (
           <article className="ocrPaperPage" key={page.page}>
-            <div className="ocrPaperNumber">
-              Trang {page.page} · {passLabel(page.chosenPass)}
-            </div>
+            <div className="ocrPaperNumber">Trang {page.page} · {passLabel(page.chosenPass)}</div>
             <div className="ocrPaperContent">
-              {page.text ? buildOcrPreviewBlocks(page.text).map((block, index) => (
-                <PreviewBlock block={block} key={`${page.page}-${index}`} />
-              )) : <p className="ocrEmptyPage">Không tìm thấy nội dung chữ đủ tin cậy trên trang này.</p>}
+              {page.text
+                ? buildOcrPreviewBlocks(page.text).map((block, index) => (
+                    <PreviewBlock block={block} key={`${page.page}-${index}`} />
+                  ))
+                : <p className="ocrEmptyPage">Không tìm thấy nội dung chữ đủ tin cậy trên trang này.</p>}
             </div>
             {page.notices?.length ? (
               <details className="ocrPageNotices">
@@ -199,10 +217,7 @@ export default function OcrLabClient() {
   const [result, setResult] = useState<LabResult | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
 
-  async function requestBatch(
-    controller: AbortController,
-    options: { maxPages?: number; pages?: number[] },
-  ) {
+  async function requestBatch(controller: AbortController, options: { maxPages?: number; pages?: number[] }) {
     const response = await fetch("/api/ocr-lab", {
       method: "POST",
       signal: controller.signal,
@@ -256,19 +271,15 @@ export default function OcrLabClient() {
       }
       setProgress(`Đã hoàn tất toàn bộ ${totalPages} trang.`);
     } catch (requestError) {
-      if (controller.signal.aborted) {
-        setError("Đã dừng quá trình phân tích toàn tệp. Các trang hoàn tất trước đó vẫn được giữ trên màn hình.");
-      } else {
-        setError(requestError instanceof Error ? requestError.message : "Không thể chạy OCR thử nghiệm.");
-      }
+      setError(
+        controller.signal.aborted
+          ? "Đã dừng quá trình phân tích toàn tệp. Các trang hoàn tất trước đó vẫn được giữ trên màn hình."
+          : requestError instanceof Error ? requestError.message : "Không thể chạy OCR thử nghiệm.",
+      );
     } finally {
       controllerRef.current = null;
       setLoading(false);
     }
-  }
-
-  function cancel() {
-    controllerRef.current?.abort();
   }
 
   function chooseSample(sampleUrl: string) {
@@ -324,7 +335,7 @@ export default function OcrLabClient() {
         </label>
         <div className="ocrFormActions">
           <button type="submit" disabled={loading}>{loading ? "Đang xử lý…" : "Chạy thử OCR"}</button>
-          {loading ? <button className="ocrCancelButton" type="button" onClick={cancel}>Dừng</button> : null}
+          {loading ? <button className="ocrCancelButton" type="button" onClick={() => controllerRef.current?.abort()}>Dừng</button> : null}
         </div>
       </form>
 
