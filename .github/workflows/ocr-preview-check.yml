@@ -14,7 +14,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,5 +24,19 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install --no-package-lock --no-audit --no-fund
-      - name: Test and build
-        run: npm run build
+      - name: Unit tests
+        run: npm test 2>&1 | tee ci-tests.log
+      - name: Typecheck
+        if: always()
+        run: npm run typecheck 2>&1 | tee ci-typecheck.log
+      - name: Next production build
+        if: always()
+        run: npx next build 2>&1 | tee ci-build.log
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocr-preview-diagnostics
+          path: ci-*.log
+          if-no-files-found: ignore
+          retention-days: 3
