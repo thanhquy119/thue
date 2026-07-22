@@ -3,7 +3,13 @@ import test from "node:test";
 import { evaluateProductionOcrText } from "../lib/legal/ocr-production.ts";
 
 function legalPage(page: number) {
-  return `--- TRANG ${page} ---\nĐiều ${page}. Nội dung quy định tại trang ${page}\n1. Cơ quan, tổ chức và cá nhân có trách nhiệm thi hành quy định này.\n2. Việc thực hiện phải bảo đảm đúng trình tự, thủ tục và thời hạn theo pháp luật.`;
+  return `--- TRANG ${page} ---
+CHƯƠNG ${page}. QUY ĐỊNH TẠI TRANG ${page}
+Điều ${page}. Nội dung quy định tại trang ${page}
+Khoản 1. Cơ quan, tổ chức và cá nhân có trách nhiệm thi hành đầy đủ quy định này, bảo đảm đúng thẩm quyền và chịu trách nhiệm về tính chính xác của hồ sơ.
+Khoản 2. Việc thực hiện phải bảo đảm đúng trình tự, thủ tục, thành phần hồ sơ và thời hạn theo quy định của pháp luật hiện hành.
+Khoản 3. Trường hợp hồ sơ chưa đầy đủ, cơ quan tiếp nhận phải thông báo rõ nội dung cần sửa đổi, bổ sung và thời hạn hoàn thiện.
+Khoản 4. Bộ trưởng, Thủ trưởng cơ quan ngang bộ, Chủ tịch Ủy ban nhân dân các cấp và các tổ chức, cá nhân có liên quan chịu trách nhiệm thi hành Điều này.`;
 }
 
 test("accepts a complete legal OCR transcript", () => {
