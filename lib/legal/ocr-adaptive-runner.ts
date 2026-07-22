@@ -7,11 +7,19 @@ import {
   type OcrExperimentResult,
   type OcrPageComparison,
 } from "./ocr-experiment";
+import {
+  normalizeOcrModelChoice,
+  ocrModelCandidates,
+  ocrModelResultLabel,
+  type OcrModelChoice,
+} from "./ocr-models";
 import { runOcrBatch, type OcrBatchRequest } from "./ocr-batch-runner";
 
 const MAX_SOURCE_BYTES = 18_000_000;
 const RENDER_WIDTH = 1_800;
 const MAX_BATCH_PAGES = 3;
+
+type AdaptiveOcrRequest = OcrBatchRequest & { model?: OcrModelChoice };
 
 class RecitationFilteredError extends Error {
   constructor(message: string) {
@@ -36,7 +44,7 @@ function apiKey() {
   return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
 }
 
-function ocrModel() {
+function configuredOcrModel() {
   return process.env.OCR_GEMINI_MODEL?.trim() || geminiModel();
 }
 
@@ -81,8 +89,8 @@ QUY TẮC BẮT BUỘC KHI CÓ BẢNG:
 
 Chữ bị che mà không chắc chắn ghi [không đọc rõ]. Nếu mảnh ảnh không có chữ, trả đúng [không có nội dung chữ].`;
 
-async function callBandModel(image: Buffer) {
-  const models = Array.from(new Set([ocrModel(), "gemini-3.1-flash-lite", "gemini-3-flash-preview"]));
+async function callBandModel(image: Buffer, choice: OcrModelChoice) {
+  const models = ocrModelCandidates(choice, configuredOcrModel());
   let lastMessage = "";
 
   for (const model of models) {
@@ -133,18 +141,18 @@ async function callBandModel(image: Buffer) {
               : "Mảnh ảnh vẫn bị bộ lọc recitation.",
           );
         }
-        lastMessage = `Model trả phản hồi rỗng${finishReason(payload) ? ` (${finishReason(payload)})` : ""}.`;
+        lastMessage = `Model ${model} trả phản hồi rỗng${finishReason(payload) ? ` (${finishReason(payload)})` : ""}.`;
         continue;
       }
       lastMessage = typeof payload.error?.message === "string"
-        ? payload.error.message
-        : `Gemini trả lỗi ${response.status}.`;
+        ? `${model}: ${payload.error.message}`
+        : `${model}: Gemini trả lỗi ${response.status}.`;
       if (![404, 429, 500, 502, 503, 504].includes(response.status)) break;
     } catch (error) {
       if (error instanceof RecitationFilteredError) throw error;
       lastMessage = error instanceof Error && error.name === "AbortError"
-        ? "OCR mảnh ảnh quá thời gian."
-        : "Không kết nối được Gemini OCR.";
+        ? `${model}: OCR mảnh ảnh quá thời gian.`
+        : `${model}: Không kết nối được Gemini OCR.`;
     } finally {
       clearTimeout(timer);
     }
@@ -210,16 +218,20 @@ function mergeBandTexts(values: string[]) {
   return cleanVisualArtifacts(balanceTableTags(output).join("\n")).text;
 }
 
-async function ocrFragment(image: Buffer, depth = 0): Promise<{ text: string; notices: string[] }> {
+async function ocrFragment(
+  image: Buffer,
+  choice: OcrModelChoice,
+  depth = 0,
+): Promise<{ text: string; notices: string[] }> {
   try {
-    return { text: await callBandModel(image), notices: [] };
+    return { text: await callBandModel(image, choice), notices: [] };
   } catch (error) {
     if (error instanceof RecitationFilteredError && depth < 2) {
       const fragments = await prepareOcrImageBands(image, 2);
       const texts: string[] = [];
       const notices = [`Một vùng bị bộ lọc recitation; đã chia nhỏ thêm ở cấp ${depth + 1}.`];
       for (const fragment of fragments) {
-        const recovered = await ocrFragment(fragment, depth + 1);
+        const recovered = await ocrFragment(fragment, choice, depth + 1);
         if (recovered.text) texts.push(recovered.text);
         notices.push(...recovered.notices);
       }
@@ -232,7 +244,11 @@ async function ocrFragment(image: Buffer, depth = 0): Promise<{ text: string; no
   }
 }
 
-async function tiledPageOcr(image: Buffer, page: number): Promise<OcrPageComparison> {
+async function tiledPageOcr(
+  image: Buffer,
+  page: number,
+  choice: OcrModelChoice,
+): Promise<OcrPageComparison> {
   const bands = await prepareOcrImageBands(image, 4);
   const texts: string[] = [];
   const notices: string[] = [
@@ -241,7 +257,7 @@ async function tiledPageOcr(image: Buffer, page: number): Promise<OcrPageCompari
   ];
 
   for (let index = 0; index < bands.length; index += 1) {
-    const recovered = await ocrFragment(bands[index]);
+    const recovered = await ocrFragment(bands[index], choice);
     if (recovered.text) texts.push(recovered.text);
     notices.push(...recovered.notices.map((notice) => `Vùng ${index + 1}: ${notice}`));
   }
@@ -301,7 +317,7 @@ async function safeFetchPdf(urlValue: string, redirects = 0): Promise<{ url: str
     const response = await fetch(urlValue, {
       redirect: "manual",
       signal: controller.signal,
-      headers: { "user-agent": "ThueLegalReader-OcrLab/1.6" },
+      headers: { "user-agent": "ThueLegalReader-OcrLab/1.7" },
     });
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
@@ -320,7 +336,7 @@ async function safeFetchPdf(urlValue: string, redirects = 0): Promise<{ url: str
   }
 }
 
-function selectedPages(totalPages: number, request: OcrBatchRequest) {
+function selectedPages(totalPages: number, request: AdaptiveOcrRequest) {
   const pages = [...new Set((request.pages ?? []).map((page) => Math.floor(page)))]
     .filter((page) => page >= 1 && page <= totalPages)
     .sort((left, right) => left - right)
@@ -335,8 +351,9 @@ function recommendation(embeddedScore: number, outputScore: number) {
   return "manual_review" as const;
 }
 
-async function runExplicitPages(urlValue: string, request: OcrBatchRequest): Promise<OcrExperimentResult> {
+async function runExplicitPages(urlValue: string, request: AdaptiveOcrRequest): Promise<OcrExperimentResult> {
   if (!hasGeminiConfig()) throw new Error("Thiếu GEMINI_API_KEY để chạy OCR thử nghiệm.");
+  const choice = normalizeOcrModelChoice(request.model);
   const source = await safeFetchPdf(urlValue);
   const [{ PDFParse }, { CanvasFactory }] = await Promise.all([
     import("pdf-parse"),
@@ -381,7 +398,7 @@ async function runExplicitPages(urlValue: string, request: OcrBatchRequest): Pro
       const pageNumber = pages[index] ?? index + 1;
       pageResults.push(
         image
-          ? await tiledPageOcr(Buffer.from(image), pageNumber)
+          ? await tiledPageOcr(Buffer.from(image), pageNumber, choice)
           : {
               page: pageNumber,
               similarity: 0,
@@ -409,11 +426,12 @@ async function runExplicitPages(urlValue: string, request: OcrBatchRequest): Pro
   ];
   if (retainedPages.length) warnings.push(`Giữ lớp chữ PDF ở trang ${retainedPages.join(", ")} vì chất lượng đã tốt.`);
   if (scannedPages.length) warnings.push(`OCR theo vùng nhỏ ở trang ${scannedPages.join(", ")} để tránh phản hồi RECITATION khi chép nguyên cả trang.`);
+  if (choice === "gemini-3.6-flash") warnings.push("Lượt này dùng Gemini 3.6 Flash để đối chiếu trang khó; nên theo dõi hạn mức yêu cầu mỗi ngày.");
   if (!outputText) warnings.push("Không nhận dạng được nội dung chữ đủ tin cậy trong đợt này.");
 
   return {
     sourceUrl: source.url,
-    model: ocrModel(),
+    model: ocrModelResultLabel(choice),
     totalPages,
     processedPages: pageResults.length,
     truncated: totalPages > pageResults.length,
@@ -435,7 +453,7 @@ async function runExplicitPages(urlValue: string, request: OcrBatchRequest): Pro
 
 export async function runAdaptiveOcrBatch(
   urlValue: string,
-  request: OcrBatchRequest,
+  request: AdaptiveOcrRequest,
 ): Promise<OcrExperimentResult> {
   if (request.pages?.length) return runExplicitPages(urlValue, request);
   return runOcrBatch(urlValue, request);
