@@ -1,10 +1,9 @@
-import { hasGeminiConfig } from "./gemini";
-import { cleanVisualArtifacts } from "./ocr-artifacts";
-import { ocrModelCandidates } from "./ocr-models";
+import { cleanVisualArtifacts } from "./ocr-artifacts.ts";
+import { ocrModelCandidates } from "./ocr-models.ts";
 import {
   cleanOcrTextForQuality,
   scoreLegalOcrTextForQuality,
-} from "./ocr-quality";
+} from "./ocr-quality.ts";
 
 const OCR_TIMEOUT_MS = 45_000;
 const MAX_INLINE_PDF_BYTES = 18_000_000;
@@ -36,6 +35,10 @@ function productionOcrEnabled() {
 
 function apiKey() {
   return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
+}
+
+function hasGeminiConfig() {
+  return Boolean(apiKey());
 }
 
 function payloadText(payload: GeminiPayload) {
