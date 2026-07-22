@@ -99,7 +99,6 @@ II. NHẬN XÉT, ĐÁNH GIÁ THEO TIÊU CHÍ THẨM ĐỊNH
 nghệ, giải pháp kỹ thuật quy định tại khoản 1 Điều 12 Nghị định số 101/2026/NĐ-CP
 | STT | Nội dung tiêu chí | Đạt | Không đạt | Nhận xét/đánh giá | Yêu cầu giải trình/bổ sung |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| 2 | nghệ, giải pháp kỹ thuật được mô tả rõ ràng | □ | □ | | |
 | 3 | Có khả năng tạo ra sản phẩm, dịch vụ hoặc kết quả cụ thể | ☑ | □ | Đủ căn cứ | |
 | 4 | Không thuộc Danh mục công nghệ cấm chuyển giao | □ | ☑ | | Bổ sung tài liệu |
 `,
