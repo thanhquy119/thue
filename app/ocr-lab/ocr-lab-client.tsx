@@ -1,6 +1,7 @@
 "use client";
 
 import { type FormEvent, useRef, useState } from "react";
+import { OCR_FORMAT_FIXTURES, type OcrFormatFixture } from "@/lib/legal/ocr-format-fixtures";
 import {
   chunkOcrPages,
   formatOcrPageSelection,
@@ -12,7 +13,7 @@ import {
 } from "@/lib/legal/ocr-models";
 import { OCR_SAMPLES, type OcrSample } from "@/lib/legal/ocr-samples";
 import OcrMainPreview from "./ocr-main-preview";
-import type { LabResult } from "./ocr-lab-types";
+import type { LabResult, PageResult } from "./ocr-lab-types";
 import {
   mergeResults,
   passLabel,
@@ -20,11 +21,41 @@ import {
   scoreLabel,
 } from "./ocr-lab-utils";
 
+function formatFixtureResult(fixture: OcrFormatFixture): LabResult {
+  const pages: PageResult[] = fixture.pages.map((page) => ({
+    page: page.page,
+    similarity: 1,
+    chosenPass: "consensus",
+    chosenScore: 1,
+    literalScore: 1,
+    structureScore: 1,
+    consensusScore: 1,
+    text: page.text.trim(),
+    notices: ["Dữ liệu mô phỏng dùng riêng để kiểm tra giao diện; không gọi Gemini và không dùng quota."],
+  }));
+  const text = pages.map((page) => page.text).join("\n\n");
+  return {
+    sourceUrl: `fixture:${fixture.id}`,
+    model: "Bộ demo định dạng · không gọi API",
+    totalPages: pages.length,
+    processedPages: pages.length,
+    truncated: false,
+    embedded: { text, score: 1, characters: text.length },
+    ocr: { text, score: 1, characters: text.length, pages },
+    recommendation: "keep_embedded",
+    warnings: [
+      `Demo “${fixture.label}” chỉ kiểm tra parser, bố cục, tìm kiếm và trình đọc; không đại diện cho độ chính xác OCR của model.`,
+      `Rủi ro đang kiểm tra: ${fixture.risks.join(" · ")}.`,
+    ],
+  };
+}
+
 export default function OcrLabClient() {
   const [url, setUrl] = useState("");
   const [pageMode, setPageMode] = useState("3");
   const [customPages, setCustomPages] = useState("12-14");
   const [modelChoice, setModelChoice] = useState<OcrModelChoice>("auto");
+  const [fixtureId, setFixtureId] = useState("");
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
@@ -68,6 +99,7 @@ export default function OcrLabClient() {
     event.preventDefault();
     const controller = new AbortController();
     controllerRef.current = controller;
+    setFixtureId("");
     setLoading(true);
     setError("");
     setProgress("");
@@ -123,7 +155,16 @@ export default function OcrLabClient() {
     }
   }
 
+  function chooseFixture(fixture: OcrFormatFixture) {
+    setFixtureId(fixture.id);
+    setError("");
+    setProgress(`Đã nạp demo định dạng “${fixture.label}” mà không gọi API.`);
+    setResult(formatFixtureResult(fixture));
+    window.setTimeout(() => document.querySelector(".ocrLabResult")?.scrollIntoView({ behavior: "smooth", block: "start" }), 30);
+  }
+
   function chooseSample(sample: OcrSample) {
+    setFixtureId("");
     setUrl(sample.url);
     setCustomPages(formatOcrPageSelection(sample.testPages));
     setPageMode("custom");
@@ -136,6 +177,31 @@ export default function OcrLabClient() {
 
   return (
     <>
+      <section className="ocrSamples ocrFixtureSamples">
+        <header>
+          <div>
+            <span>Ma trận demo không tốn quota</span>
+            <h2>Kiểm tra format và trình đọc trước khi chạy PDF thật</h2>
+          </div>
+          <small>Mỗi mẫu cố tình chứa một nhóm lỗi khó để duyệt nhanh trên desktop và điện thoại.</small>
+        </header>
+        <div className="ocrSampleGrid">
+          {OCR_FORMAT_FIXTURES.map((fixture) => (
+            <button
+              type="button"
+              key={fixture.id}
+              onClick={() => chooseFixture(fixture)}
+              className={fixtureId === fixture.id ? "isSelected" : ""}
+              disabled={loading}
+            >
+              <strong>{fixture.label}</strong>
+              <span>{fixture.description}</span>
+              <span className="ocrSampleCases">{fixture.risks.join(" · ")}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
       <section className="ocrSamples">
         <header>
           <div>
@@ -150,7 +216,7 @@ export default function OcrLabClient() {
               type="button"
               key={sample.url}
               onClick={() => chooseSample(sample)}
-              className={url === sample.url ? "isSelected" : ""}
+              className={!fixtureId && url === sample.url ? "isSelected" : ""}
               disabled={loading}
             >
               <strong>{sample.label}</strong>
