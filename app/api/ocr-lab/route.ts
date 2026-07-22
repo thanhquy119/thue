@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
+import { installOcrFetchShim } from "@/lib/legal/ocr-fetch-shim";
 import { ocrLabEnabled, runOcrExperimentFromUrl } from "@/lib/legal/ocr-experiment";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
+
+installOcrFetchShim();
 
 export async function POST(request: Request) {
   if (!ocrLabEnabled()) {
@@ -23,6 +26,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Không thể chạy OCR thử nghiệm.";
+    console.error("OCR Lab error", error);
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
