@@ -32,11 +32,7 @@ function shouldStart(state: DurableIngestionState | null, force: boolean) {
 
 async function startDocument(source: DurableLegalSource) {
   const jobId = randomUUID();
-  const run = await start(
-    legalDocumentIngestionWorkflow,
-    [{ jobId, source, persist: true }],
-    { region: "iad1" },
-  );
+  const run = await start(legalDocumentIngestionWorkflow, [{ jobId, source, persist: true }]);
   return { number: source.number, job_id: jobId, run_id: run.runId };
 }
 
