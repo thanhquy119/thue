@@ -115,16 +115,31 @@ function buildDocument(
   };
 }
 
+async function loadUncachedRecentDocument(number: string): Promise<DocumentDetail> {
+  const definition = findRecentDocumentByNumber(number);
+  if (!definition) throw new Error("Văn bản chưa có trong danh sách đối chiếu gần đây.");
+  const { extracted, officialText, download } = await extractVerifiedDocument(definition);
+  return buildDocument(definition, extracted, officialText, download);
+}
+
 const loadCachedRecentDocument = unstable_cache(
-  async (number: string): Promise<DocumentDetail> => {
-    const definition = findRecentDocumentByNumber(number);
-    if (!definition) throw new Error("Văn bản chưa có trong danh sách đối chiếu gần đây.");
-    const { extracted, officialText, download } = await extractVerifiedDocument(definition);
-    return buildDocument(definition, extracted, officialText, download);
-  },
+  loadUncachedRecentDocument,
   ["thue-ro-recent-verified-documents-v2"],
   { revalidate: 24 * 60 * 60 },
 );
+
+function incrementalCacheUnavailable(error: unknown) {
+  return error instanceof Error && /incrementalcache\s+missing/iu.test(error.message);
+}
+
+async function loadRecentDocument(number: string) {
+  try {
+    return await loadCachedRecentDocument(number);
+  } catch (error) {
+    if (!incrementalCacheUnavailable(error)) throw error;
+    return loadUncachedRecentDocument(number);
+  }
+}
 
 export function recentVerifiedCandidate(number: string): SearchCandidate | null {
   const definition = findRecentDocumentByNumber(number);
@@ -144,7 +159,7 @@ export function recentVerifiedCandidate(number: string): SearchCandidate | null 
 export async function loadRecentVerifiedDocument(number: string) {
   const definition = findRecentDocumentByNumber(number);
   if (!definition) return null;
-  return loadCachedRecentDocument(definition.number);
+  return loadRecentDocument(definition.number);
 }
 
 export async function recentVerifiedDocumentResponse(query: string): Promise<TaxSearchResponse | null> {
@@ -152,7 +167,7 @@ export async function recentVerifiedDocumentResponse(query: string): Promise<Tax
   if (!definition) return null;
 
   try {
-    const document = await loadCachedRecentDocument(definition.number);
+    const document = await loadRecentDocument(definition.number);
     const mirrored = document.verification_notes?.includes("công bố lại") ?? false;
     return {
       query_normalized: normalizeIdentifier(definition.number),
