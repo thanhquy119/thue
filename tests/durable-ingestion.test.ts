@@ -9,6 +9,7 @@ import {
 } from "../lib/legal/durable-ingestion-types.ts";
 
 function legalText(number = "94/2026/TT-BTC") {
+  const paragraph = "Thông tư quy định dữ liệu, tiêu chí, trách nhiệm và quy trình quản lý thuế phải được thực hiện khách quan, minh bạch, đầy đủ. ".repeat(8);
   return `
 BỘ TÀI CHÍNH
 Số: ${number}
@@ -17,14 +18,14 @@ THÔNG TƯ
 QUY ĐỊNH VỀ QUẢN LÝ TUÂN THỦ, QUẢN LÝ RỦI RO TRONG QUẢN LÝ THUẾ
 
 Điều 1. Phạm vi điều chỉnh
-Thông tư này quy định về quản lý tuân thủ và quản lý rủi ro trong quản lý thuế.
+${paragraph}
 
 Điều 2. Đối tượng áp dụng
-Người nộp thuế, cơ quan quản lý thuế và tổ chức, cá nhân có liên quan thực hiện theo quy định.
+${paragraph}
 
 Điều 3. Nguyên tắc thực hiện
-Việc đánh giá rủi ro phải khách quan, minh bạch và dựa trên dữ liệu.
-`.repeat(7);
+${paragraph}
+`;
 }
 
 function page(page: number, score = 0.82, similarity = 0.95): DurableOcrPage {
