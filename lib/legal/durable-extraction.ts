@@ -1,9 +1,8 @@
 import { createHash } from "node:crypto";
 import JSZip from "jszip";
 import WordExtractor from "word-extractor";
+import { fetchDurableLegalBuffer } from "./durable-fetch.ts";
 import { isAllowedLegalSource } from "./ingestion.ts";
-
-const DEFAULT_MAX_DURABLE_SOURCE_BYTES = 100_000_000;
 
 export type DurableExtractedSource = {
   sourceUrl: string;
@@ -18,13 +17,6 @@ export type DurableExtractedSource = {
   totalPages: number;
   metadata: Record<string, unknown>;
 };
-
-function maximumSourceBytes() {
-  const configured = Number(process.env.LEGAL_MAX_SOURCE_BYTES ?? 0);
-  return Number.isFinite(configured) && configured >= 1_000_000
-    ? Math.floor(configured)
-    : DEFAULT_MAX_DURABLE_SOURCE_BYTES;
-}
 
 function normalizeText(value: string) {
   return value
@@ -98,6 +90,12 @@ function filenameFrom(response: Response, sourceUrl: string) {
 }
 
 function extensionFrom(value: string) {
+  const filenameParameter = value.match(/[?&]file_name=([^&]+)/iu)?.[1];
+  if (filenameParameter) {
+    const decoded = decodeURIComponent(filenameParameter);
+    const extension = decoded.toLocaleLowerCase("en").match(/\.([a-z0-9]{2,5})$/u)?.[1];
+    if (extension) return extension;
+  }
   return value.toLocaleLowerCase("en").match(/\.([a-z0-9]{2,5})(?:$|\?)/u)?.[1] ?? "";
 }
 
@@ -116,43 +114,6 @@ function attachmentCandidates(html: string, pageUrl: string) {
     return extension === "docx" ? 0 : extension === "doc" ? 1 : extension === "pdf" ? 2 : 3;
   };
   return Array.from(new Set(candidates)).sort((left, right) => priority(left) - priority(right));
-}
-
-async function fetchBuffer(urlValue: string, redirects = 0): Promise<{ response: Response; buffer: Buffer; url: string }> {
-  if (!isAllowedLegalSource(urlValue)) throw new Error("URL không thuộc danh sách nguồn pháp luật được phép.");
-  if (redirects > 4) throw new Error("Nguồn chuyển hướng quá nhiều lần.");
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 45_000);
-  try {
-    const response = await fetch(urlValue, {
-      redirect: "manual",
-      signal: controller.signal,
-      cache: "no-store",
-      headers: {
-        "user-agent": "ThueRoDurableIngestion/1.0",
-        accept: "application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword,application/pdf,text/html,*/*",
-      },
-    });
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get("location");
-      if (!location) throw new Error("Nguồn chuyển hướng không hợp lệ.");
-      return fetchBuffer(new URL(location, urlValue).toString(), redirects + 1);
-    }
-    if (!response.ok) throw new Error(`Nguồn trả lỗi ${response.status}.`);
-    const maximum = maximumSourceBytes();
-    const announcedLength = Number(response.headers.get("content-length") ?? 0);
-    if (announcedLength > maximum) {
-      throw new Error(`Tệp nguồn vượt giới hạn nền ${Math.round(maximum / 1_000_000)} MB.`);
-    }
-    const buffer = Buffer.from(await response.arrayBuffer());
-    if (buffer.byteLength < 100) throw new Error("Tệp nguồn quá nhỏ hoặc không hợp lệ.");
-    if (buffer.byteLength > maximum) {
-      throw new Error(`Tệp nguồn vượt giới hạn nền ${Math.round(maximum / 1_000_000)} MB.`);
-    }
-    return { response, buffer, url: response.url || urlValue };
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 function docxXmlToText(xml: string) {
@@ -186,7 +147,11 @@ async function extractDocx(buffer: Buffer) {
   return { text, repairedPath: true };
 }
 
-async function extractDownloadedSource(sourceUrl: string, response: Response, buffer: Buffer): Promise<DurableExtractedSource> {
+async function extractDownloadedSource(
+  sourceUrl: string,
+  response: Response,
+  buffer: Buffer,
+): Promise<DurableExtractedSource> {
   const mimeType = response.headers.get("content-type")?.split(";")[0]?.trim() || "application/octet-stream";
   const fileName = filenameFrom(response, sourceUrl);
   const lowerName = fileName.toLocaleLowerCase("en");
@@ -196,17 +161,22 @@ async function extractDownloadedSource(sourceUrl: string, response: Response, bu
   let totalPages = 0;
   const metadata: Record<string, unknown> = { bytes: buffer.byteLength };
 
-  if (mimeType.includes("wordprocessingml") || lowerName.endsWith(".docx")) {
+  if (mimeType.includes("wordprocessingml") || lowerName.endsWith(".docx") || extensionFrom(sourceUrl) === "docx") {
     const result = await extractDocx(buffer);
     officialText = result.text;
     extractionMethod = "docx";
     metadata.repairedDocxPath = result.repairedPath;
-  } else if (mimeType.includes("msword") || lowerName.endsWith(".doc")) {
+  } else if (mimeType.includes("msword") || lowerName.endsWith(".doc") || extensionFrom(sourceUrl) === "doc") {
     const extractor = new WordExtractor();
     const document = await extractor.extract(buffer);
     officialText = normalizeText(document.getBody());
     extractionMethod = "doc";
-  } else if (mimeType.includes("pdf") || lowerName.endsWith(".pdf") || buffer.subarray(0, 5).toString("ascii") === "%PDF-") {
+  } else if (
+    mimeType.includes("pdf") ||
+    lowerName.endsWith(".pdf") ||
+    extensionFrom(sourceUrl) === "pdf" ||
+    buffer.subarray(0, 5).toString("ascii") === "%PDF-"
+  ) {
     const [{ PDFParse }, { CanvasFactory }] = await Promise.all([
       import("pdf-parse"),
       import("pdf-parse/worker"),
@@ -251,7 +221,7 @@ async function extractDownloadedSource(sourceUrl: string, response: Response, bu
 }
 
 export async function extractDurableLegalSource(sourceUrl: string): Promise<DurableExtractedSource> {
-  const source = await fetchBuffer(sourceUrl);
+  const source = await fetchDurableLegalBuffer(sourceUrl);
   const mimeType = source.response.headers.get("content-type")?.split(";")[0]?.trim() || "";
   if (mimeType.includes("html")) {
     const html = source.buffer.toString("utf8");
@@ -259,7 +229,7 @@ export async function extractDurableLegalSource(sourceUrl: string): Promise<Dura
     let lastError: Error | null = null;
     for (const candidate of candidates) {
       try {
-        const attachment = await fetchBuffer(candidate);
+        const attachment = await fetchDurableLegalBuffer(candidate);
         const extracted = await extractDownloadedSource(attachment.url, attachment.response, attachment.buffer);
         extracted.metadata.landingPageUrl = source.url;
         return extracted;
@@ -273,7 +243,7 @@ export async function extractDurableLegalSource(sourceUrl: string): Promise<Dura
 }
 
 export function sourceFileExtension(source: DurableExtractedSource) {
-  const fromName = extensionFrom(source.fileName);
+  const fromName = extensionFrom(source.fileName) || extensionFrom(source.sourceUrl);
   if (fromName) return fromName;
   if (source.mimeType.includes("wordprocessingml")) return "docx";
   if (source.mimeType.includes("msword")) return "doc";
