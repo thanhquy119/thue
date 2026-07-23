@@ -14,6 +14,7 @@ export type RecentDocumentDefinition = {
   officialPage: string;
   minimumTextLength: number;
   downloads: RecentDocumentDownload[];
+  fullTextUnavailableReason?: string;
 };
 
 const DOCUMENTS: RecentDocumentDefinition[] = [
@@ -42,23 +43,9 @@ const DOCUMENTS: RecentDocumentDefinition[] = [
     effectiveDate: "2026-07-01",
     officialPage: "https://vanban.chinhphu.vn/?classid=1&docid=218894&orggroupid=4&pageid=27160",
     minimumTextLength: 5_000,
-    downloads: [
-      {
-        url: "https://datafiles.chinhphu.vn/cpp/files/vbpq/2026/7/94-btc.pdf",
-        fileName: "94-btc.pdf",
-        mimeType: "application/pdf",
-        referer: "https://vanban.chinhphu.vn/?classid=1&docid=218894&orggroupid=4&pageid=27160",
-        label: "Tệp PDF chính thức của Cổng Chính phủ",
-      },
-      {
-        url: "https://baocaotaichinh.vn/tintuc/download?file=897412141thong-tu-so-94_2026_tt-btc.pdf",
-        fileName: "Thong tu so 94_2026_TT-BTC.pdf",
-        mimeType: "application/pdf",
-        referer:
-          "https://baocaotaichinh.vn/thu-vien/thong-tu-so-94-2026-ttbtc-cua-bo-tai-chinh-quy-dinh-ve-quan-ly-tuan-thu-quan-ly-rui-ro-trong-quan-ly-thue-1178433928-272481",
-        label: "Bản PDF công bố lại đã đối chiếu với Cổng Chính phủ",
-      },
-    ],
+    downloads: [],
+    fullTextUnavailableReason:
+      "Tệp chính thức hiện là PDF scan khoảng 13 MB; OCR toàn văn vượt thời gian xử lý an toàn. Hệ thống chỉ hiển thị đúng hồ sơ và liên kết chính thức, không dùng phần giao diện trang làm toàn văn.",
   },
 ];
 
