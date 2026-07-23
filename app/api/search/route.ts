@@ -1,6 +1,11 @@
 import { unstable_cache } from "next/cache";
 import { NextResponse } from "next/server";
+import { rejectPortalShellDocument } from "@/lib/legal/document-quality";
 import { parseLegalHierarchy, slugifyDocument } from "@/lib/legal/ingestion";
+import {
+  loadRecentVerifiedDocument,
+  recentVerifiedDocumentResponse,
+} from "@/lib/legal/recent-verified-documents";
 import {
   cleanUserQuery,
   containsPromptInjection,
@@ -123,6 +128,10 @@ function filterExpiredResponse(result: TaxSearchResponse): TaxSearchResponse {
     };
   }
   return { ...result, candidates };
+}
+
+function finalizeResponse(result: TaxSearchResponse) {
+  return rejectPortalShellDocument(filterExpiredResponse(result));
 }
 
 function clarificationResponse(query: string, message: string): TaxSearchResponse {
@@ -297,6 +306,18 @@ async function financeCircular89Response(query: string): Promise<TaxSearchRespon
   };
 }
 
+function recentAnchoredNumber(reference: ReturnType<typeof extractAnchoredReferences>[number]) {
+  if (
+    reference.type === "Thông tư" &&
+    ["90", "94"].includes(reference.number) &&
+    reference.year === "2026" &&
+    (!reference.suffix || reference.suffix === "TT-BTC")
+  ) {
+    return `${reference.number}/2026/TT-BTC`;
+  }
+  return null;
+}
+
 async function anchoredQuestionResponse(query: string): Promise<TaxSearchResponse> {
   const references = extractAnchoredReferences(query).slice(0, 3);
   const documents: DocumentDetail[] = [];
@@ -310,9 +331,12 @@ async function anchoredQuestionResponse(query: string): Promise<TaxSearchRespons
         reference.number === "89" &&
         reference.year === "2026" &&
         (!reference.suffix || reference.suffix === "TT-BTC");
+      const verifiedNumber = recentAnchoredNumber(reference);
 
       if (isCircular892026) {
         document = await loadCircular892026();
+      } else if (verifiedNumber) {
+        document = await loadRecentVerifiedDocument(verifiedNumber);
       } else {
         const result = await searchTaxLawRobust(reference.lookupQuery);
         if (result.document && referenceMatchesDocument(reference, result.document)) {
@@ -359,7 +383,7 @@ export async function POST(request: Request) {
 
   try {
     if (isAnchoredLegalQuestion(query)) {
-      return NextResponse.json(filterExpiredResponse(await anchoredQuestionResponse(query)), {
+      return NextResponse.json(finalizeResponse(await anchoredQuestionResponse(query)), {
         headers: { "cache-control": "no-store" },
       });
     }
@@ -369,13 +393,22 @@ export async function POST(request: Request) {
     }
 
     if (queryRequestsFinanceCircular89(query)) {
-      return NextResponse.json(filterExpiredResponse(await financeCircular89Response(query)), {
+      return NextResponse.json(finalizeResponse(await financeCircular89Response(query)), {
         headers: { "cache-control": "no-store" },
       });
     }
 
     const hint = extractSearchHint(query);
     const plan = analyzeTaxQuestion(query);
+    if (!hint.asksQuestion && !plan.isQuestion) {
+      const recent = await recentVerifiedDocumentResponse(query);
+      if (recent) {
+        return NextResponse.json(finalizeResponse(recent), {
+          headers: { "cache-control": "no-store" },
+        });
+      }
+    }
+
     if (hint.asksQuestion || plan.isQuestion) {
       const clarification = clarificationForTaxQuestion(query, plan);
       if (clarification) {
@@ -385,14 +418,14 @@ export async function POST(request: Request) {
       }
 
       const enrichedQuery = enrichTaxQuestion(query, plan);
-      const result = filterExpiredResponse(await searchTaxLawRobust(enrichedQuery));
+      const result = finalizeResponse(await searchTaxLawRobust(enrichedQuery));
       return NextResponse.json(guardQuestionEffectiveStatus(query, plan, result), {
         headers: { "cache-control": "no-store" },
       });
     }
 
     const result = await searchTaxLawRobust(query);
-    return NextResponse.json(filterExpiredResponse(result), { headers: { "cache-control": "no-store" } });
+    return NextResponse.json(finalizeResponse(result), { headers: { "cache-control": "no-store" } });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Không thể tra cứu lúc này." },
