@@ -16,7 +16,7 @@ import {
   type OcrPageComparison,
 } from "./ocr-experiment";
 
-const MAX_SOURCE_BYTES = 18_000_000;
+const DEFAULT_MAX_SOURCE_BYTES = 100_000_000;
 const DEFAULT_MAX_PAGES = 3;
 const ABSOLUTE_PREVIEW_PAGES = 6;
 const MAX_BATCH_PAGES = 3;
@@ -47,6 +47,13 @@ type GeminiPayload = {
 type PdfScreenshotPage = {
   data: Uint8Array | Buffer;
 };
+
+function maximumSourceBytes() {
+  const configured = Number(process.env.LEGAL_MAX_SOURCE_BYTES ?? 0);
+  return Number.isFinite(configured) && configured >= 1_000_000
+    ? Math.floor(configured)
+    : DEFAULT_MAX_SOURCE_BYTES;
+}
 
 function normalizeSpaces(value: string) {
   return value
@@ -306,12 +313,12 @@ async function safeFetchPdf(urlValue: string, redirects = 0): Promise<{ url: str
   if (redirects > 3) throw new Error("Nguồn chuyển hướng quá nhiều lần.");
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30_000);
+  const timer = setTimeout(() => controller.abort(), 45_000);
   try {
     const response = await fetch(urlValue, {
       redirect: "manual",
       signal: controller.signal,
-      headers: { "user-agent": "ThueLegalReader-OcrLab/1.4" },
+      headers: { "user-agent": "ThueLegalReader-OcrLab/1.5" },
     });
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
@@ -319,10 +326,15 @@ async function safeFetchPdf(urlValue: string, redirects = 0): Promise<{ url: str
       return safeFetchPdf(new URL(location, urlValue).toString(), redirects + 1);
     }
     if (!response.ok) throw new Error(`Nguồn trả lỗi ${response.status}.`);
+    const maximum = maximumSourceBytes();
     const length = Number(response.headers.get("content-length") ?? 0);
-    if (length > MAX_SOURCE_BYTES) throw new Error("Tệp PDF vượt giới hạn 18 MB.");
+    if (length > maximum) {
+      throw new Error(`Tệp PDF vượt giới hạn nền ${Math.round(maximum / 1_000_000)} MB.`);
+    }
     const buffer = Buffer.from(await response.arrayBuffer());
-    if (buffer.byteLength > MAX_SOURCE_BYTES) throw new Error("Tệp PDF vượt giới hạn 18 MB.");
+    if (buffer.byteLength > maximum) {
+      throw new Error(`Tệp PDF vượt giới hạn nền ${Math.round(maximum / 1_000_000)} MB.`);
+    }
     if (buffer.subarray(0, 5).toString("ascii") !== "%PDF-") throw new Error("Liên kết thử nghiệm chưa trỏ trực tiếp tới tệp PDF.");
     return { url: response.url || urlValue, buffer };
   } finally {
