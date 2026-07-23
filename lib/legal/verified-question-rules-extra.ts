@@ -32,6 +32,18 @@ function officialCandidate(
   };
 }
 
+function registrationCandidate() {
+  return officialCandidate(
+    "verified-extra-90-2026-tt-btc",
+    "90/2026/TT-BTC",
+    "Quy định về đăng ký thuế, có hiệu lực từ ngày 01/07/2026",
+    "Thông tư",
+    "Bộ Tài chính",
+    "2026-06-30",
+    "https://xaydungchinhsach.chinhphu.vn/mot-so-diem-moi-cua-thong-tu-90-2026-tt-btc-ve-dang-ky-thue-11926071714240164.htm",
+  );
+}
+
 function invoiceDecreeCandidate() {
   return officialCandidate(
     "verified-extra-254-2026-nd-cp",
@@ -98,6 +110,18 @@ export function verifiedExtraQuestionResponse(query: string): TaxSearchResponse 
   const normalized = normalize(query);
   const years = normalized.match(/\b20\d{2}\b/g) ?? [];
   if (years.some((year) => Number(year) <= 2025)) return null;
+
+  const asksNewTaxNumberAfterMove =
+    /\b(?:doanh nghiep|cong ty|to chuc)\b/.test(normalized) &&
+    /\b(?:chuyen tru so|chuyen dia chi|thay doi dia chi)\b/.test(normalized) &&
+    /\b(?:doi ma so thue|ma so thue moi|dang ky lai ma so thue|cap lai ma so thue)\b/.test(normalized);
+  if (asksNewTaxNumberAfterMove) {
+    return answer(
+      query,
+      "Không. Doanh nghiệp chuyển trụ sở sang tỉnh khác vẫn sử dụng mã số thuế đã được cấp; việc chuyển địa chỉ không làm phát sinh một mã số thuế mới. Doanh nghiệp phải thực hiện thủ tục thay đổi thông tin đăng ký thuế và chuyển cơ quan thuế quản lý trực tiếp theo Thông tư số 90/2026/TT-BTC.\n\nCần phân biệt việc giữ nguyên mã số thuế với nghĩa vụ cập nhật địa chỉ, hồ sơ đăng ký doanh nghiệp và các thủ tục chuyển cơ quan thuế quản lý. Trường hợp thuộc diện kiểm tra tại trụ sở khi chuyển địa điểm, cơ quan thuế sẽ thông báo riêng.",
+      [registrationCandidate()],
+    );
+  }
 
   if (
     /\b(?:ho kinh doanh|ca nhan kinh doanh)\b/.test(normalized) &&
