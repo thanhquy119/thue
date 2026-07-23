@@ -54,20 +54,21 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Thiếu number." }, { status: 400 });
   }
 
-  const discovered = await discoverTaxDocumentByNumber(number).catch(() => null);
-  const source = discovered ?? (sourceUrl
+  const customSource = sourceUrl
     ? {
         number,
         title: url.searchParams.get("title")?.trim() || `Văn bản số ${number}`,
         type: /\/TT-/iu.test(number) ? "Thông tư" : "Văn bản pháp luật",
         issuer: /TT-BTC$/iu.test(number) ? "Bộ Tài chính" : "",
         issuedDate: url.searchParams.get("issued_date")?.trim() || null,
-        effectiveDate: null,
-        officialPageUrl: sourceUrl,
+        effectiveDate: url.searchParams.get("effective_date")?.trim() || null,
+        officialPageUrl: url.searchParams.get("official_page_url")?.trim() || sourceUrl,
         sourceUrl,
-        sourceLabel: "Nguồn smoke test trên Preview",
+        sourceLabel: "Nguồn smoke test được chỉ định trên Preview",
       }
-    : null);
+    : null;
+  const discovered = customSource ? null : await discoverTaxDocumentByNumber(number).catch(() => null);
+  const source = customSource ?? discovered;
   if (!source) {
     return NextResponse.json({ error: `Không tìm thấy nguồn chính xác ${number}.` }, { status: 404 });
   }
