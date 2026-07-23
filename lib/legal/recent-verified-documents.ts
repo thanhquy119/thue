@@ -146,7 +146,7 @@ export async function recentVerifiedDocumentResponse(query: string): Promise<Tax
 
   try {
     const document = await loadCachedRecentDocument(definition.number);
-    const mirrored = document.verification_notes.includes("công bố lại");
+    const mirrored = document.verification_notes?.includes("công bố lại") ?? false;
     return {
       query_normalized: normalizeIdentifier(definition.number),
       query_kind: "document",
