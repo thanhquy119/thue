@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { start } from "workflow/api";
 import {
+  cleanupExpiredDurableRunCheckpoints,
   durableStoreConfigured,
   readDurableIngestionState,
+  readDurableStoreUsage,
 } from "@/lib/legal/durable-document-store";
 import { discoverRecentTaxDocuments } from "@/lib/legal/recent-tax-discovery";
 import type { DurableIngestionState, DurableLegalSource } from "@/lib/legal/durable-ingestion-types";
@@ -50,6 +52,13 @@ export async function GET(request: Request) {
     );
   }
 
+  const cleanup = await cleanupExpiredDurableRunCheckpoints().catch((error) => ({
+    deletedObjects: 0,
+    deletedBytes: 0,
+    error: error instanceof Error ? error.message : "Không thể dọn checkpoint cũ.",
+  }));
+  const usageBeforeRuns = await readDurableStoreUsage().catch(() => null);
+
   const force = new URL(request.url).searchParams.get("force") === "1";
   const discovery = await discoverRecentTaxDocuments();
   const selected: DurableLegalSource[] = [];
@@ -70,6 +79,8 @@ export async function GET(request: Request) {
   return NextResponse.json(
     {
       ok: true,
+      cleanup,
+      usage_before_runs: usageBeforeRuns,
       discovered: discovery.documents.length,
       started,
       skipped,
