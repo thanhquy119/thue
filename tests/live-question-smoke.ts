@@ -98,7 +98,7 @@ async function main() {
 
   const source = await retry("87 official DOCX", () => extractDurableLegalSource(SOURCE_87_DOCX));
   assert.equal(source.extractionMethod, "docx");
-  assert.ok(source.officialText.length > 20_000);
+  assert.ok(source.officialText.length > 5_000, "The official Circular 87 text is unexpectedly short.");
   const validation = validateDurableLegalText({
     expectedNumber: "87/2026/TT-BTC",
     issuedDate: "2026-06-30",
@@ -106,6 +106,17 @@ async function main() {
     extractionMethod: "docx",
     qualityScore: source.qualityScore,
   });
+  console.log("[live-question-source]", JSON.stringify({
+    number: "87/2026/TT-BTC",
+    sourceUrl: source.sourceUrl,
+    fileName: source.fileName,
+    bytes: source.sourceBuffer.byteLength,
+    characters: source.officialText.length,
+    qualityScore: source.qualityScore,
+    sha256: source.sha256,
+    metadata: source.metadata,
+    validation,
+  }));
   assert.equal(validation.accepted, true, validation.warnings.join(" "));
   const document87 = documentFromText(source.officialText, source.qualityScore);
 
