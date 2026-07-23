@@ -21,6 +21,13 @@ function normalizeIdentifier(value: string) {
 }
 
 async function fetchDownload(definition: RecentDocumentDefinition) {
+  if (!definition.downloads.length) {
+    throw new Error(
+      definition.fullTextUnavailableReason ??
+        "Nguồn chính thức chưa cung cấp tệp có lớp chữ đạt yêu cầu.",
+    );
+  }
+
   let lastError: Error | null = null;
 
   for (const download of definition.downloads) {
@@ -115,7 +122,7 @@ const loadCachedRecentDocument = unstable_cache(
     const { extracted, officialText, download } = await extractVerifiedDocument(definition);
     return buildDocument(definition, extracted, officialText, download);
   },
-  ["thue-ro-recent-verified-documents-v1"],
+  ["thue-ro-recent-verified-documents-v2"],
   { revalidate: 24 * 60 * 60 },
 );
 
@@ -165,7 +172,8 @@ export async function recentVerifiedDocumentResponse(query: string): Promise<Tax
       query_normalized: normalizeIdentifier(definition.number),
       query_kind: "document",
       direct_answer:
-        `Đã xác định ${definition.number} do Bộ Tài chính ban hành, nhưng tệp toàn văn hiện chưa tạo được lớp chữ đạt yêu cầu.`,
+        `Đã tìm thấy đúng ${definition.number} do Bộ Tài chính ban hành. ` +
+        "Toàn văn chưa được hiển thị vì nguồn hiện chưa có lớp chữ đạt yêu cầu; hệ thống giữ liên kết công bố chính thức để em mở và đối chiếu.",
       document: null,
       candidates: candidate ? [candidate] : [],
       warnings: [error instanceof Error ? error.message : "Không tải được tệp toàn văn."],
