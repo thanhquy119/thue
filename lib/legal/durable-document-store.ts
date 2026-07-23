@@ -97,14 +97,15 @@ export async function writeDurableSource(
     throw new Error("Chưa có BLOB_READ_WRITE_TOKEN cho kho nhập văn bản bền vững.");
   }
   const safeExtension = extension.replace(/[^a-z0-9]/giu, "").toLocaleLowerCase("en") || "bin";
+  const payload = Buffer.isBuffer(body) ? body : Buffer.from(body);
   try {
-    return await put(`${basePath(number)}/sources/${sha256}.${safeExtension}`, body, {
+    return await put(`${basePath(number)}/sources/${sha256}.${safeExtension}`, payload, {
       access: blobAccess(),
       addRandomSuffix: false,
       allowOverwrite: false,
       cacheControlMaxAge: 31_536_000,
       contentType,
-      multipart: body.byteLength >= 5_000_000,
+      multipart: payload.byteLength >= 5_000_000,
     });
   } catch (error) {
     const existing = await get(`${basePath(number)}/sources/${sha256}.${safeExtension}`, {
