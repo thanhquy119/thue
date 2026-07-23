@@ -36,6 +36,9 @@ export type OfficialEvidence = {
   excerpts: string[];
 };
 
+const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
+const GEMINI_FALLBACK_MODELS = ["gemini-3.1-flash-lite", "gemini-3-flash-preview"] as const;
+
 function apiKey() {
   return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
 }
@@ -47,8 +50,12 @@ export function geminiModel() {
     "gemini-2.5-flash-lite",
     "gemini-3.5-flash",
   ]);
-  if (!configured || unavailableForThisFreeProject.has(configured)) return "gemini-3.1-flash-lite";
+  if (!configured || unavailableForThisFreeProject.has(configured)) return DEFAULT_GEMINI_MODEL;
   return configured;
+}
+
+export function geminiModelCandidates() {
+  return Array.from(new Set([DEFAULT_GEMINI_MODEL, geminiModel(), ...GEMINI_FALLBACK_MODELS]));
 }
 
 export function hasGeminiConfig() {
@@ -170,11 +177,10 @@ async function callModel(model: string, input: string, system: string) {
 async function callGemini(input: string, system: string) {
   if (!hasGeminiConfig()) throw new GeminiUnavailableError("Gemini chưa được cấu hình.");
 
-  const models = Array.from(new Set([geminiModel(), "gemini-3.1-flash-lite", "gemini-3-flash-preview"]));
   let lastStatus = 0;
   let lastMessage = "";
 
-  for (const model of models) {
+  for (const model of geminiModelCandidates()) {
     try {
       const { response, payload } = await callModel(model, input, system);
       if (response.ok) return payload;
