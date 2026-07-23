@@ -12,11 +12,13 @@ test("recognizes exact lookup for Circular 90/2026/TT-BTC", () => {
   assert.match(document?.officialPage ?? "", /docid=218839/i);
 });
 
-test("recognizes exact lookup for Circular 94/2026/TT-BTC", () => {
+test("recognizes Circular 94 while avoiding unsafe full-document OCR", () => {
   const document = findRecentDocumentForQuery("Thông tư 94/2026/TT-BTC");
   assert.equal(document?.number, "94/2026/TT-BTC");
   assert.match(document?.officialPage ?? "", /docid=218894/i);
-  assert.match(document?.downloads[0]?.url ?? "", /94-btc\.pdf$/i);
+  assert.equal(document?.downloads.length, 0);
+  assert.match(document?.fullTextUnavailableReason ?? "", /PDF scan/i);
+  assert.match(document?.fullTextUnavailableReason ?? "", /OCR/i);
 });
 
 test("does not intercept unrelated document numbers", () => {
