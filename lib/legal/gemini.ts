@@ -4,6 +4,7 @@ import {
   answerGroundingIssues,
   buildTaxSearchQueries,
 } from "./question-intelligence";
+import { discoverOfficialSourcesViaGrounding } from "./search-grounding-fallback.ts";
 import { disqualifyTaxSource } from "./tax-source-disqualifier";
 import { taxSourceRelevance } from "./tax-source-relevance";
 import type { OnlineLegalSource } from "./types";
@@ -220,6 +221,13 @@ function mergeOfficialSources(groups: OnlineLegalSource[][], query: string) {
   return [...byUrl.values()];
 }
 
+function relevantSources(groups: OnlineLegalSource[][], query: string, minimumRelevance: number) {
+  return mergeOfficialSources(groups, query)
+    .filter((source) => taxSourceRelevance(query, sourceText(source)) >= minimumRelevance)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 30);
+}
+
 export async function discoverOfficialSources(query: string): Promise<GeminiDiscovery> {
   const plan = analyzeTaxQuestion(query);
   if (!plan.isQuestion || plan.hasDocumentReference) return discoverViaRss(query);
@@ -229,28 +237,47 @@ export async function discoverOfficialSources(query: string): Promise<GeminiDisc
   const fulfilled = settled
     .filter((result): result is PromiseFulfilledResult<GeminiDiscovery> => result.status === "fulfilled")
     .map((result) => result.value);
+  const firstError = settled.find((result): result is PromiseRejectedResult => result.status === "rejected");
+  const minimumRelevance = plan.taxAreas.length ? 1.4 : 0.6;
+  const directSources = relevantSources(
+    fulfilled.map((result) => result.sources),
+    query,
+    minimumRelevance,
+  );
+
+  if (directSources.length) {
+    return {
+      draft_answer: "Đã tìm thấy nguồn chính thức phù hợp với lĩnh vực và nghiệp vụ trong câu hỏi.",
+      sources: directSources,
+    };
+  }
+
+  try {
+    const groundedSources = relevantSources(
+      [await discoverOfficialSourcesViaGrounding(query)],
+      query,
+      minimumRelevance,
+    );
+    if (groundedSources.length) {
+      return {
+        draft_answer:
+          "Nguồn trực tiếp chưa trả kết quả phù hợp; Search Grounding đã phát hiện URL cơ quan nhà nước để ứng dụng tiếp tục tải và xác minh toàn văn.",
+        sources: groundedSources,
+      };
+    }
+  } catch {
+    // Grounding chỉ là fallback. Mọi lỗi/quota phải quay về hành vi tra cứu an toàn hiện có.
+  }
 
   if (!fulfilled.length) {
-    const firstError = settled.find((result): result is PromiseRejectedResult => result.status === "rejected");
     throw firstError?.reason instanceof Error
       ? firstError.reason
       : new Error("Không kết nối được nguồn pháp luật chính thức.");
   }
 
-  const minimumRelevance = plan.taxAreas.length ? 1.4 : 0.6;
-  const sources = mergeOfficialSources(
-    fulfilled.map((result) => result.sources),
-    query,
-  )
-    .filter((source) => taxSourceRelevance(query, sourceText(source)) >= minimumRelevance)
-    .sort((left, right) => right.score - left.score)
-    .slice(0, 30);
-
   return {
-    draft_answer: sources.length
-      ? "Đã tìm thấy nguồn chính thức phù hợp với lĩnh vực và nghiệp vụ trong câu hỏi."
-      : "Chưa tìm thấy nguồn chính thức đủ liên quan để kết luận an toàn.",
-    sources,
+    draft_answer: "Chưa tìm thấy nguồn chính thức đủ liên quan để kết luận an toàn.",
+    sources: [],
   };
 }
 
