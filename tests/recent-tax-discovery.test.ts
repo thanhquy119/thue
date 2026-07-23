@@ -4,7 +4,7 @@ import {
   CURRENT_TAX_DOCUMENT_NUMBERS,
   durableSourceFromDiscovery,
   selectExactOfficialSource,
-} from "../lib/legal/recent-tax-discovery.ts";
+} from "../lib/legal/recent-tax-discovery-core.ts";
 import type { OnlineLegalSource } from "../lib/legal/types.ts";
 
 function source(number: string, score: number, url = `https://datafiles.chinhphu.vn/${number}.pdf`): OnlineLegalSource {
