@@ -84,11 +84,7 @@ export async function POST(request: Request) {
   }
 
   const jobId = randomUUID();
-  const run = await start(
-    legalDocumentIngestionWorkflow,
-    [{ jobId, source, persist: !dryRun }],
-    { region: "iad1" },
-  );
+  const run = await start(legalDocumentIngestionWorkflow, [{ jobId, source, persist: !dryRun }]);
   return NextResponse.json(
     {
       ok: true,
