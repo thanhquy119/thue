@@ -5,11 +5,12 @@
   "engines": { "node": "22.x" },
   "scripts": {
     "dev": "next dev",
-    "build": "npm test && next build",
+    "build": "npm test && npm run smoke:live && next build",
     "start": "next start",
     "lint": "eslint . --ignore-pattern .next",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "smoke:live": "tsx tests/live-ingestion-smoke.ts",
     "verify": "npm run lint && npm run typecheck && npm run build"
   },
   "dependencies": {
@@ -31,6 +32,7 @@
     "@types/word-extractor": "^1.0.6",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
+    "tsx": "4.22.5",
     "typescript": "5.9.3"
   },
   "type": "module"
