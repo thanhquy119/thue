@@ -5,12 +5,13 @@
   "engines": { "node": "22.x" },
   "scripts": {
     "dev": "next dev",
-    "build": "npm test && npm run smoke:live && next build",
+    "build": "npm test && npm run smoke:live && npm run smoke:questions && next build",
     "start": "next start",
     "lint": "eslint . --ignore-pattern .next",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "smoke:live": "tsx tests/live-ingestion-smoke.ts",
+    "smoke:questions": "tsx tests/live-question-smoke.ts",
     "verify": "npm run lint && npm run typecheck && npm run build"
   },
   "dependencies": {
