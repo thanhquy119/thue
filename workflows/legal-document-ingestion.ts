@@ -96,7 +96,7 @@ export async function legalDocumentIngestionWorkflow(
 
     let text = extracted.officialText;
     let qualityScore = extracted.qualityScore;
-    let extractionMethod = extracted.extractionMethod;
+    let extractionMethod: string = extracted.extractionMethod;
     let pages: DurableOcrPage[] = [];
 
     if (extracted.requiresOcr) {
