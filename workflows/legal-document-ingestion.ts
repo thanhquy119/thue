@@ -206,6 +206,7 @@ export async function legalDocumentIngestionWorkflow(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Nhập văn bản thất bại.";
+    await reportFailureStep(input.source.number, input.jobId, message).catch(() => undefined);
     if (persist && durableStoreConfigured()) {
       await writeStateStep(state(input, {
         status: "failed",
@@ -249,6 +250,19 @@ async function extractSourceStep(
     );
     sourceBlobUrl = stored.url;
   }
+  console.info("[legal-ingestion-source]", JSON.stringify({
+    number: source.number,
+    sourceUrl: extracted.sourceUrl,
+    mimeType: extracted.mimeType,
+    fileName: extracted.fileName,
+    bytes: extracted.sourceBuffer.byteLength,
+    sha256: extracted.sha256,
+    extractionMethod: extracted.extractionMethod,
+    requiresOcr: extracted.requiresOcr,
+    totalPages: extracted.totalPages,
+    qualityScore: extracted.qualityScore,
+    persist,
+  }));
   const { sourceBuffer: _sourceBuffer, ...serializable } = extracted;
   return { ...serializable, sourceBlobUrl };
 }
@@ -273,6 +287,20 @@ async function ocrPagesStep(
   if (persist) {
     for (const page of completed) await writeDurableOcrPage(number, jobId, page);
   }
+  console.info("[legal-ingestion-ocr-batch]", JSON.stringify({
+    number,
+    jobId,
+    requestedPages: pages,
+    processedPages: completed.map((page) => page.page),
+    scores: completed.map((page) => ({
+      page: page.page,
+      score: page.score,
+      similarity: page.similarity,
+      chosenPass: page.chosenPass,
+      notices: page.notices,
+    })),
+    persist,
+  }));
   return completed;
 }
 
@@ -294,6 +322,16 @@ async function validateAndBuildRevisionStep(
     totalPages: extractionMethod === "ocr" ? extracted.totalPages : 0,
     pages,
   });
+  console.info("[legal-ingestion-validation]", JSON.stringify({
+    number: source.number,
+    accepted: validation.accepted,
+    extractionMethod,
+    qualityScore,
+    sourceSha256: extracted.sha256,
+    sourceUrl: extracted.sourceUrl,
+    metrics: validation.metrics,
+    warnings: validation.warnings,
+  }));
   const provisions = parseLegalHierarchy(text).map((provision, index) => ({
     id: `${slugifyDocument(source.number)}-${index}`,
     type: provision.provisionType,
@@ -343,4 +381,17 @@ async function validateAndBuildRevisionStep(
 async function publishRevisionStep(revision: DurablePublishedRevision) {
   "use step";
   await publishDurableRevision(revision);
+  console.info("[legal-ingestion-published]", JSON.stringify({
+    number: revision.document.number,
+    revisionId: revision.revisionId,
+    sourceSha256: revision.sourceSha256,
+    extractionMethod: revision.document.extraction_method,
+    qualityScore: revision.document.quality_score,
+    publishedAt: revision.publishedAt,
+  }));
+}
+
+async function reportFailureStep(number: string, jobId: string, message: string) {
+  "use step";
+  console.error("[legal-ingestion-failed]", JSON.stringify({ number, jobId, message }));
 }
