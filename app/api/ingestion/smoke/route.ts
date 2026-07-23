@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getRun, start } from "workflow/api";
+import {
+  durableStoreConfigured,
+  verifyDurableStore,
+} from "@/lib/legal/durable-document-store";
 import { discoverTaxDocumentByNumber } from "@/lib/legal/recent-tax-discovery";
 import { legalDocumentIngestionWorkflow } from "@/workflows/legal-document-ingestion";
 
@@ -48,10 +52,26 @@ export async function GET(request: Request) {
   const runId = url.searchParams.get("run_id")?.trim() ?? "";
   if (runId) return statusResponse(runId);
 
+  if (url.searchParams.get("check") === "storage") {
+    const result = await verifyDurableStore();
+    return NextResponse.json(result, {
+      status: result.ok ? 200 : 503,
+      headers: { "cache-control": "no-store", "x-robots-tag": "noindex" },
+    });
+  }
+
   const number = url.searchParams.get("number")?.trim().slice(0, 100) ?? "";
   const sourceUrl = url.searchParams.get("source_url")?.trim() ?? "";
   if (!number) {
     return NextResponse.json({ error: "Thiếu number." }, { status: 400 });
+  }
+
+  const persist = url.searchParams.get("persist") === "1";
+  if (persist && !durableStoreConfigured()) {
+    return NextResponse.json(
+      { error: "Vercel Blob chưa được cấu hình cho Preview." },
+      { status: 503 },
+    );
   }
 
   const customSource = sourceUrl
@@ -74,7 +94,7 @@ export async function GET(request: Request) {
   }
 
   const jobId = randomUUID();
-  const run = await start(legalDocumentIngestionWorkflow, [{ jobId, source, persist: false }]);
+  const run = await start(legalDocumentIngestionWorkflow, [{ jobId, source, persist }]);
   return NextResponse.json(
     {
       ok: true,
@@ -82,7 +102,7 @@ export async function GET(request: Request) {
       run_id: run.runId,
       number: source.number,
       source_url: source.sourceUrl,
-      persist: false,
+      persist,
     },
     { status: 202, headers: { "cache-control": "no-store", "x-robots-tag": "noindex" } },
   );
