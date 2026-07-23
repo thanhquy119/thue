@@ -44,6 +44,18 @@ function registrationCandidate() {
   );
 }
 
+function repeal97Candidate() {
+  return officialCandidate(
+    "verified-extra-97-2026-tt-btc",
+    "97/2026/TT-BTC",
+    "Bãi bỏ Thông tư số 55/2010/TT-BTC về thuế GTGT và thuế TNDN đối với các đài truyền hình, phát thanh truyền hình",
+    "Thông tư",
+    "Bộ Tài chính",
+    "2026-07-06",
+    "https://vanban.chinhphu.vn/?classid=1&docid=218797&orggroupid=4&pageid=27160",
+  );
+}
+
 function invoiceDecreeCandidate() {
   return officialCandidate(
     "verified-extra-254-2026-nd-cp",
@@ -80,7 +92,7 @@ function thresholdCandidate() {
   );
 }
 
-function answer(query: string, directAnswer: string, candidates: SearchCandidate[]): TaxSearchResponse {
+function answer(query: string, directAnswer: string, candidates: SearchCandidate[], confidence = 0.98): TaxSearchResponse {
   return {
     query_normalized: normalize(query),
     query_kind: "question",
@@ -88,7 +100,7 @@ function answer(query: string, directAnswer: string, candidates: SearchCandidate
     document: null,
     candidates,
     warnings: [],
-    confidence: 0.98,
+    confidence,
     retrieved_at: new Date().toISOString(),
   };
 }
@@ -110,6 +122,18 @@ export function verifiedExtraQuestionResponse(query: string): TaxSearchResponse 
   const normalized = normalize(query);
   const years = normalized.match(/\b20\d{2}\b/g) ?? [];
   if (years.some((year) => Number(year) <= 2025)) return null;
+
+  const asksCircular97Repeal =
+    /\b97\s*\/\s*2026\s*\/\s*tt-btc\b/.test(normalized) &&
+    /\b(?:bai bo|van ban nao|thong tu nao|het hieu luc)\b/.test(normalized);
+  if (asksCircular97Repeal) {
+    return answer(
+      query,
+      "Thông tư số 97/2026/TT-BTC bãi bỏ toàn bộ Thông tư số 55/2010/TT-BTC ngày 16/04/2010 của Bộ trưởng Bộ Tài chính. Thông tư 55/2010/TT-BTC trước đây hướng dẫn thuế giá trị gia tăng và thuế thu nhập doanh nghiệp đối với Đài Truyền hình Việt Nam và các đài truyền hình, đài phát thanh - truyền hình tỉnh, thành phố.\n\nThông tư 97/2026/TT-BTC được ban hành và có hiệu lực từ ngày 06/07/2026.",
+      [repeal97Candidate()],
+      0.99,
+    );
+  }
 
   const asksNewTaxNumberAfterMove =
     /\b(?:doanh nghiep|cong ty|to chuc)\b/.test(normalized) &&
