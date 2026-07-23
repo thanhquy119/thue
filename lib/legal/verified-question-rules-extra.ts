@@ -120,6 +120,18 @@ export function verifiedExtraQuestionResponse(query: string): TaxSearchResponse 
     );
   }
 
+  const asksExclusiveCashRegisterInvoice =
+    /\bmay tinh tien\b/.test(normalized) &&
+    /\b(?:bat buoc|co phai|phai dung|chi duoc dung|chi dung)\b/.test(normalized) &&
+    /\b(?:ban hang truc tiep|ban le|nguoi tieu dung|cung cap dich vu truc tiep)\b/.test(normalized);
+  if (asksExclusiveCashRegisterInvoice) {
+    return answer(
+      query,
+      "Không thể kết luận rằng cứ bán hàng trực tiếp cho người tiêu dùng thì bắt buộc chỉ được dùng hóa đơn điện tử khởi tạo từ máy tính tiền. Pháp luật về hóa đơn điện tử còn phân biệt loại người bán, ngưỡng doanh thu, ngành nghề và hình thức hóa đơn đã đăng ký.\n\nĐối với hộ kinh doanh/cá nhân kinh doanh thuộc ngưỡng phải áp dụng hóa đơn điện tử, có thể sử dụng hóa đơn điện tử có mã của cơ quan thuế hoặc hóa đơn điện tử khởi tạo từ máy tính tiền có kết nối dữ liệu theo điều kiện tương ứng; không có quy tắc chung buộc mọi người bán trực tiếp chỉ được dùng duy nhất loại hóa đơn từ máy tính tiền. Cần xác định thêm người bán là doanh nghiệp hay hộ/cá nhân kinh doanh, doanh thu năm và hình thức hóa đơn hiện đã đăng ký.",
+      [invoiceDecreeCandidate(), invoiceCircularCandidate(), thresholdCandidate()],
+    );
+  }
+
   const reportsMissingInvoice =
     /\b(?:to giac|phan anh|bao tin)\b/.test(normalized) &&
     /\bkhong\s+(?:lap|giao)(?:\s+va\s+(?:lap|giao))?\s+hoa don\b/.test(normalized);
