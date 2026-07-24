@@ -4,6 +4,10 @@ import {
   answerGroundingIssues,
   buildTaxSearchQueries,
 } from "./question-intelligence";
+import {
+  crossCheckOfficialSources,
+  shouldCrossCheckWithGrounding,
+} from "./search-grounding-cross-check.ts";
 import { discoverOfficialSourcesViaGrounding } from "./search-grounding-fallback.ts";
 import { disqualifyTaxSource } from "./tax-source-disqualifier";
 import { taxSourceRelevance } from "./tax-source-relevance";
@@ -19,6 +23,13 @@ export class GeminiUnavailableError extends Error {
 export type GeminiDiscovery = {
   draft_answer: string;
   sources: OnlineLegalSource[];
+  warnings?: string[];
+  groundingCrossCheck?: {
+    attempted: true;
+    matchCount: number;
+    newSourceCount: number;
+    conflicts: string[];
+  };
 };
 
 type GeminiResponse = {
@@ -221,11 +232,15 @@ function mergeOfficialSources(groups: OnlineLegalSource[][], query: string) {
   return [...byUrl.values()];
 }
 
-function relevantSources(groups: OnlineLegalSource[][], query: string, minimumRelevance: number) {
-  return mergeOfficialSources(groups, query)
+function filterRelevantSources(sources: OnlineLegalSource[], query: string, minimumRelevance: number) {
+  return sources
     .filter((source) => taxSourceRelevance(query, sourceText(source)) >= minimumRelevance)
     .sort((left, right) => right.score - left.score)
     .slice(0, 30);
+}
+
+function relevantSources(groups: OnlineLegalSource[][], query: string, minimumRelevance: number) {
+  return filterRelevantSources(mergeOfficialSources(groups, query), query, minimumRelevance);
 }
 
 export async function discoverOfficialSources(query: string): Promise<GeminiDiscovery> {
@@ -244,29 +259,48 @@ export async function discoverOfficialSources(query: string): Promise<GeminiDisc
     query,
     minimumRelevance,
   );
+  const shouldCrossCheck = shouldCrossCheckWithGrounding(query, directSources, minimumRelevance);
 
-  if (directSources.length) {
+  if (!shouldCrossCheck && directSources.length) {
     return {
       draft_answer: "Đã tìm thấy nguồn chính thức phù hợp với lĩnh vực và nghiệp vụ trong câu hỏi.",
       sources: directSources,
     };
   }
 
-  try {
-    const groundedSources = relevantSources(
-      [await discoverOfficialSourcesViaGrounding(query)],
-      query,
-      minimumRelevance,
-    );
-    if (groundedSources.length) {
-      return {
-        draft_answer:
-          "Nguồn trực tiếp chưa trả kết quả phù hợp; Search Grounding đã phát hiện URL cơ quan nhà nước để ứng dụng tiếp tục tải và xác minh toàn văn.",
-        sources: groundedSources,
-      };
+  if (shouldCrossCheck) {
+    try {
+      const groundedCandidates = mergeOfficialSources(
+        [await discoverOfficialSourcesViaGrounding(query)],
+        query,
+      );
+      const crossCheck = crossCheckOfficialSources(directSources, groundedCandidates);
+      const combinedSources = filterRelevantSources(crossCheck.sources, query, minimumRelevance);
+      if (combinedSources.length) {
+        return {
+          draft_answer: directSources.length
+            ? "Đã đối chiếu nguồn trực tiếp với Search Grounding; kết quả chỉ được dùng để xếp hạng URL ứng viên trước khi tải và xác minh toàn văn."
+            : "Nguồn trực tiếp chưa trả kết quả phù hợp; Search Grounding đã phát hiện URL cơ quan nhà nước để ứng dụng tiếp tục tải và xác minh toàn văn.",
+          sources: combinedSources,
+          warnings: crossCheck.warnings,
+          groundingCrossCheck: {
+            attempted: true,
+            matchCount: crossCheck.matchCount,
+            newSourceCount: crossCheck.newSourceCount,
+            conflicts: crossCheck.conflicts,
+          },
+        };
+      }
+    } catch {
+      // Grounding chỉ là cross-check/fallback. Mọi lỗi hoặc quota phải quay về nguồn trực tiếp an toàn.
     }
-  } catch {
-    // Grounding chỉ là fallback. Mọi lỗi/quota phải quay về hành vi tra cứu an toàn hiện có.
+  }
+
+  if (directSources.length) {
+    return {
+      draft_answer: "Đã tìm thấy nguồn chính thức phù hợp với lĩnh vực và nghiệp vụ trong câu hỏi.",
+      sources: directSources,
+    };
   }
 
   if (!fulfilled.length) {
