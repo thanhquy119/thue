@@ -16,6 +16,7 @@ const DOCUMENTS = [
   { number: "254/2026/NĐ-CP", minimumCharacters: 8_000 },
   { number: "256/2026/NĐ-CP", minimumCharacters: 5_000 },
   { number: "90/2026/TT-BTC", minimumCharacters: 8_000 },
+  { number: "91/2026/TT-BTC", minimumCharacters: 5_000 },
   { number: "108/2025/QH15", minimumCharacters: 8_000 },
 ] as const;
 
