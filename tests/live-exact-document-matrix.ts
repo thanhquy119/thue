@@ -44,15 +44,23 @@ async function main() {
 
   for (const definition of DOCUMENTS) {
     const sources = await retry(`${definition.number} discovery`, () => discoverExactOfficialSources(definition.number));
-    assert.ok(sources.length > 0, `${definition.number}: no exact official attachment source`);
+    assert.ok(sources.length > 0, `${definition.number}: no exact official source`);
     assert.ok(
       sources.every((source) => normalizeDocumentNumber(source.number) === normalizeDocumentNumber(definition.number)),
       `${definition.number}: discovery returned a near-match document`,
     );
     assert.ok(
-      sources.some((source) => /(?:docx?|pdf)(?:$|[?&#])/iu.test(decodeURIComponent(source.sourceUrl))),
-      `${definition.number}: no DOCX/DOC/PDF attachment discovered`,
+      sources.every((source) => {
+        const host = new URL(source.sourceUrl).hostname.toLocaleLowerCase("en");
+        return host === "chinhphu.vn" || host.endsWith(".chinhphu.vn");
+      }),
+      `${definition.number}: discovery returned a non-official host`,
     );
+
+    console.log("[live-exact-document-sources]", JSON.stringify({
+      number: definition.number,
+      sources: sources.slice(0, 5).map((source) => source.sourceUrl),
+    }));
 
     const document = await retry(`${definition.number} extraction`, () => loadExactOfficialDocument(definition.number));
     assert.ok(document, `${definition.number}: exact resolver did not produce full text`);
