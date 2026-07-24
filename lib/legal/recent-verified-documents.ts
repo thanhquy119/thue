@@ -4,7 +4,7 @@ import { durableDocumentResponse } from "./durable-document-lookup.ts";
 import {
   exactOfficialDocumentResponse,
   loadExactOfficialDocument,
-} from "./exact-official-document.ts";
+} from "./exact-official-document-resolver.ts";
 import { extractFromFile, parseLegalHierarchy, slugifyDocument } from "./ingestion.ts";
 import {
   findRecentDocumentByNumber,
