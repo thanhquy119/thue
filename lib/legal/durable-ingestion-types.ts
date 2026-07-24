@@ -125,11 +125,16 @@ function normalizeText(value: string) {
 function dateSignals(value: string | null | undefined) {
   if (!value || !/^20\d{2}-\d{2}-\d{2}$/.test(value)) return [];
   const [year, month, day] = value.split("-").map(Number);
-  return [
+  const paddedDay = String(day).padStart(2, "0");
+  const paddedMonth = String(month).padStart(2, "0");
+  return Array.from(new Set([
     `${day}/${month}/${year}`,
-    `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")}/${year}`,
+    `${paddedDay}/${paddedMonth}/${year}`,
     `ngay ${day} thang ${month} nam ${year}`,
-  ];
+    `ngay ${paddedDay} thang ${month} nam ${year}`,
+    `ngay ${day} thang ${paddedMonth} nam ${year}`,
+    `ngay ${paddedDay} thang ${paddedMonth} nam ${year}`,
+  ]));
 }
 
 function pageCoverage(totalPages: number, pages: DurableOcrPage[]) {
