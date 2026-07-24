@@ -37,7 +37,11 @@ const FULL_DOCUMENT_NUMBER =
   /\b\d{1,4}\s*\/\s*20\d{2}\s*\/\s*(?:NĐ-CP|ND-CP|TT-[A-ZĐ0-9-]+|NQ-[A-ZĐ0-9-]+|QĐ-[A-ZĐ0-9-]+|QD-[A-Z0-9-]+|QH\d*|UBTVQH\d*)\b/iu;
 const CACHE_TTL_MS = 6 * 60 * 60 * 1_000;
 const MAX_CACHE_ENTRIES = 100;
+const MODEL_UNAVAILABLE_BACKOFF_MS = 6 * 60 * 60 * 1_000;
+const QUOTA_BACKOFF_MS = 5 * 60 * 1_000;
+const TRANSIENT_BACKOFF_MS = 60 * 1_000;
 const groundingCache = new Map<string, CachedGroundingResult>();
+let groundingBackoffUntil = 0;
 
 function apiKey() {
   return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
@@ -54,8 +58,22 @@ function positiveInteger(value: string | undefined, fallback: number, maximum: n
     : fallback;
 }
 
+function providerBackoffMs(status: number) {
+  if (status === 404) return MODEL_UNAVAILABLE_BACKOFF_MS;
+  if (status === 429) return QUOTA_BACKOFF_MS;
+  return TRANSIENT_BACKOFF_MS;
+}
+
 export function searchGroundingEnabled() {
   return enabledValue(process.env.ENABLE_SEARCH_GROUNDING_FALLBACK);
+}
+
+export function searchGroundingBackoffActive(now = Date.now()) {
+  return groundingBackoffUntil > now;
+}
+
+export function resetSearchGroundingBackoffForTests() {
+  groundingBackoffUntil = 0;
 }
 
 export function searchGroundingModel() {
@@ -206,7 +224,10 @@ async function requestGrounding(query: string): Promise<GroundingRequestResult> 
   for (const model of searchGroundingModelCandidates()) {
     try {
       const { response, payload } = await requestGroundingModel(model, query);
-      if (response.ok) return { payload, model };
+      if (response.ok) {
+        groundingBackoffUntil = 0;
+        return { payload, model };
+      }
 
       lastStatus = response.status;
       lastMessage = typeof payload.error?.message === "string" ? payload.error.message : "";
@@ -220,6 +241,7 @@ async function requestGrounding(query: string): Promise<GroundingRequestResult> 
     }
   }
 
+  groundingBackoffUntil = Date.now() + providerBackoffMs(lastStatus);
   throw new Error(
     `Search Grounding không dùng được model đã cấu hình${lastStatus ? ` (${lastStatus})` : ""}${
       lastMessage ? `: ${lastMessage.slice(0, 180)}` : "."
@@ -269,7 +291,7 @@ function writeCache(query: string, sources: OnlineLegalSource[]) {
 }
 
 export async function discoverOfficialSourcesViaGrounding(query: string): Promise<OnlineLegalSource[]> {
-  if (!searchGroundingEnabled() || !apiKey()) return [];
+  if (!searchGroundingEnabled() || !apiKey() || searchGroundingBackoffActive()) return [];
   const cleanQuery = query.replace(/\s+/g, " ").trim().slice(0, 500);
   if (cleanQuery.length < 8) return [];
 
