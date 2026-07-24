@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getRun, start } from "workflow/api";
 import {
   durableStoreConfigured,
+  readDurableIngestionState,
   verifyDurableStore,
 } from "@/lib/legal/durable-document-store";
 import { discoverTaxDocumentByNumber } from "@/lib/legal/recent-tax-discovery";
@@ -62,7 +63,8 @@ export async function GET(request: Request) {
 
   const smokeCase = url.searchParams.get("case")?.trim() ?? "";
   const fullOcr94 = smokeCase === "full-ocr-94";
-  const number = fullOcr94
+  const revalidateOcr94 = smokeCase === "revalidate-ocr-94";
+  const number = fullOcr94 || revalidateOcr94
     ? "94/2026/TT-BTC"
     : url.searchParams.get("number")?.trim().slice(0, 100) ?? "";
   const sourceUrl = url.searchParams.get("source_url")?.trim() ?? "";
@@ -70,7 +72,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Thiếu number." }, { status: 400 });
   }
 
-  const persist = fullOcr94 || url.searchParams.get("persist") === "1";
+  const persist = fullOcr94 || revalidateOcr94 || url.searchParams.get("persist") === "1";
   if (persist && !durableStoreConfigured()) {
     return NextResponse.json(
       { error: "Vercel Blob chưa được cấu hình cho Preview." },
@@ -97,8 +99,26 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: `Không tìm thấy nguồn chính xác ${number}.` }, { status: 404 });
   }
 
-  const jobId = randomUUID();
-  const run = await start(legalDocumentIngestionWorkflow, [{ jobId, source, persist }]);
+  let jobId = randomUUID();
+  let reuseExistingCheckpoints = false;
+  if (revalidateOcr94) {
+    const existing = await readDurableIngestionState(number);
+    if (!existing?.runId || existing.totalPages !== 35 || existing.processedPages !== 35) {
+      return NextResponse.json(
+        { error: "Chưa có đủ checkpoint 35/35 trang để revalidate Thông tư 94." },
+        { status: 409 },
+      );
+    }
+    jobId = existing.runId;
+    reuseExistingCheckpoints = true;
+  }
+
+  const run = await start(legalDocumentIngestionWorkflow, [{
+    jobId,
+    source,
+    persist,
+    reuseExistingCheckpoints,
+  }]);
   return NextResponse.json(
     {
       ok: true,
@@ -107,6 +127,7 @@ export async function GET(request: Request) {
       number: source.number,
       source_url: source.sourceUrl,
       persist,
+      reuse_existing_checkpoints: reuseExistingCheckpoints,
       smoke_case: smokeCase || null,
     },
     { status: 202, headers: { "cache-control": "no-store", "x-robots-tag": "noindex" } },
