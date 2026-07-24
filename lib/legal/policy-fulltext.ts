@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { hasUsableLegalDocumentText, looksLikeGovernmentPortalShell } from "./document-quality.ts";
 import { fetchDurableLegalBuffer } from "./durable-fetch.ts";
 import { normalizeDocumentNumber, validateDurableLegalText, type DurableLegalSource } from "./durable-ingestion-types.ts";
+import { extractOfficialAttachmentUrls } from "./exact-official-document-core.ts";
 import { parseLegalHierarchy, slugifyDocument } from "./ingestion.ts";
 import type { DocumentDetail } from "./types.ts";
 
@@ -126,6 +127,79 @@ export async function discoverPolicyFullTextUrls(number: string) {
   return Array.from(new Set(urls)).slice(0, 10);
 }
 
+function attachmentPriority(url: string) {
+  const value = (() => {
+    try {
+      return decodeURIComponent(url).toLocaleLowerCase("en");
+    } catch {
+      return url.toLocaleLowerCase("en");
+    }
+  })();
+  if (/\.docx(?:$|[?&#])/u.test(value)) return 0;
+  if (/\.doc(?:$|[?&#])/u.test(value)) return 1;
+  if (/\.pdf(?:$|[?&#])/u.test(value)) return 2;
+  return 3;
+}
+
+function inferType(number: string) {
+  if (/\/NĐ-CP$/iu.test(number)) return "Nghị định";
+  if (/\/TT-/iu.test(number)) return "Thông tư";
+  if (/\/NQ-/iu.test(number)) return "Nghị quyết";
+  if (/\/QĐ-/iu.test(number)) return "Quyết định";
+  if (/\/(?:QH|UBTVQH)\d*$/iu.test(number)) return "Luật";
+  return "Văn bản pháp luật";
+}
+
+function inferIssuer(number: string) {
+  if (/TT-BTC$/iu.test(number)) return "Bộ Tài chính";
+  if (/NĐ-CP$/iu.test(number) || /NQ-CP$/iu.test(number)) return "Chính phủ";
+  if (/QĐ-TTg$/iu.test(number)) return "Thủ tướng Chính phủ";
+  if (/\/(?:QH|UBTVQH)\d*$/iu.test(number)) return "Quốc hội";
+  return "";
+}
+
+function titleFromHtml(html: string, number: string) {
+  const h1 = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/iu)?.[1];
+  const title = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/iu)?.[1];
+  return htmlToText(h1 || title || "") || `Văn bản số ${number}`;
+}
+
+export async function discoverPolicyAttachmentSources(number: string) {
+  const articleUrls = await discoverPolicyFullTextUrls(number);
+  const sources: DurableLegalSource[] = [];
+  for (const articleUrl of articleUrls) {
+    try {
+      const fetched = await fetchDurableLegalBuffer(articleUrl);
+      const html = fetched.buffer.toString("utf8");
+      const title = titleFromHtml(html, number);
+      const attachments = extractOfficialAttachmentUrls(html, fetched.url)
+        .filter((url) => /\.(?:docx?|pdf)(?:$|[?&#])/iu.test(url))
+        .sort((left, right) => attachmentPriority(left) - attachmentPriority(right));
+      for (const sourceUrl of attachments) {
+        sources.push({
+          number,
+          title,
+          type: inferType(number),
+          issuer: inferIssuer(number),
+          issuedDate: null,
+          effectiveDate: null,
+          officialPageUrl: articleUrl,
+          sourceUrl,
+          sourceLabel: "Cổng Thông tin điện tử Chính phủ",
+        });
+      }
+    } catch {
+      // Try the next exact official article.
+    }
+  }
+  const seen = new Set<string>();
+  return sources.filter((source) => {
+    if (seen.has(source.sourceUrl)) return false;
+    seen.add(source.sourceUrl);
+    return true;
+  });
+}
+
 function trimArticleCandidate(value: string, number: string) {
   const lines = normalizeText(value).split("\n");
   const expected = normalizeDocumentNumber(number);
@@ -193,29 +267,6 @@ export function extractCompletePolicyArticleText(html: string, number: string) {
   return candidates[0] ?? null;
 }
 
-function inferType(number: string) {
-  if (/\/NĐ-CP$/iu.test(number)) return "Nghị định";
-  if (/\/TT-/iu.test(number)) return "Thông tư";
-  if (/\/NQ-/iu.test(number)) return "Nghị quyết";
-  if (/\/QĐ-/iu.test(number)) return "Quyết định";
-  if (/\/(?:QH|UBTVQH)\d*$/iu.test(number)) return "Luật";
-  return "Văn bản pháp luật";
-}
-
-function inferIssuer(number: string) {
-  if (/TT-BTC$/iu.test(number)) return "Bộ Tài chính";
-  if (/NĐ-CP$/iu.test(number) || /NQ-CP$/iu.test(number)) return "Chính phủ";
-  if (/QĐ-TTg$/iu.test(number)) return "Thủ tướng Chính phủ";
-  if (/\/(?:QH|UBTVQH)\d*$/iu.test(number)) return "Quốc hội";
-  return "";
-}
-
-function titleFromHtml(html: string, number: string) {
-  const h1 = html.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/iu)?.[1];
-  const title = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/iu)?.[1];
-  return htmlToText(h1 || title || "") || `Văn bản số ${number}`;
-}
-
 export async function loadPolicyFullTextDocument(number: string): Promise<DocumentDetail | null> {
   const urls = await discoverPolicyFullTextUrls(number);
   for (const url of urls) {
@@ -232,17 +283,6 @@ export async function loadPolicyFullTextDocument(number: string): Promise<Docume
       });
       if (!validation.accepted) continue;
 
-      const legalSource: DurableLegalSource = {
-        number,
-        title: titleFromHtml(html, number),
-        type: inferType(number),
-        issuer: inferIssuer(number),
-        issuedDate: null,
-        effectiveDate: null,
-        officialPageUrl: url,
-        sourceUrl: url,
-        sourceLabel: "Cổng Thông tin điện tử Chính phủ",
-      };
       const provisions = parseLegalHierarchy(text).map((provision, index) => ({
         id: `${slugifyDocument(number)}-${index}`,
         type: provision.provisionType,
@@ -252,17 +292,19 @@ export async function loadPolicyFullTextDocument(number: string): Promise<Docume
         official_text: provision.officialText,
         order_index: provision.orderIndex,
       }));
+      if (!provisions.some((provision) => provision.type === "article")) continue;
+
       return {
         id: slugifyDocument(`${number}-${url}`),
         number,
-        title: legalSource.title,
-        type: legalSource.type,
-        issuer: legalSource.issuer,
+        title: titleFromHtml(html, number),
+        type: inferType(number),
+        issuer: inferIssuer(number),
         issued_date: null,
         effective_date: null,
         status: "unknown",
         source_url: url,
-        source_label: legalSource.sourceLabel,
+        source_label: "Cổng Thông tin điện tử Chính phủ",
         last_verified_at: new Date().toISOString(),
         extraction_method: "html",
         quality_score: 0.94,
