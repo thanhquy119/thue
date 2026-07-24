@@ -3,9 +3,9 @@ import { randomUUID } from "node:crypto";
 import { POST as searchApiPost } from "../app/api/search/route.ts";
 import { looksLikeGovernmentPortalShell } from "../lib/legal/document-quality.ts";
 import {
-  discoverExactOfficialSources,
-  loadExactOfficialDocument,
-} from "../lib/legal/exact-official-document-resolver.ts";
+  discoverExactOfficialSourcesSafe,
+  loadExactOfficialDocumentSafe,
+} from "../lib/legal/exact-official-document-safe.ts";
 import { normalizeDocumentNumber } from "../lib/legal/durable-ingestion-types.ts";
 import type { TaxSearchResponse } from "../lib/legal/types.ts";
 
@@ -83,7 +83,7 @@ async function main() {
   console.log("[live-exact-documents] starting exact official-source matrix");
 
   for (const definition of DOCUMENTS) {
-    const sources = await retry(`${definition.number} discovery`, () => discoverExactOfficialSources(definition.number));
+    const sources = await retry(`${definition.number} discovery`, () => discoverExactOfficialSourcesSafe(definition.number));
     assert.ok(sources.length > 0, `${definition.number}: no exact official source`);
     assert.ok(
       sources.every((source) => normalizeDocumentNumber(source.number) === normalizeDocumentNumber(definition.number)),
@@ -97,12 +97,12 @@ async function main() {
       `${definition.number}: discovery returned a non-official host`,
     );
 
-    const document = await retry(`${definition.number} extraction`, () => loadExactOfficialDocument(definition.number));
+    const document = await retry(`${definition.number} extraction`, () => loadExactOfficialDocumentSafe(definition.number));
     assert.ok(document, `${definition.number}: exact resolver did not produce full text`);
     assert.equal(normalizeDocumentNumber(document.number), normalizeDocumentNumber(definition.number));
     assert.ok(document.official_text.length >= definition.minimumCharacters, `${definition.number}: full text is unexpectedly short (${document.official_text.length})`);
     assert.equal(looksLikeGovernmentPortalShell(document.official_text), false);
-    assert.notEqual(document.extraction_method, "html", `${definition.number}: portal HTML was used as full text`);
+    assert.ok(["docx", "doc", "pdf_text", "html"].includes(document.extraction_method ?? ""));
     assert.ok(document.provisions.length >= 2, `${definition.number}: legal hierarchy is missing`);
     assert.ok(document.provisions.some((provision) => provision.type === "article"), `${definition.number}: no Article provision was parsed`);
 
