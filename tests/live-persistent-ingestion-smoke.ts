@@ -12,9 +12,13 @@ import type { DurableLegalSource } from "../lib/legal/durable-ingestion-types.ts
 import type { TaxSearchResponse } from "../lib/legal/types.ts";
 import { legalDocumentIngestionWorkflow } from "../workflows/legal-document-ingestion.ts";
 
-const COMMIT_MARKER = "[live-persistent]";
-const enabled = process.env.RUN_LIVE_PERSISTENT_INGESTION === "true" ||
-  (process.env.VERCEL_GIT_COMMIT_MESSAGE ?? "").includes(COMMIT_MARKER);
+const PERSISTENT_MARKER = "[live-persistent]";
+const REVALIDATE_94_MARKER = "[live-revalidate-94]";
+const commitMessage = process.env.VERCEL_GIT_COMMIT_MESSAGE ?? "";
+const revalidate94Enabled =
+  process.env.RUN_LIVE_OCR_REVALIDATION === "true" || commitMessage.includes(REVALIDATE_94_MARKER);
+const persistentEnabled =
+  process.env.RUN_LIVE_PERSISTENT_INGESTION === "true" || commitMessage.includes(PERSISTENT_MARKER);
 
 const SOURCE_82: DurableLegalSource = {
   number: "82/2026/TT-BTC",
@@ -28,17 +32,105 @@ const SOURCE_82: DurableLegalSource = {
   sourceLabel: "Công báo điện tử Chính phủ",
 };
 
-async function main() {
-  if (!enabled) {
-    console.log(
-      `[live-persistent] skipped; add ${COMMIT_MARKER} to the commit message or set RUN_LIVE_PERSISTENT_INGESTION=true.`,
-    );
-    return;
-  }
+const SOURCE_94: DurableLegalSource = {
+  number: "94/2026/TT-BTC",
+  title: "Thông tư số 94/2026/TT-BTC quy định về quản lý tuân thủ và quản lý rủi ro trong quản lý thuế",
+  type: "Thông tư",
+  issuer: "Bộ Tài chính",
+  issuedDate: "2026-07-01",
+  effectiveDate: "2026-07-01",
+  officialPageUrl: "https://vanban.chinhphu.vn/?pageid=27160&docid=218894&classid=1",
+  sourceUrl: "https://vanban.chinhphu.vn/?pageid=27160&docid=218894&classid=1",
+  sourceLabel: "Hệ thống văn bản Chính phủ",
+};
 
+function configureDurableStoreDefaults() {
   process.env.LEGAL_BLOB_ACCESS ||= "private";
   process.env.LEGAL_BLOB_SOFT_LIMIT_BYTES ||= "750000000";
   process.env.LEGAL_RUN_RETENTION_DAYS ||= "30";
+}
+
+async function callSearchApi(number: string) {
+  const response = await searchApiPost(
+    new Request("https://preview.thue-ro.local/api/search", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forwarded-for": `persistent-smoke-${randomUUID()}`,
+      },
+      body: JSON.stringify({ query: number }),
+    }),
+  );
+  if (response.status !== 200) {
+    throw new Error(`POST /api/search trả ${response.status}: ${(await response.text()).slice(0, 500)}`);
+  }
+  return (await response.json()) as TaxSearchResponse;
+}
+
+async function revalidateOcr94() {
+  configureDurableStoreDefaults();
+  assert.equal(durableStoreAccess(), "private");
+
+  const before = await readDurableIngestionState(SOURCE_94.number);
+  assert.ok(before?.runId, "Không tìm thấy runId chứa checkpoint OCR của Thông tư 94.");
+  assert.equal(before?.processedPages, 35);
+  assert.equal(before?.totalPages, 35);
+
+  const startedAt = Date.now();
+  const result = await legalDocumentIngestionWorkflow({
+    jobId: before.runId,
+    source: SOURCE_94,
+    persist: true,
+    reuseExistingCheckpoints: true,
+  });
+  const durationMs = Date.now() - startedAt;
+
+  assert.equal(result.status, "ready", result.error ?? result.warnings.join(" "));
+  assert.equal(result.processedPages, 35);
+  assert.equal(result.totalPages, 35);
+  assert.equal(result.revision?.validation.accepted, true);
+  assert.deepEqual(result.revision?.validation.warnings, []);
+  assert.ok((result.revision?.document.official_text.length ?? 0) > 60_000);
+  assert.ok((result.revision?.document.quality_score ?? 0) > 0.99);
+
+  const [state, revision, apiResult] = await Promise.all([
+    readDurableIngestionState(SOURCE_94.number),
+    readDurableRevision(SOURCE_94.number),
+    callSearchApi(SOURCE_94.number),
+  ]);
+  assert.equal(state?.status, "ready");
+  assert.equal(state?.stage, "completed");
+  assert.equal(state?.processedPages, 35);
+  assert.equal(revision?.revisionId, result.revision?.revisionId);
+  assert.equal(revision?.validation.accepted, true);
+  assert.equal(apiResult.document?.number, SOURCE_94.number);
+  assert.equal(apiResult.document?.extraction_method, "ocr");
+  assert.ok((apiResult.document?.official_text.length ?? 0) > 60_000);
+  assert.ok((apiResult.document?.quality_score ?? 0) > 0.99);
+
+  console.log("[live-revalidate-94-result]", JSON.stringify({
+    jobId: before.runId,
+    durationMs,
+    status: result.status,
+    processedPages: result.processedPages,
+    totalPages: result.totalPages,
+    qualityScore: revision?.document.quality_score,
+    minimumPageScore: revision?.validation.metrics.minimumPageScore,
+    characters: revision?.document.official_text.length,
+    revisionId: revision?.revisionId,
+    sourceSha256: revision?.sourceSha256,
+    apiSearch: {
+      documentNumber: apiResult.document?.number,
+      extractionMethod: apiResult.document?.extraction_method,
+      characters: apiResult.document?.official_text.length,
+      confidence: apiResult.confidence,
+    },
+  }));
+  console.log("[live-revalidate-94] checkpoint reuse, publish and /api/search lookup passed");
+}
+
+async function verifyPersistent82() {
+  configureDurableStoreDefaults();
 
   console.log("[live-persistent] verifying private Blob read/write/delete");
   const storage = await verifyDurableStore();
@@ -57,31 +149,17 @@ async function main() {
   assert.ok(result.revision?.validation.accepted);
   assert.ok((result.revision?.document.official_text.length ?? 0) > 5_000);
 
-  const [state, revision, after] = await Promise.all([
+  const [state, revision, after, apiResult] = await Promise.all([
     readDurableIngestionState(SOURCE_82.number),
     readDurableRevision(SOURCE_82.number),
     readDurableStoreUsage(),
+    callSearchApi(SOURCE_82.number),
   ]);
   assert.equal(state?.status, "ready");
   assert.equal(state?.stage, "completed");
   assert.equal(revision?.revisionId, result.revision?.revisionId);
   assert.equal(revision?.document.number, SOURCE_82.number);
   assert.equal(revision?.validation.accepted, true);
-
-  const apiResponse = await searchApiPost(
-    new Request("https://preview.thue-ro.local/api/search", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-forwarded-for": `persistent-smoke-${randomUUID()}`,
-      },
-      body: JSON.stringify({ query: SOURCE_82.number }),
-    }),
-  );
-  if (apiResponse.status !== 200) {
-    throw new Error(`POST /api/search trả ${apiResponse.status}: ${(await apiResponse.text()).slice(0, 500)}`);
-  }
-  const apiResult = (await apiResponse.json()) as TaxSearchResponse;
   assert.equal(apiResult.document?.number, SOURCE_82.number);
   assert.equal(apiResult.document?.extraction_method, "docx");
   assert.ok((apiResult.document?.official_text.length ?? 0) > 5_000);
@@ -100,7 +178,6 @@ async function main() {
     usageBefore: before,
     usageAfter: after,
     apiSearch: {
-      status: apiResponse.status,
       documentNumber: apiResult.document?.number,
       extractionMethod: apiResult.document?.extraction_method,
       characters: apiResult.document?.official_text.length,
@@ -110,7 +187,21 @@ async function main() {
   console.log("[live-persistent] private Blob ingestion and /api/search lookup passed");
 }
 
+async function main() {
+  if (revalidate94Enabled) {
+    await revalidateOcr94();
+    return;
+  }
+  if (persistentEnabled) {
+    await verifyPersistent82();
+    return;
+  }
+  console.log(
+    `[live-persistent] skipped; add ${PERSISTENT_MARKER} or ${REVALIDATE_94_MARKER} to the commit message, or set the matching live-smoke environment variable.`,
+  );
+}
+
 main().catch((error) => {
-  console.error("[live-persistent] failed", error);
+  console.error(revalidate94Enabled ? "[live-revalidate-94] failed" : "[live-persistent] failed", error);
   process.exitCode = 1;
 });
