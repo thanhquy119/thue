@@ -44,7 +44,7 @@ export function normalizeOfficialSourceUrl(value: string) {
     url.hash = "";
     url.hostname = url.hostname.toLocaleLowerCase("en").replace(/^www\./, "");
     for (const key of [...url.searchParams.keys()]) {
-      if (/^(?:utm_|fbclid$|gclid$|ref$|source$)/iu.test(key)) url.searchParams.delete(key);
+      if (/^(?:utm_.+|fbclid|gclid|ref|source)$/iu.test(key)) url.searchParams.delete(key);
     }
     url.searchParams.sort();
     if (url.pathname.length > 1) url.pathname = url.pathname.replace(/\/+$/, "");
