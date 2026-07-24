@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { start } from "workflow/api";
-import { cronIngestionDecision } from "@/lib/legal/cron-ingestion-policy";
+import {
+  cronIngestionDecision,
+  cronRunLimit,
+} from "@/lib/legal/cron-ingestion-policy";
 import {
   cleanupExpiredDurableRunCheckpoints,
   durableStoreConfigured,
@@ -64,11 +67,18 @@ export async function GET(request: Request) {
     else skipped.push({ number: document.number, reason: decision.reason });
   }
 
-  const maxRuns = Math.max(1, Math.min(12, Number(process.env.LEGAL_CRON_MAX_RUNS || 8)));
-  const wouldStart = selected.slice(0, maxRuns);
+  const runLimit = cronRunLimit();
+  const wouldStart = selected.slice(0, runLimit.effective);
   const started = [];
   if (!dryRun) {
     for (const document of wouldStart) started.push(await startDocument(document));
+  }
+
+  const warnings = [...discovery.warnings];
+  if (runLimit.clamped) {
+    warnings.push(
+      `LEGAL_CRON_MAX_RUNS yêu cầu ${runLimit.requested}, nhưng hệ thống giới hạn ${runLimit.hardCap} Workflow/lượt để bảo vệ quota OCR miễn phí.`,
+    );
   }
 
   return NextResponse.json(
@@ -78,11 +88,12 @@ export async function GET(request: Request) {
       cleanup,
       usage_before_runs: usageBeforeRuns,
       discovered: discovery.documents.length,
+      run_limit: runLimit,
       would_start: wouldStart.map((document) => document.number),
       started,
       skipped,
-      deferred: selected.slice(maxRuns).map((document) => document.number),
-      warnings: discovery.warnings,
+      deferred: selected.slice(runLimit.effective).map((document) => document.number),
+      warnings,
     },
     { headers: { "cache-control": "no-store" } },
   );
