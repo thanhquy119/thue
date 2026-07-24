@@ -2,9 +2,9 @@ import { unstable_cache } from "next/cache";
 import { hasUsableLegalDocumentText } from "./document-quality.ts";
 import { durableDocumentResponse } from "./durable-document-lookup.ts";
 import {
-  exactOfficialDocumentResponse,
-  loadExactOfficialDocument,
-} from "./exact-official-document-resolver.ts";
+  exactOfficialDocumentResponseSafe,
+  loadExactOfficialDocumentSafe,
+} from "./exact-official-document-safe.ts";
 import { extractFromFile, parseLegalHierarchy, slugifyDocument } from "./ingestion.ts";
 import {
   findRecentDocumentByNumber,
@@ -163,7 +163,7 @@ export function recentVerifiedCandidate(number: string): SearchCandidate | null 
 
 export async function loadRecentVerifiedDocument(number: string) {
   const definition = findRecentDocumentByNumber(number);
-  if (!definition) return loadExactOfficialDocument(number);
+  if (!definition) return loadExactOfficialDocumentSafe(number);
   return loadRecentDocument(definition.number);
 }
 
@@ -172,7 +172,7 @@ export async function recentVerifiedDocumentResponse(query: string): Promise<Tax
   if (durable) return durable;
 
   const definition = findRecentDocumentForQuery(query);
-  if (!definition) return exactOfficialDocumentResponse(query);
+  if (!definition) return exactOfficialDocumentResponseSafe(query);
 
   try {
     const document = await loadRecentDocument(definition.number);
