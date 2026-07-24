@@ -40,7 +40,10 @@ async function claimSearchIngestion(number: string, sourceUrl: string) {
   }
 }
 
-function betterSourceCanRetry(state: DurableIngestionState | null, source: DurableLegalSource) {
+export function shouldRetryExactWithBetterSource(
+  state: DurableIngestionState | null,
+  source: DurableLegalSource,
+) {
   if (!state) return true;
   if (state.status === "ready" || state.status === "processing") return false;
   return Boolean(state.sourceUrl && state.sourceUrl !== source.sourceUrl);
@@ -52,7 +55,7 @@ export async function queueExactOfficialIngestion(source: DurableLegalSource): P
   if (revision?.validation.accepted) return { status: "cooldown", state: null };
 
   const current = await readDurableIngestionState(source.number).catch(() => null);
-  const mayStart = shouldQueueExactIngestion(current) || betterSourceCanRetry(current, source);
+  const mayStart = shouldQueueExactIngestion(current) || shouldRetryExactWithBetterSource(current, source);
   if (!mayStart) {
     return { status: current?.status === "processing" ? "processing" : "cooldown", state: current };
   }
