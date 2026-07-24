@@ -8,12 +8,12 @@ import {
   type DurableOcrPage,
 } from "../lib/legal/durable-ingestion-types.ts";
 
-function legalText(number = "94/2026/TT-BTC") {
+function legalText(number = "94/2026/TT-BTC", date = "ngày 1 tháng 7 năm 2026") {
   const paragraph = "Thông tư quy định dữ liệu, tiêu chí, trách nhiệm và quy trình quản lý thuế phải được thực hiện khách quan, minh bạch, đầy đủ. ".repeat(8);
   return `
 BỘ TÀI CHÍNH
 Số: ${number}
-Hà Nội, ngày 1 tháng 7 năm 2026
+Hà Nội, ${date}
 THÔNG TƯ
 QUY ĐỊNH VỀ QUẢN LÝ TUÂN THỦ, QUẢN LÝ RỦI RO TRONG QUẢN LÝ THUẾ
 
@@ -67,6 +67,25 @@ test("accepts complete legal OCR matching number, date and all pages", () => {
   });
   assert.equal(result.accepted, true);
   assert.equal(result.metrics.pageCoverage, 1);
+});
+
+test("accepts zero-padded Vietnamese dates preserved by OCR", () => {
+  for (const date of [
+    "ngày 01 tháng 7 năm 2026",
+    "ngày 1 tháng 07 năm 2026",
+    "ngày 01 tháng 07 năm 2026",
+  ]) {
+    const result = validateDurableLegalText({
+      expectedNumber: "94/2026/TT-BTC",
+      issuedDate: "2026-07-01",
+      text: legalText("94/2026/TT-BTC", date),
+      extractionMethod: "ocr",
+      qualityScore: 0.84,
+      totalPages: 4,
+      pages: [page(1), page(2), page(3), page(4)],
+    });
+    assert.equal(result.accepted, true, date);
+  }
 });
 
 test("requires review when one OCR page is missing", () => {
