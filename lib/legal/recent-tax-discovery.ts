@@ -1,4 +1,5 @@
 import { discoverOfficialSources } from "./discovery.ts";
+import { discoverExactOfficialSources } from "./exact-official-document.ts";
 import { normalizeDocumentNumber, type DurableLegalSource } from "./durable-ingestion-types.ts";
 import {
   CURRENT_TAX_DISCOVERY_QUERIES,
@@ -34,6 +35,9 @@ function taxRelevant(source: OnlineLegalSource) {
 }
 
 export async function discoverTaxDocumentByNumber(number: string) {
+  const exactGazette = await discoverExactOfficialSources(number).catch(() => []);
+  if (exactGazette.length) return exactGazette[0];
+
   const discovery = await discoverOfficialSources(number);
   const exact = selectExactOfficialSource(number, discovery.sources);
   return exact ? durableSourceFromDiscovery(number, exact) : null;
