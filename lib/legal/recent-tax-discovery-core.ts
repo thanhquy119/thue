@@ -2,6 +2,12 @@ import { normalizeDocumentNumber, type DurableLegalSource } from "./durable-inge
 import type { OnlineLegalSource } from "./types.ts";
 
 export const CURRENT_TAX_DOCUMENT_NUMBERS = [
+  "108/2025/QH15",
+  "141/2026/NĐ-CP",
+  "252/2026/NĐ-CP",
+  "253/2026/NĐ-CP",
+  "254/2026/NĐ-CP",
+  "256/2026/NĐ-CP",
   "82/2026/TT-BTC",
   "87/2026/TT-BTC",
   "89/2026/TT-BTC",
@@ -24,7 +30,7 @@ export const CURRENT_TAX_DISCOVERY_QUERIES = [
 function inferTitle(source: OnlineLegalSource, number: string) {
   const escaped = number.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const title = source.title
-    .replace(new RegExp(`^\\s*(?:Thông tư|Văn bản pháp luật)\\s+(?:số\\s+)?${escaped}\\s*:?\\s*`, "iu"), "")
+    .replace(new RegExp(`^\\s*(?:Nghị định|Thông tư|Nghị quyết|Quyết định|Luật|Văn bản pháp luật)\\s+(?:số\\s+)?${escaped}\\s*:?\\s*`, "iu"), "")
     .trim();
   return title || source.snippet.split(/\.\s/u, 1)[0]?.trim() || `Văn bản số ${number}`;
 }
@@ -50,7 +56,7 @@ export function durableSourceFromDiscovery(number: string, source: OnlineLegalSo
     number,
     title: inferTitle(source, number),
     type: inferType(source, number),
-    issuer: source.issuer || (/TT-BTC$/iu.test(number) ? "Bộ Tài chính" : ""),
+    issuer: source.issuer || (/TT-BTC$/iu.test(number) ? "Bộ Tài chính" : /NĐ-CP$/iu.test(number) ? "Chính phủ" : ""),
     issuedDate: source.issued_date ?? null,
     effectiveDate: null,
     officialPageUrl: source.url,
