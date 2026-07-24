@@ -150,14 +150,15 @@ function buildDocument(source: DurableLegalSource, extracted: DurableExtractedSo
   };
 }
 
-async function loadSafeUncached(number: string) {
-  const primary = await loadExactOfficialDocument(number).catch(() => null);
-  if (primary) return primary;
+function documentCompletenessScore(document: DocumentDetail) {
+  const articles = document.provisions.filter((provision) => provision.type === "article").length;
+  const chapters = document.provisions.filter((provision) => provision.type === "chapter").length;
+  return articles * 1_000_000 + chapters * 100_000 + Math.min(document.official_text.length, 99_999);
+}
 
-  const policyArticle = await loadPolicyFullTextDocument(number);
-  if (policyArticle) return policyArticle;
-
+async function loadFromDiscoveredSources(number: string) {
   const sources = await discoverExactOfficialSourcesSafe(number);
+  const documents: DocumentDetail[] = [];
   for (const source of sources.slice(0, 20)) {
     try {
       const extracted = await extractDurableLegalSource(source.sourceUrl);
@@ -170,17 +171,36 @@ async function loadSafeUncached(number: string) {
         qualityScore: extracted.qualityScore,
       });
       if (!validation.accepted || !hasUsableLegalDocumentText(extracted.officialText, source.number)) continue;
-      return buildDocument(source, extracted);
+      documents.push(buildDocument(source, extracted));
+      if (documents.some((document) => document.provisions.filter((item) => item.type === "article").length >= 20)) break;
     } catch {
       // Continue to the next exact official source.
     }
   }
-  return null;
+  return documents.sort((left, right) => documentCompletenessScore(right) - documentCompletenessScore(left))[0] ?? null;
+}
+
+async function loadSafeUncached(number: string) {
+  const [primary, policyArticle] = await Promise.all([
+    loadExactOfficialDocument(number).catch(() => null),
+    loadPolicyFullTextDocument(number).catch(() => null),
+  ]);
+  const candidates = [primary, policyArticle].filter((value): value is DocumentDetail => Boolean(value));
+  const bestImmediate = candidates.sort(
+    (left, right) => documentCompletenessScore(right) - documentCompletenessScore(left),
+  )[0];
+  const immediateArticles = bestImmediate?.provisions.filter((item) => item.type === "article").length ?? 0;
+  if (bestImmediate && immediateArticles >= 10) return bestImmediate;
+
+  const discovered = await loadFromDiscoveredSources(number);
+  return [bestImmediate, discovered]
+    .filter((value): value is DocumentDetail => Boolean(value))
+    .sort((left, right) => documentCompletenessScore(right) - documentCompletenessScore(left))[0] ?? null;
 }
 
 const loadSafeCached = unstable_cache(
   loadSafeUncached,
-  ["thue-ro-exact-official-document-safe-v3"],
+  ["thue-ro-exact-official-document-safe-v4"],
   { revalidate: CACHE_SECONDS, tags: ["official-legal-documents"] },
 );
 
@@ -203,8 +223,6 @@ export async function exactOfficialDocumentResponseSafe(query: string): Promise<
   if (!number) return null;
 
   const primary = await exactOfficialDocumentResponse(query);
-  if (primary?.document) return primary;
-
   const document = await loadExactOfficialDocumentSafe(number);
   if (!document) return primary;
   return {
