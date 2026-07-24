@@ -78,7 +78,9 @@ async function main() {
       body: JSON.stringify({ query: SOURCE_82.number }),
     }),
   );
-  assert.equal(apiResponse.status, 200, await apiResponse.text());
+  if (apiResponse.status !== 200) {
+    throw new Error(`POST /api/search trả ${apiResponse.status}: ${(await apiResponse.text()).slice(0, 500)}`);
+  }
   const apiResult = (await apiResponse.json()) as TaxSearchResponse;
   assert.equal(apiResult.document?.number, SOURCE_82.number);
   assert.equal(apiResult.document?.extraction_method, "docx");
