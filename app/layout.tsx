@@ -6,9 +6,11 @@ import "./question-results.css";
 import "./document-tools.css";
 import "./preamble.css";
 import "./document-typography.css";
+import "./notifications.css";
 import CacheVersion from "./cache-version";
 import SavedDocuments from "./saved-documents";
 import DocumentTools from "./document-tools";
+import NotificationSettings from "./notification-settings";
 
 export const metadata: Metadata = {
   title: "Thuế — Tra cứu và đọc toàn văn pháp luật thuế",
@@ -39,5 +41,5 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="vi"><body><CacheVersion />{children}<SavedDocuments /><DocumentTools /></body></html>;
+  return <html lang="vi"><body><CacheVersion />{children}<SavedDocuments /><NotificationSettings /><DocumentTools /></body></html>;
 }
