@@ -28,12 +28,25 @@ function state(
   };
 }
 
+function withoutCronLimit(run: () => void) {
+  const previous = process.env.LEGAL_CRON_MAX_RUNS;
+  try {
+    delete process.env.LEGAL_CRON_MAX_RUNS;
+    run();
+  } finally {
+    if (previous === undefined) delete process.env.LEGAL_CRON_MAX_RUNS;
+    else process.env.LEGAL_CRON_MAX_RUNS = previous;
+  }
+}
+
 test("defaults Cron to one Workflow per daily run", () => {
-  assert.deepEqual(cronRunLimit(undefined), {
-    requested: 1,
-    effective: 1,
-    hardCap: 2,
-    clamped: false,
+  withoutCronLimit(() => {
+    assert.deepEqual(cronRunLimit(), {
+      requested: 1,
+      effective: 1,
+      hardCap: 2,
+      clamped: false,
+    });
   });
 });
 
