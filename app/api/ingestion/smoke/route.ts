@@ -60,13 +60,17 @@ export async function GET(request: Request) {
     });
   }
 
-  const number = url.searchParams.get("number")?.trim().slice(0, 100) ?? "";
+  const smokeCase = url.searchParams.get("case")?.trim() ?? "";
+  const fullOcr94 = smokeCase === "full-ocr-94";
+  const number = fullOcr94
+    ? "94/2026/TT-BTC"
+    : url.searchParams.get("number")?.trim().slice(0, 100) ?? "";
   const sourceUrl = url.searchParams.get("source_url")?.trim() ?? "";
   if (!number) {
     return NextResponse.json({ error: "Thiếu number." }, { status: 400 });
   }
 
-  const persist = url.searchParams.get("persist") === "1";
+  const persist = fullOcr94 || url.searchParams.get("persist") === "1";
   if (persist && !durableStoreConfigured()) {
     return NextResponse.json(
       { error: "Vercel Blob chưa được cấu hình cho Preview." },
@@ -103,6 +107,7 @@ export async function GET(request: Request) {
       number: source.number,
       source_url: source.sourceUrl,
       persist,
+      smoke_case: smokeCase || null,
     },
     { status: 202, headers: { "cache-control": "no-store", "x-robots-tag": "noindex" } },
   );
