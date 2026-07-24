@@ -13,8 +13,10 @@ import {
   exactOfficialDocumentResponse,
   loadExactOfficialDocument,
 } from "./exact-official-document-resolver.ts";
+import { exactQueuedResponse } from "./exact-ingestion-queue.ts";
 import { parseLegalHierarchy, slugifyDocument } from "./ingestion.ts";
 import {
+  discoverPolicyAttachmentSources,
   discoverPolicyFullTextUrls,
   loadPolicyFullTextDocument,
 } from "./policy-fulltext.ts";
@@ -85,13 +87,14 @@ function inferIssuer(number: string) {
 }
 
 export async function discoverExactOfficialSourcesSafe(number: string) {
-  const [primary, discoveries, articleUrls] = await Promise.all([
+  const [primary, discoveries, articleUrls, attachments] = await Promise.all([
     discoverExactOfficialSources(number).catch(() => []),
     Promise.all([
       discoverOfficialSources(number).catch(() => ({ sources: [], warnings: [] })),
       discoverOfficialSources(`toàn văn ${number}`).catch(() => ({ sources: [], warnings: [] })),
     ]),
     discoverPolicyFullTextUrls(number),
+    discoverPolicyAttachmentSources(number),
   ]);
   const legacy = discoveries.flatMap((result) => exactLegacySources(number, result.sources));
   const articleSources: DurableLegalSource[] = articleUrls.map((url) => ({
@@ -106,7 +109,7 @@ export async function discoverExactOfficialSourcesSafe(number: string) {
     sourceLabel: "Cổng Thông tin điện tử Chính phủ",
   }));
   const seen = new Set<string>();
-  return [...primary, ...legacy, ...articleSources]
+  return [...primary, ...attachments, ...legacy, ...articleSources]
     .filter((source) => {
       if (!source.sourceUrl || seen.has(source.sourceUrl)) return false;
       seen.add(source.sourceUrl);
@@ -158,6 +161,10 @@ function chapterCount(document: DocumentDetail) {
   return document.provisions.filter((provision) => provision.type === "chapter").length;
 }
 
+function isCompleteExactDocument(document: DocumentDetail) {
+  return articleCount(document) >= 1 && document.official_text.length >= 800;
+}
+
 function documentCompletenessScore(document: DocumentDetail) {
   return articleCount(document) * 1_000_000 + chapterCount(document) * 100_000 + Math.min(document.official_text.length, 99_999);
 }
@@ -177,7 +184,8 @@ async function loadFromDiscoveredSources(number: string) {
         qualityScore: extracted.qualityScore,
       });
       if (!validation.accepted || !hasUsableLegalDocumentText(extracted.officialText, source.number)) continue;
-      documents.push(buildDocument(source, extracted));
+      const document = buildDocument(source, extracted);
+      if (isCompleteExactDocument(document)) documents.push(document);
     } catch {
       // Continue to the next exact official source.
     }
@@ -192,25 +200,14 @@ async function loadSafeUncached(number: string) {
     loadFromDiscoveredSources(number).catch(() => null),
   ]);
   const candidates = [primary, policyArticle, discovered]
-    .filter((value): value is DocumentDetail => Boolean(value))
+    .filter((value): value is DocumentDetail => Boolean(value) && isCompleteExactDocument(value))
     .sort((left, right) => documentCompletenessScore(right) - documentCompletenessScore(left));
-  console.info("[exact-document-candidates]", JSON.stringify({
-    number,
-    candidates: candidates.map((document) => ({
-      sourceUrl: document.source_url,
-      method: document.extraction_method,
-      characters: document.official_text.length,
-      articles: articleCount(document),
-      chapters: chapterCount(document),
-      score: documentCompletenessScore(document),
-    })),
-  }));
   return candidates[0] ?? null;
 }
 
 const loadSafeCached = unstable_cache(
   loadSafeUncached,
-  ["thue-ro-exact-official-document-safe-v5"],
+  ["thue-ro-exact-official-document-safe-v6"],
   { revalidate: CACHE_SECONDS, tags: ["official-legal-documents"] },
 );
 
@@ -232,17 +229,26 @@ export async function exactOfficialDocumentResponseSafe(query: string): Promise<
   const number = canonicalExactDocumentNumber(query);
   if (!number) return null;
 
-  const primary = await exactOfficialDocumentResponse(query);
   const document = await loadExactOfficialDocumentSafe(number);
-  if (!document) return primary;
-  return {
-    query_normalized: normalizeDocumentNumber(number),
-    query_kind: "document",
-    direct_answer: `Đã tìm thấy ${document.number}.`,
-    document,
-    candidates: [],
-    warnings: [],
-    confidence: 0.99,
-    retrieved_at: new Date().toISOString(),
-  };
+  if (document) {
+    return {
+      query_normalized: normalizeDocumentNumber(number),
+      query_kind: "document",
+      direct_answer: `Đã tìm thấy ${document.number}.`,
+      document,
+      candidates: [],
+      warnings: [],
+      confidence: 0.99,
+      retrieved_at: new Date().toISOString(),
+    };
+  }
+
+  const policyAttachments = await discoverPolicyAttachmentSources(number).catch(() => []);
+  const preferred = policyAttachments[0];
+  if (preferred) {
+    return exactQueuedResponse(query, preferred, [
+      `${number}: nguồn chính thức là bản scan; bài giới thiệu HTML không được dùng thay cho toàn văn.`,
+    ]);
+  }
+  return exactOfficialDocumentResponse(query);
 }
