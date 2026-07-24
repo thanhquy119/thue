@@ -200,7 +200,8 @@ async function loadSafeUncached(number: string) {
     loadFromDiscoveredSources(number).catch(() => null),
   ]);
   const candidates = [primary, policyArticle, discovered]
-    .filter((value): value is DocumentDetail => Boolean(value) && isCompleteExactDocument(value))
+    .filter((value): value is DocumentDetail => value !== null)
+    .filter(isCompleteExactDocument)
     .sort((left, right) => documentCompletenessScore(right) - documentCompletenessScore(left));
   return candidates[0] ?? null;
 }
