@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { shouldRetryExactWithBetterSource } from "../lib/legal/exact-ingestion-queue.ts";
 import {
   canonicalExactDocumentNumber,
   extractOfficialAttachmentUrls,
   parseExactGazettePayload,
   shouldQueueExactIngestion,
 } from "../lib/legal/exact-official-document-core.ts";
-import type { DurableIngestionState } from "../lib/legal/durable-ingestion-types.ts";
+import type {
+  DurableIngestionState,
+  DurableLegalSource,
+} from "../lib/legal/durable-ingestion-types.ts";
 
 const EXACT_QUERY_CASES: Array<[string, string | null]> = [
   ["254/2026/NĐ-CP", "254/2026/NĐ-CP"],
@@ -93,13 +97,22 @@ test("official page attachment parser recognizes download query parameters witho
   assert.ok(urls.every((url) => !url.includes("viewer?id=254")));
 });
 
+test("official policy articles expose static Government scan attachments", () => {
+  const pdf = "https://xdcs.cdnchinhphu.vn/446259493575335936/2026/7/15/252-ndcp-signed.pdf";
+  const urls = extractOfficialAttachmentUrls(
+    `<article><a href="${pdf}">Xem toàn văn PDF 133 trang</a></article>`,
+    "https://xaydungchinhsach.chinhphu.vn/toan-van-nghi-dinh-252-2026-nd-cp.htm",
+  );
+  assert.deepEqual(urls, [pdf]);
+});
+
 function state(status: DurableIngestionState["status"], updatedAt: string): DurableIngestionState {
   return {
     number: "254/2026/NĐ-CP",
     status,
     stage: status === "processing" ? "queued" : "completed",
     runId: "job",
-    sourceUrl: "https://congbao.chinhphu.vn/file.docx",
+    sourceUrl: "https://g7.cdnchinhphu.vn/api/download/stream?file_name=254.docx",
     extractionMethod: null,
     processedPages: 0,
     totalPages: 0,
@@ -107,6 +120,20 @@ function state(status: DurableIngestionState["status"], updatedAt: string): Dura
     warnings: [],
     error: null,
     updatedAt,
+  };
+}
+
+function source(sourceUrl: string): DurableLegalSource {
+  return {
+    number: "254/2026/NĐ-CP",
+    title: "Nghị định số 254/2026/NĐ-CP",
+    type: "Nghị định",
+    issuer: "Chính phủ",
+    issuedDate: "2026-06-30",
+    effectiveDate: "2026-07-01",
+    officialPageUrl: "https://xaydungchinhsach.chinhphu.vn/toan-van-nghi-dinh-254-2026-nd-cp.htm",
+    sourceUrl,
+    sourceLabel: "Cổng Thông tin điện tử Chính phủ",
   };
 }
 
@@ -118,4 +145,13 @@ test("search-triggered ingestion is deduplicated and retries failed documents af
   assert.equal(shouldQueueExactIngestion(state("failed", "2026-07-24T06:00:00.000Z"), now), false);
   assert.equal(shouldQueueExactIngestion(state("needs_review", "2026-07-23T20:00:00.000Z"), now), true);
   assert.equal(shouldQueueExactIngestion(state("failed", "invalid-date"), now), true);
+});
+
+test("an accessible official PDF can replace a failed Gazette CDN URL immediately", () => {
+  const failed = state("failed", "2026-07-24T11:59:00.000Z");
+  const better = source("https://xdcs.cdnchinhphu.vn/2026/07/254-signed.pdf");
+  assert.equal(shouldRetryExactWithBetterSource(failed, better), true);
+  assert.equal(shouldRetryExactWithBetterSource({ ...failed, status: "processing" }, better), false);
+  assert.equal(shouldRetryExactWithBetterSource({ ...failed, status: "ready" }, better), false);
+  assert.equal(shouldRetryExactWithBetterSource(failed, source(failed.sourceUrl)), false);
 });
