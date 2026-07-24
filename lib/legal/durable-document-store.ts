@@ -39,6 +39,10 @@ function positiveNumber(value: string | undefined, fallback: number) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function sleep(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 export function durableStoreConfigured() {
   return Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
 }
@@ -153,24 +157,36 @@ export async function verifyDurableStore() {
       error: "BLOB_READ_WRITE_TOKEN chưa được cấu hình.",
     };
   }
-  const pathname = "legal-documents/_health/storage-check.json";
   const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const pathname = `legal-documents/_health/storage-check-${nonce}.json`;
+  let attempts = 0;
   try {
-    await writeJson(pathname, { nonce, checkedAt: new Date().toISOString() }, true);
-    const value = await readJson<{ nonce?: string }>(pathname);
+    await writeJson(pathname, { nonce, checkedAt: new Date().toISOString() }, false);
+
+    let value: { nonce?: string } | null = null;
+    const retryDelays = [0, 120, 300, 700, 1_400];
+    for (const delay of retryDelays) {
+      if (delay) await sleep(delay);
+      attempts += 1;
+      value = await readJson<{ nonce?: string }>(pathname);
+      if (value?.nonce === nonce) break;
+    }
+
     return {
       ok: value?.nonce === nonce,
       configured: true,
       access: blobAccess(),
       softLimitBytes: durableStoreSoftLimitBytes(),
       retentionDays: durableRunRetentionDays(),
-      error: value?.nonce === nonce ? null : "Không đọc lại được giá trị vừa ghi.",
+      attempts,
+      error: value?.nonce === nonce ? null : "Không đọc lại được giá trị vừa ghi sau các lần thử có giới hạn.",
     };
   } catch (error) {
     return {
       ok: false,
       configured: true,
       access: blobAccess(),
+      attempts,
       error: error instanceof Error ? error.message : "Kiểm tra Blob thất bại.",
     };
   } finally {
