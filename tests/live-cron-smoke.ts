@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { GET as cronApiGet } from "../app/api/cron/legal-ingestion/route.ts";
+import { POST as ingestionStartPost } from "../app/api/ingestion/start/route.ts";
 import { cronIngestionDecision } from "../lib/legal/cron-ingestion-policy.ts";
 import { readDurableIngestionState } from "../lib/legal/durable-document-store.ts";
 
@@ -13,9 +14,12 @@ if (!enabled) {
   process.exit(0);
 }
 
-const previousSecret = process.env.CRON_SECRET;
-const smokeSecret = previousSecret?.trim() || `cron-smoke-${randomUUID()}-${randomUUID()}`;
+const previousCronSecret = process.env.CRON_SECRET;
+const previousAdminSecret = process.env.INGESTION_ADMIN_SECRET;
+const smokeSecret = previousCronSecret?.trim() || `cron-smoke-${randomUUID()}-${randomUUID()}`;
+const adminSecret = previousAdminSecret?.trim() || smokeSecret;
 process.env.CRON_SECRET = smokeSecret;
+process.env.INGESTION_ADMIN_SECRET = adminSecret;
 process.env.LEGAL_BLOB_ACCESS ||= "private";
 
 try {
@@ -29,6 +33,30 @@ try {
   assert.equal(cronIngestionDecision(state82).reason, "ready");
   assert.equal(cronIngestionDecision(state94).shouldStart, false);
   assert.equal(cronIngestionDecision(state94).reason, "ready");
+
+  const adminEndpoint = "https://preview.thue-ro.local/api/ingestion/start";
+  const adminUnauthorized = await ingestionStartPost(
+    new Request(adminEndpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    }),
+  );
+  assert.equal(adminUnauthorized.status, 401, "Admin ingestion phải từ chối request thiếu Bearer secret.");
+
+  const adminAuthorized = await ingestionStartPost(
+    new Request(adminEndpoint, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${adminSecret}`,
+        "content-type": "application/json",
+      },
+      body: "{}",
+    }),
+  );
+  assert.equal(adminAuthorized.status, 400, "Request đã xác thực nhưng thiếu số hiệu phải dừng ở validation.");
+  const adminPayload = (await adminAuthorized.json()) as { error?: string };
+  assert.match(adminPayload.error ?? "", /Thiếu số hiệu văn bản/iu);
 
   const endpoint = "https://preview.thue-ro.local/api/cron/legal-ingestion?dry_run=1";
   const unauthorized = await cronApiGet(new Request(endpoint));
@@ -81,9 +109,16 @@ try {
   }
 
   console.log("[live-cron-route-result]", JSON.stringify({
+    adminUnauthorizedStatus: adminUnauthorized.status,
+    adminAuthorizedValidationStatus: adminAuthorized.status,
+    adminSecretSource: previousAdminSecret?.trim()
+      ? "preview_admin_env"
+      : previousCronSecret?.trim()
+        ? "cron_secret_fallback"
+        : "ephemeral_smoke_only",
     unauthorizedStatus: unauthorized.status,
     authorizedStatus: authorized.status,
-    secretSource: previousSecret?.trim() ? "preview_env" : "ephemeral_smoke_only",
+    cronSecretSource: previousCronSecret?.trim() ? "preview_env" : "ephemeral_smoke_only",
     durableStates: {
       "82/2026/TT-BTC": state82?.status,
       "94/2026/TT-BTC": state94?.status,
@@ -98,8 +133,10 @@ try {
     usageBeforeRuns: payload.usage_before_runs,
     warnings: payload.warnings,
   }));
-  console.log("[live-cron-route] authentication, discovery, free-tier cap, ready-state idempotency and no-start dry-run passed");
+  console.log("[live-cron-route] admin auth, Cron auth, discovery, free-tier cap and ready-state idempotency passed");
 } finally {
-  if (previousSecret === undefined) delete process.env.CRON_SECRET;
-  else process.env.CRON_SECRET = previousSecret;
+  if (previousCronSecret === undefined) delete process.env.CRON_SECRET;
+  else process.env.CRON_SECRET = previousCronSecret;
+  if (previousAdminSecret === undefined) delete process.env.INGESTION_ADMIN_SECRET;
+  else process.env.INGESTION_ADMIN_SECRET = previousAdminSecret;
 }
