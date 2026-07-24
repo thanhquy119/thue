@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { POST as searchApiPost } from "../app/api/search/route.ts";
 import {
   durableStoreAccess,
   readDurableIngestionState,
@@ -8,6 +9,7 @@ import {
   verifyDurableStore,
 } from "../lib/legal/durable-document-store.ts";
 import type { DurableLegalSource } from "../lib/legal/durable-ingestion-types.ts";
+import type { TaxSearchResponse } from "../lib/legal/types.ts";
 import { legalDocumentIngestionWorkflow } from "../workflows/legal-document-ingestion.ts";
 
 const COMMIT_MARKER = "[live-persistent]";
@@ -66,6 +68,24 @@ async function main() {
   assert.equal(revision?.document.number, SOURCE_82.number);
   assert.equal(revision?.validation.accepted, true);
 
+  const apiResponse = await searchApiPost(
+    new Request("https://preview.thue-ro.local/api/search", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forwarded-for": `persistent-smoke-${randomUUID()}`,
+      },
+      body: JSON.stringify({ query: SOURCE_82.number }),
+    }),
+  );
+  assert.equal(apiResponse.status, 200, await apiResponse.text());
+  const apiResult = (await apiResponse.json()) as TaxSearchResponse;
+  assert.equal(apiResult.document?.number, SOURCE_82.number);
+  assert.equal(apiResult.document?.extraction_method, "docx");
+  assert.ok((apiResult.document?.official_text.length ?? 0) > 5_000);
+  assert.equal(apiResult.document?.quality_score, 1);
+  assert.match(apiResult.document?.source_label ?? "", /Công báo|chính thức|Blob|revision/iu);
+
   console.log("[live-persistent-result]", JSON.stringify({
     storage,
     jobId,
@@ -77,8 +97,15 @@ async function main() {
     sourceSha256: revision?.sourceSha256,
     usageBefore: before,
     usageAfter: after,
+    apiSearch: {
+      status: apiResponse.status,
+      documentNumber: apiResult.document?.number,
+      extractionMethod: apiResult.document?.extraction_method,
+      characters: apiResult.document?.official_text.length,
+      confidence: apiResult.confidence,
+    },
   }));
-  console.log("[live-persistent] private Blob ingestion passed");
+  console.log("[live-persistent] private Blob ingestion and /api/search lookup passed");
 }
 
 main().catch((error) => {
