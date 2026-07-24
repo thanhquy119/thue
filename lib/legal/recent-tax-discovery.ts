@@ -1,5 +1,5 @@
 import { discoverOfficialSources } from "./discovery.ts";
-import { discoverExactOfficialSources } from "./exact-official-document.ts";
+import { discoverExactOfficialSources } from "./exact-official-document-resolver.ts";
 import { normalizeDocumentNumber, type DurableLegalSource } from "./durable-ingestion-types.ts";
 import {
   CURRENT_TAX_DISCOVERY_QUERIES,
