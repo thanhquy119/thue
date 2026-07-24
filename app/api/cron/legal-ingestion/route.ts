@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { start } from "workflow/api";
+import { cronIngestionDecision } from "@/lib/legal/cron-ingestion-policy";
 import {
   cleanupExpiredDurableRunCheckpoints,
   durableStoreConfigured,
@@ -8,7 +9,7 @@ import {
   readDurableStoreUsage,
 } from "@/lib/legal/durable-document-store";
 import { discoverRecentTaxDocuments } from "@/lib/legal/recent-tax-discovery";
-import type { DurableIngestionState, DurableLegalSource } from "@/lib/legal/durable-ingestion-types";
+import type { DurableLegalSource } from "@/lib/legal/durable-ingestion-types";
 import { legalDocumentIngestionWorkflow } from "@/workflows/legal-document-ingestion";
 
 export const runtime = "nodejs";
@@ -19,17 +20,6 @@ function authorized(request: Request) {
   const secret = process.env.CRON_SECRET || "";
   if (!secret) return process.env.VERCEL_ENV !== "production";
   return request.headers.get("authorization") === `Bearer ${secret}`;
-}
-
-function hoursSince(value: string) {
-  const time = Date.parse(value);
-  return Number.isFinite(time) ? (Date.now() - time) / 3_600_000 : Number.POSITIVE_INFINITY;
-}
-
-function shouldStart(state: DurableIngestionState | null, force: boolean) {
-  if (force || !state) return true;
-  if (state.status === "ready" || state.status === "processing") return false;
-  return hoursSince(state.updatedAt) >= 12;
 }
 
 async function startDocument(source: DurableLegalSource) {
@@ -52,36 +42,43 @@ export async function GET(request: Request) {
     );
   }
 
-  const cleanup = await cleanupExpiredDurableRunCheckpoints().catch((error) => ({
-    deletedObjects: 0,
-    deletedBytes: 0,
-    error: error instanceof Error ? error.message : "Không thể dọn checkpoint cũ.",
-  }));
+  const url = new URL(request.url);
+  const dryRun = url.searchParams.get("dry_run") === "1";
+  const force = url.searchParams.get("force") === "1";
+  const cleanup = dryRun
+    ? { deletedObjects: 0, deletedBytes: 0, skipped: "dry_run" }
+    : await cleanupExpiredDurableRunCheckpoints().catch((error) => ({
+        deletedObjects: 0,
+        deletedBytes: 0,
+        error: error instanceof Error ? error.message : "Không thể dọn checkpoint cũ.",
+      }));
   const usageBeforeRuns = await readDurableStoreUsage().catch(() => null);
 
-  const force = new URL(request.url).searchParams.get("force") === "1";
   const discovery = await discoverRecentTaxDocuments();
   const selected: DurableLegalSource[] = [];
   const skipped: Array<{ number: string; reason: string }> = [];
   for (const document of discovery.documents) {
     const current = await readDurableIngestionState(document.number).catch(() => null);
-    if (shouldStart(current, force)) selected.push(document);
-    else skipped.push({
-      number: document.number,
-      reason: current?.status === "ready" ? "ready" : current?.status === "processing" ? "processing" : "retry_wait",
-    });
+    const decision = cronIngestionDecision(current, force);
+    if (decision.shouldStart) selected.push(document);
+    else skipped.push({ number: document.number, reason: decision.reason });
   }
 
   const maxRuns = Math.max(1, Math.min(12, Number(process.env.LEGAL_CRON_MAX_RUNS || 8)));
+  const wouldStart = selected.slice(0, maxRuns);
   const started = [];
-  for (const document of selected.slice(0, maxRuns)) started.push(await startDocument(document));
+  if (!dryRun) {
+    for (const document of wouldStart) started.push(await startDocument(document));
+  }
 
   return NextResponse.json(
     {
       ok: true,
+      dry_run: dryRun,
       cleanup,
       usage_before_runs: usageBeforeRuns,
       discovered: discovery.documents.length,
+      would_start: wouldStart.map((document) => document.number),
       started,
       skipped,
       deferred: selected.slice(maxRuns).map((document) => document.number),
