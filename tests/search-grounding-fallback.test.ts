@@ -7,8 +7,11 @@ import {
   shouldCrossCheckWithGrounding,
 } from "../lib/legal/search-grounding-cross-check.ts";
 import {
+  discoverOfficialSourcesViaGrounding,
   extractGroundingWebChunks,
   isGroundingRedirectUrl,
+  resetSearchGroundingBackoffForTests,
+  searchGroundingBackoffActive,
   searchGroundingEnabled,
   searchGroundingMaxResults,
   searchGroundingModel,
@@ -25,6 +28,27 @@ function withEnvironment(values: Record<string, string | undefined>, run: () => 
       else process.env[key] = value;
     }
     run();
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+async function withAsyncEnvironment(
+  values: Record<string, string | undefined>,
+  run: () => Promise<void>,
+) {
+  const previous = Object.fromEntries(
+    Object.keys(values).map((key) => [key, process.env[key]]),
+  );
+  try {
+    for (const [key, value] of Object.entries(values)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await run();
   } finally {
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key];
@@ -61,6 +85,75 @@ test("keeps Search Grounding disabled unless explicitly enabled", () => {
   withEnvironment({ ENABLE_SEARCH_GROUNDING_FALLBACK: "true" }, () => {
     assert.equal(searchGroundingEnabled(), true);
   });
+});
+
+test("does not send any Gemini request while Grounding is disabled", async () => {
+  await withAsyncEnvironment(
+    {
+      ENABLE_SEARCH_GROUNDING_FALLBACK: undefined,
+      GEMINI_API_KEY: "test-key-that-must-not-be-used",
+    },
+    async () => {
+      const originalFetch = globalThis.fetch;
+      let fetchCalls = 0;
+      globalThis.fetch = (async () => {
+        fetchCalls += 1;
+        throw new Error("Grounding fetch must not run while disabled.");
+      }) as typeof fetch;
+      try {
+        resetSearchGroundingBackoffForTests();
+        const sources = await discoverOfficialSourcesViaGrounding(
+          "Thuế suất GTGT hiện hành của doanh nghiệp là bao nhiêu?",
+        );
+        assert.deepEqual(sources, []);
+        assert.equal(fetchCalls, 0);
+      } finally {
+        globalThis.fetch = originalFetch;
+        resetSearchGroundingBackoffForTests();
+      }
+    },
+  );
+});
+
+test("backs off after free-tier model 404 instead of retrying every question", async () => {
+  await withAsyncEnvironment(
+    {
+      ENABLE_SEARCH_GROUNDING_FALLBACK: "true",
+      GEMINI_API_KEY: "test-key",
+      SEARCH_GROUNDING_GEMINI_MODEL: "gemini-2.5-flash-lite",
+    },
+    async () => {
+      const originalFetch = globalThis.fetch;
+      let fetchCalls = 0;
+      globalThis.fetch = (async () => {
+        fetchCalls += 1;
+        return new Response(JSON.stringify({ error: { message: "Model is not available" } }), {
+          status: 404,
+          headers: { "content-type": "application/json" },
+        });
+      }) as typeof fetch;
+      try {
+        resetSearchGroundingBackoffForTests();
+        await assert.rejects(
+          discoverOfficialSourcesViaGrounding(
+            "Mức phạt chậm nộp thuế hiện hành là bao nhiêu?",
+          ),
+          /404/,
+        );
+        assert.equal(fetchCalls, 2, "Chỉ thử hai model Gemini 2.5 được hỗ trợ.");
+        assert.equal(searchGroundingBackoffActive(), true);
+
+        const skipped = await discoverOfficialSourcesViaGrounding(
+          "Ngưỡng doanh thu miễn thuế hiện hành là bao nhiêu?",
+        );
+        assert.deepEqual(skipped, []);
+        assert.equal(fetchCalls, 2, "Circuit breaker phải ngăn request Grounding tiếp theo.");
+      } finally {
+        globalThis.fetch = originalFetch;
+        resetSearchGroundingBackoffForTests();
+      }
+    },
+  );
 });
 
 test("uses only supported Gemini 2.5 grounding models", () => {
