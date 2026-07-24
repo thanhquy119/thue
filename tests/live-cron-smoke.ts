@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { GET as cronApiGet } from "../app/api/cron/legal-ingestion/route.ts";
+import { cronIngestionDecision } from "../lib/legal/cron-ingestion-policy.ts";
+import { readDurableIngestionState } from "../lib/legal/durable-document-store.ts";
 
 const MARKER = "[live-cron-route]";
 const commitMessage = process.env.VERCEL_GIT_COMMIT_MESSAGE ?? "";
@@ -17,6 +19,23 @@ process.env.CRON_SECRET = smokeSecret;
 process.env.LEGAL_BLOB_ACCESS ||= "private";
 
 try {
+  const [state82, state94] = await Promise.all([
+    readDurableIngestionState("82/2026/TT-BTC"),
+    readDurableIngestionState("94/2026/TT-BTC"),
+  ]);
+  assert.equal(state82?.status, "ready", "Blob phải lưu 82 ở trạng thái ready.");
+  assert.equal(state94?.status, "ready", "Blob phải lưu 94 ở trạng thái ready.");
+  assert.deepEqual(cronIngestionDecision(state82), {
+    shouldStart: false,
+    reason: "ready",
+    ageHours: cronIngestionDecision(state82).ageHours,
+  });
+  assert.deepEqual(cronIngestionDecision(state94), {
+    shouldStart: false,
+    reason: "ready",
+    ageHours: cronIngestionDecision(state94).ageHours,
+  });
+
   const endpoint = "https://preview.thue-ro.local/api/cron/legal-ingestion?dry_run=1";
   const unauthorized = await cronApiGet(new Request(endpoint));
   assert.equal(unauthorized.status, 401, "Cron phải từ chối request không có Bearer secret.");
@@ -49,27 +68,34 @@ try {
   assert.deepEqual(payload.started, [], "Dry-run tuyệt đối không được khởi động Workflow.");
   assert.ok(payload.discovered >= 1, "Cron discovery không tìm thấy văn bản nào.");
 
+  const protectedNumbers = ["82/2026/TT-BTC", "94/2026/TT-BTC"];
   const skipped = new Map(payload.skipped.map((item) => [item.number, item.reason]));
-  assert.equal(skipped.get("82/2026/TT-BTC"), "ready", "Cron phải bỏ qua 82 đã ready.");
-  assert.equal(skipped.get("94/2026/TT-BTC"), "ready", "Cron phải bỏ qua 94 đã ready.");
-  assert.equal(payload.would_start.includes("82/2026/TT-BTC"), false);
-  assert.equal(payload.would_start.includes("94/2026/TT-BTC"), false);
+  for (const number of protectedNumbers) {
+    assert.equal(payload.would_start.includes(number), false, `${number} không được nằm trong would_start.`);
+    assert.equal(payload.started.some((item) => item.number === number), false, `${number} không được khởi động.`);
+    assert.equal(payload.deferred.includes(number), false, `${number} không được nằm trong deferred.`);
+    const reason = skipped.get(number);
+    if (reason !== undefined) assert.equal(reason, "ready", `${number} chỉ được skip với lý do ready.`);
+  }
 
   console.log("[live-cron-route-result]", JSON.stringify({
     unauthorizedStatus: unauthorized.status,
     authorizedStatus: authorized.status,
     secretSource: previousSecret?.trim() ? "preview_env" : "ephemeral_smoke_only",
+    durableStates: {
+      "82/2026/TT-BTC": state82?.status,
+      "94/2026/TT-BTC": state94?.status,
+    },
     dryRun: payload.dry_run,
     discovered: payload.discovered,
     wouldStart: payload.would_start,
-    skippedReady: payload.skipped.filter((item) =>
-      item.number === "82/2026/TT-BTC" || item.number === "94/2026/TT-BTC"),
+    skippedReady: payload.skipped.filter((item) => protectedNumbers.includes(item.number)),
     deferred: payload.deferred,
     cleanup: payload.cleanup,
     usageBeforeRuns: payload.usage_before_runs,
     warnings: payload.warnings,
   }));
-  console.log("[live-cron-route] authentication, discovery, idempotency and no-start dry-run passed");
+  console.log("[live-cron-route] authentication, discovery, ready-state idempotency and no-start dry-run passed");
 } finally {
   if (previousSecret === undefined) delete process.env.CRON_SECRET;
   else process.env.CRON_SECRET = previousSecret;
