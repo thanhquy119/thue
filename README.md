@@ -1,18 +1,48 @@
-# Thuế Rõ — bản đơn giản không dùng Supabase
+# Thuế Rõ — tra cứu nguyên văn pháp luật thuế
 
-Bản này thay đổi luồng ứng dụng theo yêu cầu:
+Thuế Rõ ưu tiên hiển thị nguyên văn từ nguồn chính thức và không dùng nội dung tóm tắt, menu trang web hoặc OCR chưa đạt chất lượng như thể đó là toàn văn pháp luật.
 
-- Trang đầu chỉ có ô tra cứu, không tải kho văn bản, không hiện tab Tất cả/Đang hiệu lực/Sắp hiệu lực/Hết hiệu lực.
-- Không dùng Supabase hoặc cơ sở dữ liệu văn bản cố định.
-- Gemini Google Search Grounding chỉ dùng để tìm nguồn chính thức.
-- Máy chủ tải file HTML/DOCX/PDF có text từ nguồn chính thức, trích xuất toàn văn và lưu bằng Vercel/Next.js Data Cache trong 7 ngày.
-- Kết quả tra số hiệu hiển thị duy nhất một văn bản chính và toàn văn của văn bản đó.
-- Câu hỏi nghiệp vụ hiển thị câu trả lời ngắn, sau đó là toàn văn của văn bản chính liên quan.
-- Bỏ hoàn toàn tab “Bản diễn giải/Nguyên văn”; chỉ còn nguyên văn.
-- Điều được hiển thị một lần; phần tiêu đề không bị lặp lại trong thân bài.
-- Khoản/điểm bị tách dòng trong PDF được ghép lại thành khối nội dung hợp lý.
-- Giọng đọc dùng Speech Synthesis có sẵn trên iPhone/trình duyệt và cho phép chọn giọng, tốc độ.
-- Bookmark và tiến độ nghe chỉ lưu trong IndexedDB trên thiết bị.
+## Luồng ứng dụng
+
+- Trang đầu chỉ có ô tra cứu, không tải toàn bộ kho văn bản khi mở trang.
+- Gemini Google Search Grounding chỉ dùng để tìm và đối chiếu nguồn chính thức.
+- Kết quả tra số hiệu hiển thị một văn bản chính hoặc hồ sơ nguồn khi toàn văn chưa đạt yêu cầu.
+- Câu hỏi nghiệp vụ trả lời ngắn trước, sau đó gắn với văn bản chính liên quan.
+- Chỉ dùng `official_text`; không tạo một bản diễn giải rồi gọi đó là nguyên văn.
+- Bookmark và tiến độ nghe được lưu trong IndexedDB trên thiết bị.
+
+## Pipeline nhập văn bản bền vững
+
+Các văn bản mới được xử lý ngoài request tra cứu bằng Vercel Workflow:
+
+```text
+Cron phát hiện văn bản mới
+  → tải và lưu dấu vân tay nguồn
+  → DOCX
+  → DOC
+  → PDF có lớp chữ
+  → HTML có nội dung pháp lý
+  → OCR theo nhóm 3 trang
+  → ghép trang và kiểm tra chất lượng
+  → ready | needs_review | failed
+```
+
+### Nguyên tắc xử lý
+
+- Ưu tiên định dạng: `DOCX → DOC → PDF text → HTML → OCR`.
+- Giới hạn nguồn mặc định là 100 MB, cấu hình bằng `LEGAL_MAX_SOURCE_BYTES`.
+- PDF scan được OCR theo nhóm tối đa ba trang; mỗi nhóm là một Workflow step có thể retry độc lập.
+- Khi có Vercel Blob, file nguồn, checkpoint từng trang, trạng thái và revision đã duyệt được lưu bền vững.
+- Revision chỉ được công bố khi đúng số hiệu, ngày ban hành, cấu trúc pháp lý và đủ toàn bộ trang.
+- OCR một phần, thiếu trang, chất lượng thấp, `[không đọc rõ]` quá ngưỡng hoặc thứ tự Điều bất thường đều chuyển sang `needs_review`.
+- `processing`, `needs_review` và `failed` chỉ trả metadata/nguồn; không trả phần chữ chưa duyệt như toàn văn.
+- Các revision `ready` được ưu tiên trong tra cứu sau lớp câu trả lời nghiệp vụ đã xác minh.
+
+### Cron
+
+`vercel.json` chạy discovery hằng ngày lúc `01:17 UTC`, tương đương `08:17` tại Việt Nam.
+
+Cron chỉ khởi động Workflow. Nó không OCR toàn bộ tài liệu trong request Cron và sẽ trả lỗi an toàn nếu chưa kết nối Vercel Blob.
 
 ## Cấu hình
 
@@ -20,53 +50,87 @@ Bản này thay đổi luồng ứng dụng theo yêu cầu:
 cp .env.example .env.local
 ```
 
-Thêm API key lấy từ Google AI Studio:
+Các biến chính:
 
 ```env
 GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-3.1-flash-lite
-OCR_GEMINI_MODEL=gemini-3.1-flash-lite
+GEMINI_MODEL=gemini-3.5-flash-lite
+OCR_GEMINI_MODEL=gemini-3.5-flash-lite
+ENABLE_OCR_FALLBACK=true
 ENABLE_OCR_LAB=false
 RATE_LIMIT_SALT=mot-chuoi-bi-mat-ngau-nhien
+
+BLOB_READ_WRITE_TOKEN=...
+LEGAL_BLOB_ACCESS=public
+LEGAL_MAX_SOURCE_BYTES=100000000
+LEGAL_CRON_MAX_RUNS=8
+CRON_SECRET=mot-chuoi-bi-mat-dai
+INGESTION_ADMIN_SECRET=mot-chuoi-bi-mat-khac
 ```
 
-Trên Vercel, thêm các biến cần dùng trong Project → Settings → Environment Variables.
+`BLOB_READ_WRITE_TOKEN` là điều kiện bắt buộc để bật lưu checkpoint, công bố revision và Cron production. Không có token, Preview vẫn có thể chạy smoke test không lưu nhưng production sẽ không tạo công việc không thể khôi phục.
 
-## Chạy
+## Chạy và kiểm tra
 
 ```bash
 npm install
 npm run dev
 ```
 
-Kiểm tra trước khi deploy:
+Kiểm tra đầy đủ trước khi deploy:
 
 ```bash
 npm run verify
 ```
 
-## OCR Lab thử nghiệm
+Build thông thường chạy unit/regression tests và bỏ qua live smoke tests. Live tests chỉ chạy khi đặt biến môi trường hoặc dùng marker commit:
 
-Nhánh thử nghiệm có trang `/ocr-lab` để so sánh lớp chữ sẵn có trong PDF với OCR nhiều lượt trước khi tích hợp vào luồng tra cứu chính.
+```bash
+RUN_LIVE_INGESTION_SMOKE=true npm run smoke:live
+RUN_LIVE_QUESTION_SMOKE=true npm run smoke:questions
+```
 
-- OCR Lab tự bật ở môi trường local và Vercel Preview.
-- Production chỉ bật khi đặt `ENABLE_OCR_LAB=true`.
-- Người thử nhập liên kết trực tiếp tới PDF thuộc miền cơ quan nhà nước đã cho phép.
-- Mỗi trang được đọc hai lượt độc lập: một lượt chép nguyên văn và một lượt tập trung kiểm tra số hiệu, Điều/Khoản/Điểm, dấu tiếng Việt và các cặp ký tự dễ nhầm.
-- Khi hai lượt khác nhau đáng kể, hệ thống chạy thêm lượt đối chiếu có ảnh gốc làm căn cứ.
-- Hệ thống chấm điểm lớp chữ PDF và OCR, hiển thị độ giống nhau từng trang và đưa ra khuyến nghị giữ lớp chữ cũ, ưu tiên OCR hoặc kiểm tra thủ công.
-- Kết quả OCR Lab không được lưu cache, không thay thế dữ liệu chính thức và không tác động trang tra cứu hiện tại.
+Live ingestion matrix hiện kiểm tra:
 
-Để hạn chế thời gian và chi phí trong giai đoạn thử, giao diện chỉ OCR tối đa 6 trang mỗi lần. Chỉ sau khi kiểm tra đủ nhiều mẫu PDF scan mới nên tích hợp fallback OCR vào `extractFromUrl`.
+- Trang Công báo tự chọn DOCX chính thức.
+- DOCX trực tiếp có cùng SHA-256 với attachment từ trang Công báo.
+- PDF có lớp chữ được đọc bằng `pdf_text`.
+- PDF scan 94/2026/TT-BTC khoảng 13 MB được nhận diện là `ocr_required`.
+- OCR các trang đại diện giữ đúng số hiệu nhưng vẫn bị chặn công bố khi chưa đủ toàn bộ trang.
 
-## Cơ chế cache
+Live question matrix kiểm tra:
 
-- Kết quả hỏi đáp không được cache công khai vì câu hỏi có thể chứa dữ liệu riêng tư.
-- Toàn văn công khai sau khi trích xuất được lưu bằng `unstable_cache`, khóa theo URL nguồn và tự làm mới sau 7 ngày.
-- Trình duyệt giữ kết quả của cùng một truy vấn trong `sessionStorage` cho phiên hiện tại.
-- Không ghi file vào filesystem của Vercel Function và không cần database.
+- Câu hỏi neo theo toàn văn chính thức 87/2026/TT-BTC.
+- 94/2026/TT-BTC không hiển thị toàn văn giả khi OCR chưa hoàn tất.
+- Câu hỏi hộ kinh doanh, hóa đơn máy tính tiền và thay đổi mã số thuế.
+- 97/2026/TT-BTC trả đúng văn bản bị bãi bỏ.
 
-## Giới hạn thực tế
+## API vận hành
 
-Không hệ thống nào có thể bảo đảm lấy được toàn văn của mọi văn bản chỉ bằng web search. Trường hợp nguồn chặn bot, liên kết Google redirect không giải được, PDF chỉ là ảnh scan hoặc file quá lớn, ứng dụng sẽ báo không thể trích xuất thay vì hiển thị nội dung tóm tắt như thể đó là toàn văn.
-.
+- `POST /api/ingestion/start`: khởi động một Workflow nhập văn bản, được bảo vệ bằng secret ở production.
+- `GET /api/ingestion/run/:runId`: xem trạng thái Workflow run.
+- `GET /api/ingestion/status?number=...`: xem trạng thái và revision đã công bố trong Blob.
+- `GET /api/cron/legal-ingestion`: endpoint Cron discovery.
+- `GET /api/ingestion/smoke`: chỉ tồn tại trên Preview; production luôn trả 404.
+
+## OCR Lab
+
+`/ocr-lab` tiếp tục dùng để xem chi tiết từng trang và so sánh nhiều lượt OCR:
+
+- Hai lượt OCR độc lập trên ảnh gốc và ảnh tăng tương phản.
+- Chạy lượt đối chiếu khi kết quả lệch hoặc chất lượng thấp.
+- Giữ bảng, biểu mẫu, ô lựa chọn và cảnh báo `[không đọc rõ]`.
+- Kết quả Lab không tự thay thế revision production.
+
+## Lưu trữ và cache
+
+- File nguồn và revision đã duyệt: Vercel Blob.
+- Điều phối/retry: Vercel Workflow.
+- Toàn văn cũ chưa chuyển sang pipeline vẫn có thể dùng Next.js Data Cache.
+- Câu hỏi người dùng không được cache công khai.
+- Trình duyệt giữ kết quả cùng phiên trong `sessionStorage`; bookmark và tiến độ nghe dùng IndexedDB.
+- Không ghi file vào filesystem tạm của Vercel Function.
+
+## Giới hạn an toàn
+
+Không hệ thống nào bảo đảm tự động đọc hoàn hảo mọi văn bản. Nguồn chặn bot, tệp hỏng, scan có con dấu che chữ, bảng quá phức tạp hoặc metadata không khớp sẽ được retry và sau đó chuyển `needs_review`. Nguyên tắc mặc định là thiếu toàn văn thì báo thiếu, không tạo nội dung thay thế.

@@ -32,6 +32,30 @@ function officialCandidate(
   };
 }
 
+function registrationCandidate() {
+  return officialCandidate(
+    "verified-extra-90-2026-tt-btc",
+    "90/2026/TT-BTC",
+    "Quy định về đăng ký thuế, có hiệu lực từ ngày 01/07/2026",
+    "Thông tư",
+    "Bộ Tài chính",
+    "2026-06-30",
+    "https://xaydungchinhsach.chinhphu.vn/mot-so-diem-moi-cua-thong-tu-90-2026-tt-btc-ve-dang-ky-thue-11926071714240164.htm",
+  );
+}
+
+function repeal97Candidate() {
+  return officialCandidate(
+    "verified-extra-97-2026-tt-btc",
+    "97/2026/TT-BTC",
+    "Bãi bỏ Thông tư số 55/2010/TT-BTC về thuế GTGT và thuế TNDN đối với các đài truyền hình, phát thanh truyền hình",
+    "Thông tư",
+    "Bộ Tài chính",
+    "2026-07-06",
+    "https://vanban.chinhphu.vn/?classid=1&docid=218797&orggroupid=4&pageid=27160",
+  );
+}
+
 function invoiceDecreeCandidate() {
   return officialCandidate(
     "verified-extra-254-2026-nd-cp",
@@ -68,7 +92,7 @@ function thresholdCandidate() {
   );
 }
 
-function answer(query: string, directAnswer: string, candidates: SearchCandidate[]): TaxSearchResponse {
+function answer(query: string, directAnswer: string, candidates: SearchCandidate[], confidence = 0.98): TaxSearchResponse {
   return {
     query_normalized: normalize(query),
     query_kind: "question",
@@ -76,7 +100,7 @@ function answer(query: string, directAnswer: string, candidates: SearchCandidate
     document: null,
     candidates,
     warnings: [],
-    confidence: 0.98,
+    confidence,
     retrieved_at: new Date().toISOString(),
   };
 }
@@ -99,6 +123,30 @@ export function verifiedExtraQuestionResponse(query: string): TaxSearchResponse 
   const years = normalized.match(/\b20\d{2}\b/g) ?? [];
   if (years.some((year) => Number(year) <= 2025)) return null;
 
+  const asksCircular97Repeal =
+    /\b97\s*\/\s*2026\s*\/\s*tt-btc\b/.test(normalized) &&
+    /\b(?:bai bo|van ban nao|thong tu nao|het hieu luc)\b/.test(normalized);
+  if (asksCircular97Repeal) {
+    return answer(
+      query,
+      "Thông tư số 97/2026/TT-BTC bãi bỏ toàn bộ Thông tư số 55/2010/TT-BTC ngày 16/04/2010 của Bộ trưởng Bộ Tài chính. Thông tư 55/2010/TT-BTC trước đây hướng dẫn thuế giá trị gia tăng và thuế thu nhập doanh nghiệp đối với Đài Truyền hình Việt Nam và các đài truyền hình, đài phát thanh - truyền hình tỉnh, thành phố.\n\nThông tư 97/2026/TT-BTC được ban hành và có hiệu lực từ ngày 06/07/2026.",
+      [repeal97Candidate()],
+      0.99,
+    );
+  }
+
+  const asksNewTaxNumberAfterMove =
+    /\b(?:doanh nghiep|cong ty|to chuc)\b/.test(normalized) &&
+    /\b(?:chuyen tru so|chuyen dia chi|thay doi dia chi)\b/.test(normalized) &&
+    /\b(?:doi ma so thue|ma so thue moi|dang ky lai ma so thue|cap lai ma so thue)\b/.test(normalized);
+  if (asksNewTaxNumberAfterMove) {
+    return answer(
+      query,
+      "Không. Doanh nghiệp chuyển trụ sở sang tỉnh khác vẫn sử dụng mã số thuế đã được cấp; việc chuyển địa chỉ không làm phát sinh một mã số thuế mới. Doanh nghiệp phải thực hiện thủ tục thay đổi thông tin đăng ký thuế và chuyển cơ quan thuế quản lý trực tiếp theo Thông tư số 90/2026/TT-BTC.\n\nCần phân biệt việc giữ nguyên mã số thuế với nghĩa vụ cập nhật địa chỉ, hồ sơ đăng ký doanh nghiệp và các thủ tục chuyển cơ quan thuế quản lý. Trường hợp thuộc diện kiểm tra tại trụ sở khi chuyển địa điểm, cơ quan thuế sẽ thông báo riêng.",
+      [registrationCandidate()],
+    );
+  }
+
   if (
     /\b(?:ho kinh doanh|ca nhan kinh doanh)\b/.test(normalized) &&
     /\bmay tinh tien\b/.test(normalized) &&
@@ -117,6 +165,18 @@ export function verifiedExtraQuestionResponse(query: string): TaxSearchResponse 
       query,
       "Không nhất thiết phải dùng riêng hóa đơn điện tử khởi tạo từ máy tính tiền. Hộ kinh doanh/cá nhân kinh doanh có doanh thu năm trên 01 tỷ đồng phải áp dụng hóa đơn điện tử có mã của cơ quan thuế hoặc hóa đơn điện tử khởi tạo từ máy tính tiền có kết nối dữ liệu với cơ quan thuế theo Nghị định số 141/2026/NĐ-CP.\n\nNếu đã đăng ký sử dụng hóa đơn điện tử có mã hoặc không có mã phù hợp thì Nghị định số 254/2026/NĐ-CP không bắt buộc đăng ký thêm hóa đơn khởi tạo từ máy tính tiền.",
       [thresholdCandidate(), invoiceDecreeCandidate(), invoiceCircularCandidate()],
+    );
+  }
+
+  const asksExclusiveCashRegisterInvoice =
+    /\bmay tinh tien\b/.test(normalized) &&
+    /\b(?:bat buoc|co phai|phai dung|chi duoc dung|chi dung)\b/.test(normalized) &&
+    /\b(?:ban hang truc tiep|ban le|nguoi tieu dung|cung cap dich vu truc tiep)\b/.test(normalized);
+  if (asksExclusiveCashRegisterInvoice) {
+    return answer(
+      query,
+      "Không thể kết luận rằng cứ bán hàng trực tiếp cho người tiêu dùng thì bắt buộc chỉ được dùng hóa đơn điện tử khởi tạo từ máy tính tiền. Pháp luật về hóa đơn điện tử còn phân biệt loại người bán, ngưỡng doanh thu, ngành nghề và hình thức hóa đơn đã đăng ký.\n\nĐối với hộ kinh doanh/cá nhân kinh doanh thuộc ngưỡng phải áp dụng hóa đơn điện tử, có thể sử dụng hóa đơn điện tử có mã của cơ quan thuế hoặc hóa đơn điện tử khởi tạo từ máy tính tiền có kết nối dữ liệu theo điều kiện tương ứng; không có quy tắc chung buộc mọi người bán trực tiếp chỉ được dùng duy nhất loại hóa đơn từ máy tính tiền. Cần xác định thêm người bán là doanh nghiệp hay hộ/cá nhân kinh doanh, doanh thu năm và hình thức hóa đơn hiện đã đăng ký.",
+      [invoiceDecreeCandidate(), invoiceCircularCandidate(), thresholdCandidate()],
     );
   }
 

@@ -2,6 +2,10 @@ import { unstable_cache } from "next/cache";
 import { answerFromOfficialEvidence, discoverOfficialSources, GeminiUnavailableError } from "./gemini";
 import { extractFromUrl, parseLegalHierarchy, slugifyDocument } from "./ingestion";
 import { extractSearchHint, lexicalRelevance, normalizeLegalQuery } from "./query";
+import {
+  applySearchDiscoveryConfidence,
+  searchDiscoverySafety,
+} from "./search-discovery-safety";
 import type {
   DocumentDetail,
   EffectiveStatus,
@@ -301,6 +305,7 @@ export async function searchTaxLaw(query: string): Promise<TaxSearchResponse> {
   const hint = extractSearchHint(query);
   const retrievedAt = new Date().toISOString();
   const discovery = await discoverOfficialSources(query);
+  const conflicts = discovery.groundingCrossCheck?.conflicts ?? [];
   const rankedSources = [...discovery.sources].sort(
     (left, right) => sourceScore(query, right) - sourceScore(query, left),
   );
@@ -316,20 +321,21 @@ export async function searchTaxLaw(query: string): Promise<TaxSearchResponse> {
 
   if (shorthandCandidates.length > 1) {
     const shorthandType = hint.type ?? "Văn bản";
+    const safety = searchDiscoverySafety(discovery.warnings, conflicts, false);
     return {
       query_normalized: hint.normalized,
       query_kind: "document",
       direct_answer: `Có nhiều ${shorthandType.toLocaleLowerCase("vi")} mang số ${hint.number}. Chọn đúng năm, cơ quan ban hành hoặc trích yếu để mở toàn văn.`,
       document: null,
       candidates: shorthandCandidates,
-      warnings: [],
-      confidence: 0.92,
+      warnings: safety.warnings,
+      confidence: applySearchDiscoveryConfidence(0.92, safety),
       retrieved_at: retrievedAt,
     };
   }
 
   const extracted: DocumentDetail[] = [];
-  const warnings: string[] = [];
+  const extractionWarnings: string[] = [];
   const sourceLimit = hint.asksQuestion ? 12 : 7;
   for (const source of rankedSources.slice(0, sourceLimit)) {
     try {
@@ -341,7 +347,7 @@ export async function searchTaxLaw(query: string): Promise<TaxSearchResponse> {
       if (exactNumberMatches || hint.asksQuestion) extracted.push(document);
       if (extracted.length >= (hint.asksQuestion ? 4 : 1)) break;
     } catch (error) {
-      warnings.push(error instanceof Error ? error.message : "Không đọc được một nguồn chính thức.");
+      extractionWarnings.push(error instanceof Error ? error.message : "Không đọc được một nguồn chính thức.");
     }
   }
 
@@ -351,18 +357,23 @@ export async function searchTaxLaw(query: string): Promise<TaxSearchResponse> {
 
   const primary = extracted[0] ?? null;
   if (!primary) {
+    const safety = searchDiscoverySafety(discovery.warnings, conflicts, false);
     return {
       query_normalized: hint.normalized,
       query_kind: hint.asksQuestion ? "question" : "document",
-      direct_answer: "Đã tìm thấy nguồn tham khảo nhưng chưa thể trích xuất toàn văn dạng chữ từ nguồn chính thức.",
+      direct_answer: safety.hasConflict
+        ? "Các phương pháp tìm nguồn đang trả metadata mâu thuẫn và hệ thống chưa mở được toàn văn chính thức để phân xử; chưa thể đưa ra kết luận pháp lý an toàn."
+        : "Đã tìm thấy nguồn tham khảo nhưng chưa thể trích xuất toàn văn dạng chữ từ nguồn chính thức.",
       document: null,
       candidates: shorthandCandidates,
-      warnings: Array.from(new Set(warnings)).slice(0, 3),
-      confidence: 0.35,
+      warnings: Array.from(new Set([...extractionWarnings, ...safety.warnings])).slice(0, 5),
+      confidence: applySearchDiscoveryConfidence(0.35, safety),
       retrieved_at: retrievedAt,
     };
   }
 
+  const resolvedSafety = searchDiscoverySafety(discovery.warnings, conflicts, true);
+  const warnings = Array.from(new Set([...extractionWarnings, ...resolvedSafety.warnings]));
   let answer = `Đã tìm thấy ${primary.number}: ${primary.title}.`;
   let confidence = hint.number ? 0.9 : 0.78;
   if (hint.asksQuestion) {
@@ -388,8 +399,8 @@ export async function searchTaxLaw(query: string): Promise<TaxSearchResponse> {
     direct_answer: answer,
     document: primary,
     candidates: relatedCandidates,
-    warnings: Array.from(new Set(warnings)).slice(0, 3),
-    confidence,
+    warnings: Array.from(new Set(warnings)).slice(0, 5),
+    confidence: applySearchDiscoveryConfidence(confidence, resolvedSafety),
     retrieved_at: retrievedAt,
   };
 }

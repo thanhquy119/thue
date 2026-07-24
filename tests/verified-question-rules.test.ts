@@ -60,6 +60,13 @@ test("cash-register invoice is not the only permitted option", () => {
   assert.match(result.direct_answer, /hóa đơn điện tử có mã/);
 });
 
+test("direct-to-consumer sellers are not forced into only cash-register invoices", () => {
+  const result = verified("Tôi bán hàng trực tiếp cho người tiêu dùng thì có bắt buộc chỉ được dùng hóa đơn điện tử khởi tạo từ máy tính tiền không?");
+  assert.match(result.direct_answer, /^Không thể kết luận/);
+  assert.match(result.direct_answer, /không có quy tắc chung/);
+  assert.ok(result.candidates?.some((candidate) => candidate.number === "254/2026/NĐ-CP"));
+});
+
 test("household businesses below threshold still report revenue", () => {
   const result = verified("Hộ kinh doanh có doanh thu dưới 1 tỷ đồng có phải kê khai doanh thu với cơ quan thuế không?");
   assert.match(result.direct_answer, /^Có\./);

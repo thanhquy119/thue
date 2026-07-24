@@ -1,4 +1,5 @@
 import { answerQuestionFromAnchors } from "./anchored-question";
+import { durableDocumentResponse } from "./durable-document-lookup";
 import { discoverOfficialSources } from "./gemini";
 import {
   findLatestLegalUpdate,
@@ -271,6 +272,19 @@ export async function searchTaxLawRobust(
   const userQuery = originalUserQuery(query, untouchedUserQuery);
   const verified = verifiedExtraQuestionResponse(userQuery) ?? verifiedQuestionResponse(userQuery);
   if (verified) return verified;
+
+  const durable = await durableDocumentResponse(userQuery);
+  if (durable) {
+    if (hint.asksQuestion && durable.document) {
+      const anchored = guardQuestionResult(
+        userQuery,
+        await answerQuestionFromAnchors(userQuery, [durable.document]),
+      );
+      const current = await guardCurrentLawUpdate(userQuery, anchored);
+      return ensureBinaryConclusion(userQuery, current);
+    }
+    return durable;
+  }
 
   if (hint.asksQuestion) {
     const result = guardQuestionResult(userQuery, await searchTaxLaw(query));

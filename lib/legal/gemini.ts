@@ -4,6 +4,11 @@ import {
   answerGroundingIssues,
   buildTaxSearchQueries,
 } from "./question-intelligence";
+import {
+  crossCheckOfficialSources,
+  shouldCrossCheckWithGrounding,
+} from "./search-grounding-cross-check.ts";
+import { discoverOfficialSourcesViaGrounding } from "./search-grounding-fallback.ts";
 import { disqualifyTaxSource } from "./tax-source-disqualifier";
 import { taxSourceRelevance } from "./tax-source-relevance";
 import type { OnlineLegalSource } from "./types";
@@ -18,6 +23,13 @@ export class GeminiUnavailableError extends Error {
 export type GeminiDiscovery = {
   draft_answer: string;
   sources: OnlineLegalSource[];
+  warnings?: string[];
+  groundingCrossCheck?: {
+    attempted: true;
+    matchCount: number;
+    newSourceCount: number;
+    conflicts: string[];
+  };
 };
 
 type GeminiResponse = {
@@ -220,6 +232,17 @@ function mergeOfficialSources(groups: OnlineLegalSource[][], query: string) {
   return [...byUrl.values()];
 }
 
+function filterRelevantSources(sources: OnlineLegalSource[], query: string, minimumRelevance: number) {
+  return sources
+    .filter((source) => taxSourceRelevance(query, sourceText(source)) >= minimumRelevance)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 30);
+}
+
+function relevantSources(groups: OnlineLegalSource[][], query: string, minimumRelevance: number) {
+  return filterRelevantSources(mergeOfficialSources(groups, query), query, minimumRelevance);
+}
+
 export async function discoverOfficialSources(query: string): Promise<GeminiDiscovery> {
   const plan = analyzeTaxQuestion(query);
   if (!plan.isQuestion || plan.hasDocumentReference) return discoverViaRss(query);
@@ -229,28 +252,66 @@ export async function discoverOfficialSources(query: string): Promise<GeminiDisc
   const fulfilled = settled
     .filter((result): result is PromiseFulfilledResult<GeminiDiscovery> => result.status === "fulfilled")
     .map((result) => result.value);
+  const firstError = settled.find((result): result is PromiseRejectedResult => result.status === "rejected");
+  const minimumRelevance = plan.taxAreas.length ? 1.4 : 0.6;
+  const directSources = relevantSources(
+    fulfilled.map((result) => result.sources),
+    query,
+    minimumRelevance,
+  );
+  const shouldCrossCheck = shouldCrossCheckWithGrounding(query, directSources, minimumRelevance);
+
+  if (!shouldCrossCheck && directSources.length) {
+    return {
+      draft_answer: "Đã tìm thấy nguồn chính thức phù hợp với lĩnh vực và nghiệp vụ trong câu hỏi.",
+      sources: directSources,
+    };
+  }
+
+  if (shouldCrossCheck) {
+    try {
+      const groundedCandidates = mergeOfficialSources(
+        [await discoverOfficialSourcesViaGrounding(query)],
+        query,
+      );
+      const crossCheck = crossCheckOfficialSources(directSources, groundedCandidates);
+      const combinedSources = filterRelevantSources(crossCheck.sources, query, minimumRelevance);
+      if (combinedSources.length) {
+        return {
+          draft_answer: directSources.length
+            ? "Đã đối chiếu nguồn trực tiếp với Search Grounding; kết quả chỉ được dùng để xếp hạng URL ứng viên trước khi tải và xác minh toàn văn."
+            : "Nguồn trực tiếp chưa trả kết quả phù hợp; Search Grounding đã phát hiện URL cơ quan nhà nước để ứng dụng tiếp tục tải và xác minh toàn văn.",
+          sources: combinedSources,
+          warnings: crossCheck.warnings,
+          groundingCrossCheck: {
+            attempted: true,
+            matchCount: crossCheck.matchCount,
+            newSourceCount: crossCheck.newSourceCount,
+            conflicts: crossCheck.conflicts,
+          },
+        };
+      }
+    } catch {
+      // Grounding chỉ là cross-check/fallback. Mọi lỗi hoặc quota phải quay về nguồn trực tiếp an toàn.
+    }
+  }
+
+  if (directSources.length) {
+    return {
+      draft_answer: "Đã tìm thấy nguồn chính thức phù hợp với lĩnh vực và nghiệp vụ trong câu hỏi.",
+      sources: directSources,
+    };
+  }
 
   if (!fulfilled.length) {
-    const firstError = settled.find((result): result is PromiseRejectedResult => result.status === "rejected");
     throw firstError?.reason instanceof Error
       ? firstError.reason
       : new Error("Không kết nối được nguồn pháp luật chính thức.");
   }
 
-  const minimumRelevance = plan.taxAreas.length ? 1.4 : 0.6;
-  const sources = mergeOfficialSources(
-    fulfilled.map((result) => result.sources),
-    query,
-  )
-    .filter((source) => taxSourceRelevance(query, sourceText(source)) >= minimumRelevance)
-    .sort((left, right) => right.score - left.score)
-    .slice(0, 30);
-
   return {
-    draft_answer: sources.length
-      ? "Đã tìm thấy nguồn chính thức phù hợp với lĩnh vực và nghiệp vụ trong câu hỏi."
-      : "Chưa tìm thấy nguồn chính thức đủ liên quan để kết luận an toàn.",
-    sources,
+    draft_answer: "Chưa tìm thấy nguồn chính thức đủ liên quan để kết luận an toàn.",
+    sources: [],
   };
 }
 
