@@ -64,9 +64,12 @@ async function streamText(stream: ReadableStream<Uint8Array> | null) {
   return new Response(stream).text();
 }
 
-async function readJson<T>(pathname: string): Promise<T | null> {
+async function readJson<T>(pathname: string, consistent = false): Promise<T | null> {
   if (!durableStoreConfigured()) return null;
-  const result = await get(pathname, { access: blobAccess() });
+  const access = blobAccess();
+  const result = access === "private" && consistent
+    ? await get(pathname, { access: "private", useCache: false })
+    : await get(pathname, { access });
   if (!result || result.statusCode !== 200) return null;
   const value = await streamText(result.stream);
   if (!value) return null;
@@ -195,7 +198,7 @@ export async function verifyDurableStore() {
 }
 
 export async function readDurableIngestionState(number: string) {
-  return readJson<DurableIngestionState>(`${basePath(number)}/status.json`);
+  return readJson<DurableIngestionState>(`${basePath(number)}/status.json`, true);
 }
 
 export async function writeDurableIngestionState(state: DurableIngestionState) {
@@ -203,16 +206,16 @@ export async function writeDurableIngestionState(state: DurableIngestionState) {
 }
 
 export async function readDurableDocument(number: string) {
-  const revision = await readJson<DurablePublishedRevision>(`${basePath(number)}/current.json`);
+  const revision = await readJson<DurablePublishedRevision>(`${basePath(number)}/current.json`, true);
   return revision?.document ?? null;
 }
 
 export async function readDurableRevision(number: string) {
-  return readJson<DurablePublishedRevision>(`${basePath(number)}/current.json`);
+  return readJson<DurablePublishedRevision>(`${basePath(number)}/current.json`, true);
 }
 
 export async function readPreviousDurableRevision(number: string) {
-  return readJson<DurablePublishedRevision>(`${basePath(number)}/previous.json`);
+  return readJson<DurablePublishedRevision>(`${basePath(number)}/previous.json`, true);
 }
 
 export async function writeDurableOcrPage(number: string, runId: string, page: DurableOcrPage) {
@@ -285,13 +288,13 @@ async function cleanupLegacyRevisions(number: string) {
 export async function publishDurableRevision(revision: DurablePublishedRevision) {
   const currentPath = `${basePath(revision.document.number)}/current.json`;
   const previousPath = `${basePath(revision.document.number)}/previous.json`;
-  const existing = await readJson<DurablePublishedRevision>(currentPath);
+  const existing = await readJson<DurablePublishedRevision>(currentPath, true);
 
   if (existing && existing.revisionId !== revision.revisionId) {
     await writeJson(previousPath, existing, true);
   }
   const published = await writeJson(currentPath, revision, true);
-  const previous = await readJson<DurablePublishedRevision>(previousPath);
+  const previous = await readJson<DurablePublishedRevision>(previousPath, true);
   await pruneDurableSources(revision.document.number, [revision.sourceBlobUrl, previous?.sourceBlobUrl]);
   await cleanupLegacyRevisions(revision.document.number);
   return published;
