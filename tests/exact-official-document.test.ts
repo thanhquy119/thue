@@ -5,7 +5,7 @@ import {
   extractOfficialAttachmentUrls,
   parseExactGazettePayload,
   shouldQueueExactIngestion,
-} from "../lib/legal/exact-official-document.ts";
+} from "../lib/legal/exact-official-document-core.ts";
 import type { DurableIngestionState } from "../lib/legal/durable-ingestion-types.ts";
 
 const EXACT_QUERY_CASES: Array<[string, string | null]> = [
