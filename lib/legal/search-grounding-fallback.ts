@@ -24,8 +24,14 @@ type CachedGroundingResult = {
   sources: OnlineLegalSource[];
 };
 
+type GroundingRequestResult = {
+  payload: GroundingResponse;
+  model: string;
+};
+
 const DEFAULT_GROUNDING_MODEL = "gemini-2.5-flash-lite";
 const SUPPORTED_GROUNDING_MODELS = new Set(["gemini-2.5-flash", "gemini-2.5-flash-lite"]);
+const RETRYABLE_GROUNDING_STATUSES = new Set([404, 429, 500, 502, 503, 504]);
 const GROUNDING_REDIRECT_HOSTS = new Set(["vertexaisearch.cloud.google.com"]);
 const FULL_DOCUMENT_NUMBER =
   /\b\d{1,4}\s*\/\s*20\d{2}\s*\/\s*(?:NĐ-CP|ND-CP|TT-[A-ZĐ0-9-]+|NQ-[A-ZĐ0-9-]+|QĐ-[A-ZĐ0-9-]+|QD-[A-Z0-9-]+|QH\d*|UBTVQH\d*)\b/iu;
@@ -57,6 +63,16 @@ export function searchGroundingModel() {
     .trim()
     .replace(/^models\//iu, "");
   return SUPPORTED_GROUNDING_MODELS.has(configured) ? configured : DEFAULT_GROUNDING_MODEL;
+}
+
+export function searchGroundingModelCandidates() {
+  return Array.from(
+    new Set([
+      searchGroundingModel(),
+      DEFAULT_GROUNDING_MODEL,
+      "gemini-2.5-flash",
+    ]),
+  ).filter((model) => SUPPORTED_GROUNDING_MODELS.has(model));
 }
 
 export function searchGroundingMaxResults() {
@@ -152,11 +168,10 @@ function groundingPrompt(query: string) {
   ].join("\n");
 }
 
-async function requestGrounding(query: string): Promise<GroundingResponse> {
+async function requestGroundingModel(model: string, query: string) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30_000);
   try {
-    const model = searchGroundingModel();
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
       {
@@ -178,17 +193,41 @@ async function requestGrounding(query: string): Promise<GroundingResponse> {
       },
     );
     const payload = (await response.json().catch(() => ({}))) as GroundingResponse;
-    if (!response.ok) {
-      const message = typeof payload.error?.message === "string" ? payload.error.message : "";
-      throw new Error(`Search Grounding trả lỗi ${response.status}${message ? `: ${message.slice(0, 180)}` : "."}`);
-    }
-    return payload;
+    return { response, payload };
   } finally {
     clearTimeout(timer);
   }
 }
 
-function sourceFromGrounding(url: string, title: string): OnlineLegalSource {
+async function requestGrounding(query: string): Promise<GroundingRequestResult> {
+  let lastStatus = 0;
+  let lastMessage = "";
+
+  for (const model of searchGroundingModelCandidates()) {
+    try {
+      const { response, payload } = await requestGroundingModel(model, query);
+      if (response.ok) return { payload, model };
+
+      lastStatus = response.status;
+      lastMessage = typeof payload.error?.message === "string" ? payload.error.message : "";
+      if (!RETRYABLE_GROUNDING_STATUSES.has(response.status)) break;
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        lastMessage = `Model ${model} phản hồi quá thời gian.`;
+        continue;
+      }
+      lastMessage = error instanceof Error ? error.message : "Không kết nối được Gemini Search Grounding.";
+    }
+  }
+
+  throw new Error(
+    `Search Grounding không dùng được model đã cấu hình${lastStatus ? ` (${lastStatus})` : ""}${
+      lastMessage ? `: ${lastMessage.slice(0, 180)}` : "."
+    }`,
+  );
+}
+
+function sourceFromGrounding(url: string, title: string, model: string): OnlineLegalSource {
   const numberMatch = `${title} ${url}`.match(FULL_DOCUMENT_NUMBER)?.[0] ?? "";
   const number = numberMatch ? cleanDocumentNumber(numberMatch) : undefined;
   const safeTitle = title || number || `Nguồn pháp luật từ ${new URL(url).hostname}`;
@@ -199,7 +238,7 @@ function sourceFromGrounding(url: string, title: string): OnlineLegalSource {
     snippet:
       "URL được Search Grounding phát hiện nhưng chưa được dùng làm căn cứ. Ứng dụng phải tải, trích xuất và xác minh toàn văn trước khi trả lời.",
     score: 0.8,
-    source_label: "Google Search Grounding → nguồn chính thức",
+    source_label: `Google Search Grounding (${model}) → nguồn chính thức`,
     previewable: true,
     document_number: number,
     document_type: inferDocumentType(number ?? "", safeTitle),
@@ -237,7 +276,7 @@ export async function discoverOfficialSourcesViaGrounding(query: string): Promis
   const cached = readCache(cleanQuery);
   if (cached) return cached;
 
-  const payload = await requestGrounding(cleanQuery);
+  const { payload, model } = await requestGrounding(cleanQuery);
   const chunks = extractGroundingWebChunks(payload);
   const sources: OnlineLegalSource[] = [];
   const seen = new Set<string>();
@@ -247,7 +286,7 @@ export async function discoverOfficialSourcesViaGrounding(query: string): Promis
     const resolved = await resolveOfficialUrl(chunk.uri).catch(() => null);
     if (!resolved || seen.has(resolved)) continue;
     seen.add(resolved);
-    sources.push(sourceFromGrounding(resolved, chunk.title));
+    sources.push(sourceFromGrounding(resolved, chunk.title, model));
   }
 
   writeCache(cleanQuery, sources);
