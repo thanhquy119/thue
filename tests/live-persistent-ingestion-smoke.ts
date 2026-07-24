@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { GET as cronApiGet } from "../app/api/cron/legal-ingestion/route.ts";
 import { POST as searchApiPost } from "../app/api/search/route.ts";
 import {
   durableStoreAccess,
@@ -14,11 +15,14 @@ import { legalDocumentIngestionWorkflow } from "../workflows/legal-document-inge
 
 const PERSISTENT_MARKER = "[live-persistent]";
 const REVALIDATE_94_MARKER = "[live-revalidate-94]";
+const CRON_MARKER = "[live-cron]";
 const commitMessage = process.env.VERCEL_GIT_COMMIT_MESSAGE ?? "";
 const revalidate94Enabled =
   process.env.RUN_LIVE_OCR_REVALIDATION === "true" || commitMessage.includes(REVALIDATE_94_MARKER);
 const persistentEnabled =
   process.env.RUN_LIVE_PERSISTENT_INGESTION === "true" || commitMessage.includes(PERSISTENT_MARKER);
+const cronEnabled =
+  process.env.RUN_LIVE_CRON_SMOKE === "true" || commitMessage.includes(CRON_MARKER);
 
 const SOURCE_82: DurableLegalSource = {
   number: "82/2026/TT-BTC",
@@ -44,6 +48,19 @@ const SOURCE_94: DurableLegalSource = {
   sourceLabel: "Hệ thống văn bản Chính phủ",
 };
 
+type CronDryRunPayload = {
+  ok: boolean;
+  dry_run: boolean;
+  cleanup: { deletedObjects: number; deletedBytes: number; skipped?: string };
+  usage_before_runs: { bytes: number; objects: number } | null;
+  discovered: number;
+  would_start: string[];
+  started: Array<{ number: string; job_id: string; run_id: string }>;
+  skipped: Array<{ number: string; reason: string }>;
+  deferred: string[];
+  warnings: string[];
+};
+
 function configureDurableStoreDefaults() {
   process.env.LEGAL_BLOB_ACCESS ||= "private";
   process.env.LEGAL_BLOB_SOFT_LIMIT_BYTES ||= "750000000";
@@ -65,6 +82,52 @@ async function callSearchApi(number: string) {
     throw new Error(`POST /api/search trả ${response.status}: ${(await response.text()).slice(0, 500)}`);
   }
   return (await response.json()) as TaxSearchResponse;
+}
+
+async function verifyCronDryRun() {
+  configureDurableStoreDefaults();
+  const secret = process.env.CRON_SECRET?.trim() ?? "";
+  assert.ok(secret.length >= 16, "CRON_SECRET chưa được cấu hình cho Preview.");
+
+  const endpoint = "https://preview.thue-ro.local/api/cron/legal-ingestion?dry_run=1";
+  const unauthorized = await cronApiGet(new Request(endpoint));
+  assert.equal(unauthorized.status, 401, "Cron phải từ chối request không có Bearer secret.");
+
+  const authorized = await cronApiGet(
+    new Request(endpoint, {
+      headers: { authorization: `Bearer ${secret}` },
+    }),
+  );
+  if (authorized.status !== 200) {
+    throw new Error(`Cron dry-run trả ${authorized.status}: ${(await authorized.text()).slice(0, 800)}`);
+  }
+  const payload = (await authorized.json()) as CronDryRunPayload;
+  assert.equal(payload.ok, true);
+  assert.equal(payload.dry_run, true);
+  assert.equal(payload.cleanup.skipped, "dry_run");
+  assert.deepEqual(payload.started, [], "Dry-run tuyệt đối không được khởi động Workflow.");
+  assert.ok(payload.discovered >= 1, "Cron discovery không tìm thấy văn bản nào.");
+
+  const skipped = new Map(payload.skipped.map((item) => [item.number, item.reason]));
+  assert.equal(skipped.get(SOURCE_82.number), "ready", "Cron phải bỏ qua 82 đã ready.");
+  assert.equal(skipped.get(SOURCE_94.number), "ready", "Cron phải bỏ qua 94 đã ready.");
+  assert.equal(payload.would_start.includes(SOURCE_82.number), false);
+  assert.equal(payload.would_start.includes(SOURCE_94.number), false);
+
+  console.log("[live-cron-result]", JSON.stringify({
+    unauthorizedStatus: unauthorized.status,
+    authorizedStatus: authorized.status,
+    dryRun: payload.dry_run,
+    discovered: payload.discovered,
+    wouldStart: payload.would_start,
+    skippedReady: payload.skipped.filter((item) =>
+      item.number === SOURCE_82.number || item.number === SOURCE_94.number),
+    deferred: payload.deferred,
+    cleanup: payload.cleanup,
+    usageBeforeRuns: payload.usage_before_runs,
+    warnings: payload.warnings,
+  }));
+  console.log("[live-cron] authentication, idempotency and no-start dry-run passed");
 }
 
 async function revalidateOcr94() {
@@ -188,6 +251,10 @@ async function verifyPersistent82() {
 }
 
 async function main() {
+  if (cronEnabled) {
+    await verifyCronDryRun();
+    return;
+  }
   if (revalidate94Enabled) {
     await revalidateOcr94();
     return;
@@ -197,11 +264,12 @@ async function main() {
     return;
   }
   console.log(
-    `[live-persistent] skipped; add ${PERSISTENT_MARKER} or ${REVALIDATE_94_MARKER} to the commit message, or set the matching live-smoke environment variable.`,
+    `[live-persistent] skipped; add ${PERSISTENT_MARKER}, ${REVALIDATE_94_MARKER} or ${CRON_MARKER} to the commit message, or set the matching live-smoke environment variable.`,
   );
 }
 
 main().catch((error) => {
-  console.error(revalidate94Enabled ? "[live-revalidate-94] failed" : "[live-persistent] failed", error);
+  const label = cronEnabled ? "[live-cron]" : revalidate94Enabled ? "[live-revalidate-94]" : "[live-persistent]";
+  console.error(`${label} failed`, error);
   process.exitCode = 1;
 });
