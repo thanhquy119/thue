@@ -150,10 +150,16 @@ function buildDocument(source: DurableLegalSource, extracted: DurableExtractedSo
   };
 }
 
+function articleCount(document: DocumentDetail) {
+  return document.provisions.filter((provision) => provision.type === "article").length;
+}
+
+function chapterCount(document: DocumentDetail) {
+  return document.provisions.filter((provision) => provision.type === "chapter").length;
+}
+
 function documentCompletenessScore(document: DocumentDetail) {
-  const articles = document.provisions.filter((provision) => provision.type === "article").length;
-  const chapters = document.provisions.filter((provision) => provision.type === "chapter").length;
-  return articles * 1_000_000 + chapters * 100_000 + Math.min(document.official_text.length, 99_999);
+  return articleCount(document) * 1_000_000 + chapterCount(document) * 100_000 + Math.min(document.official_text.length, 99_999);
 }
 
 async function loadFromDiscoveredSources(number: string) {
@@ -172,7 +178,6 @@ async function loadFromDiscoveredSources(number: string) {
       });
       if (!validation.accepted || !hasUsableLegalDocumentText(extracted.officialText, source.number)) continue;
       documents.push(buildDocument(source, extracted));
-      if (documents.some((document) => document.provisions.filter((item) => item.type === "article").length >= 20)) break;
     } catch {
       // Continue to the next exact official source.
     }
@@ -181,26 +186,31 @@ async function loadFromDiscoveredSources(number: string) {
 }
 
 async function loadSafeUncached(number: string) {
-  const [primary, policyArticle] = await Promise.all([
+  const [primary, policyArticle, discovered] = await Promise.all([
     loadExactOfficialDocument(number).catch(() => null),
     loadPolicyFullTextDocument(number).catch(() => null),
+    loadFromDiscoveredSources(number).catch(() => null),
   ]);
-  const candidates = [primary, policyArticle].filter((value): value is DocumentDetail => Boolean(value));
-  const bestImmediate = candidates.sort(
-    (left, right) => documentCompletenessScore(right) - documentCompletenessScore(left),
-  )[0];
-  const immediateArticles = bestImmediate?.provisions.filter((item) => item.type === "article").length ?? 0;
-  if (bestImmediate && immediateArticles >= 10) return bestImmediate;
-
-  const discovered = await loadFromDiscoveredSources(number);
-  return [bestImmediate, discovered]
+  const candidates = [primary, policyArticle, discovered]
     .filter((value): value is DocumentDetail => Boolean(value))
-    .sort((left, right) => documentCompletenessScore(right) - documentCompletenessScore(left))[0] ?? null;
+    .sort((left, right) => documentCompletenessScore(right) - documentCompletenessScore(left));
+  console.info("[exact-document-candidates]", JSON.stringify({
+    number,
+    candidates: candidates.map((document) => ({
+      sourceUrl: document.source_url,
+      method: document.extraction_method,
+      characters: document.official_text.length,
+      articles: articleCount(document),
+      chapters: chapterCount(document),
+      score: documentCompletenessScore(document),
+    })),
+  }));
+  return candidates[0] ?? null;
 }
 
 const loadSafeCached = unstable_cache(
   loadSafeUncached,
-  ["thue-ro-exact-official-document-safe-v4"],
+  ["thue-ro-exact-official-document-safe-v5"],
   { revalidate: CACHE_SECONDS, tags: ["official-legal-documents"] },
 );
 
