@@ -8,6 +8,7 @@ import {
 import {
   durableStoreConfigured,
   publishDurableRevision,
+  readDurableOcrPage,
   writeDurableIngestionState,
   writeDurableOcrPage,
   writeDurableSource,
@@ -32,6 +33,7 @@ export type LegalDocumentIngestionInput = {
   jobId: string;
   source: DurableLegalSource;
   persist?: boolean;
+  reuseExistingCheckpoints?: boolean;
 };
 
 export type LegalDocumentIngestionResult = {
@@ -102,13 +104,21 @@ export async function legalDocumentIngestionWorkflow(
     if (extracted.requiresOcr) {
       if (extracted.totalPages <= 0) throw new Error("PDF scan không xác định được tổng số trang.");
       for (const batch of pageBatches(extracted.totalPages, 3)) {
-        const completed = await ocrPagesStep(
-          input.source.number,
-          input.jobId,
-          extracted.sourceUrl,
-          batch,
-          persist,
-        );
+        let completed = persist && input.reuseExistingCheckpoints
+          ? await readOcrPagesStep(input.source.number, input.jobId, batch)
+          : [];
+        const completedNumbers = new Set(completed.map((page) => page.page));
+        const missingPages = batch.filter((page) => !completedNumbers.has(page));
+        if (missingPages.length) {
+          const newlyCompleted = await ocrPagesStep(
+            input.source.number,
+            input.jobId,
+            extracted.sourceUrl,
+            missingPages,
+            persist,
+          );
+          completed = [...completed, ...newlyCompleted].sort((left, right) => left.page - right.page);
+        }
         pages = [...pages, ...completed].sort((left, right) => left.page - right.page);
         if (persist) {
           await writeStateStep(state(input, {
@@ -265,6 +275,25 @@ async function extractSourceStep(
   }));
   const { sourceBuffer: _sourceBuffer, ...serializable } = extracted;
   return { ...serializable, sourceBlobUrl };
+}
+
+async function readOcrPagesStep(
+  number: string,
+  jobId: string,
+  requestedPages: number[],
+): Promise<DurableOcrPage[]> {
+  "use step";
+  const pages = (
+    await Promise.all(requestedPages.map((page) => readDurableOcrPage(number, jobId, page)))
+  ).filter((page): page is DurableOcrPage => Boolean(page?.text.trim()));
+  console.info("[legal-ingestion-ocr-checkpoints]", JSON.stringify({
+    number,
+    jobId,
+    requestedPages,
+    reusedPages: pages.map((page) => page.page),
+    missingPages: requestedPages.filter((requested) => !pages.some((page) => page.page === requested)),
+  }));
+  return pages;
 }
 
 async function ocrPagesStep(
