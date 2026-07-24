@@ -11,7 +11,14 @@ const GAZETTE_ORIGINS = [
   "https://api-searchcongbao.chinhphu.vn",
 ] as const;
 const RETRY_COOLDOWN_MS = 12 * 60 * 60 * 1_000;
-const ALLOWED_ROOT_DOMAINS = ["chinhphu.vn", "mof.gov.vn", "gdt.gov.vn", "moj.gov.vn", "vbpl.vn"];
+const ALLOWED_ROOT_DOMAINS = [
+  "chinhphu.vn",
+  "cdnchinhphu.vn",
+  "mof.gov.vn",
+  "gdt.gov.vn",
+  "moj.gov.vn",
+  "vbpl.vn",
+];
 
 type GazetteAttachment = {
   duong_dan?: string;
