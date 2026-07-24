@@ -13,6 +13,18 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
+const OCR_252_SOURCE = {
+  number: "252/2026/NĐ-CP",
+  title: "Nghị định số 252/2026/NĐ-CP quy định chi tiết một số điều và biện pháp để tổ chức, hướng dẫn thi hành Luật Quản lý thuế",
+  type: "Nghị định",
+  issuer: "Chính phủ",
+  issuedDate: "2026-06-30",
+  effectiveDate: "2026-07-01",
+  officialPageUrl: "https://xaydungchinhsach.chinhphu.vn/toan-van-nghi-dinh-252-2026-nd-cp-huong-dan-thi-hanh-luat-quan-ly-thue-119260715155021635.htm",
+  sourceUrl: "https://xdcs.cdnchinhphu.vn/446259493575335936/2026/7/15/252-ndcp-signed-17841052430171897600672.pdf",
+  sourceLabel: "Cổng Thông tin điện tử Chính phủ",
+};
+
 function toIso(value: Date | null | undefined) {
   return value ? value.toISOString() : null;
 }
@@ -64,15 +76,18 @@ export async function GET(request: Request) {
   const smokeCase = url.searchParams.get("case")?.trim() ?? "";
   const fullOcr94 = smokeCase === "full-ocr-94";
   const revalidateOcr94 = smokeCase === "revalidate-ocr-94";
-  const number = fullOcr94 || revalidateOcr94
-    ? "94/2026/TT-BTC"
-    : url.searchParams.get("number")?.trim().slice(0, 100) ?? "";
+  const fullOcr252 = smokeCase === "full-ocr-252";
+  const number = fullOcr252
+    ? OCR_252_SOURCE.number
+    : fullOcr94 || revalidateOcr94
+      ? "94/2026/TT-BTC"
+      : url.searchParams.get("number")?.trim().slice(0, 100) ?? "";
   const sourceUrl = url.searchParams.get("source_url")?.trim() ?? "";
   if (!number) {
     return NextResponse.json({ error: "Thiếu number." }, { status: 400 });
   }
 
-  const persist = fullOcr94 || revalidateOcr94 || url.searchParams.get("persist") === "1";
+  const persist = fullOcr94 || revalidateOcr94 || fullOcr252 || url.searchParams.get("persist") === "1";
   if (persist && !durableStoreConfigured()) {
     return NextResponse.json(
       { error: "Vercel Blob chưa được cấu hình cho Preview." },
@@ -80,19 +95,21 @@ export async function GET(request: Request) {
     );
   }
 
-  const customSource = sourceUrl
-    ? {
-        number,
-        title: url.searchParams.get("title")?.trim() || `Văn bản số ${number}`,
-        type: /\/TT-/iu.test(number) ? "Thông tư" : "Văn bản pháp luật",
-        issuer: /TT-BTC$/iu.test(number) ? "Bộ Tài chính" : "",
-        issuedDate: url.searchParams.get("issued_date")?.trim() || null,
-        effectiveDate: url.searchParams.get("effective_date")?.trim() || null,
-        officialPageUrl: url.searchParams.get("official_page_url")?.trim() || sourceUrl,
-        sourceUrl,
-        sourceLabel: "Nguồn smoke test được chỉ định trên Preview",
-      }
-    : null;
+  const customSource = fullOcr252
+    ? OCR_252_SOURCE
+    : sourceUrl
+      ? {
+          number,
+          title: url.searchParams.get("title")?.trim() || `Văn bản số ${number}`,
+          type: /\/TT-/iu.test(number) ? "Thông tư" : /\/NĐ-CP$/iu.test(number) ? "Nghị định" : "Văn bản pháp luật",
+          issuer: /TT-BTC$/iu.test(number) ? "Bộ Tài chính" : /NĐ-CP$/iu.test(number) ? "Chính phủ" : "",
+          issuedDate: url.searchParams.get("issued_date")?.trim() || null,
+          effectiveDate: url.searchParams.get("effective_date")?.trim() || null,
+          officialPageUrl: url.searchParams.get("official_page_url")?.trim() || sourceUrl,
+          sourceUrl,
+          sourceLabel: "Nguồn smoke test được chỉ định trên Preview",
+        }
+      : null;
   const discovered = customSource ? null : await discoverTaxDocumentByNumber(number).catch(() => null);
   const source = customSource ?? discovered;
   if (!source) {
