@@ -77,7 +77,8 @@ export async function GET(request: Request) {
   const fullOcr94 = smokeCase === "full-ocr-94";
   const revalidateOcr94 = smokeCase === "revalidate-ocr-94";
   const fullOcr252 = smokeCase === "full-ocr-252";
-  const number = fullOcr252
+  const revalidateOcr252 = smokeCase === "revalidate-ocr-252";
+  const number = fullOcr252 || revalidateOcr252
     ? OCR_252_SOURCE.number
     : fullOcr94 || revalidateOcr94
       ? "94/2026/TT-BTC"
@@ -87,7 +88,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Thiếu number." }, { status: 400 });
   }
 
-  const persist = fullOcr94 || revalidateOcr94 || fullOcr252 || url.searchParams.get("persist") === "1";
+  const persist = fullOcr94 || revalidateOcr94 || fullOcr252 || revalidateOcr252 || url.searchParams.get("persist") === "1";
   if (persist && !durableStoreConfigured()) {
     return NextResponse.json(
       { error: "Vercel Blob chưa được cấu hình cho Preview." },
@@ -95,7 +96,7 @@ export async function GET(request: Request) {
     );
   }
 
-  const customSource = fullOcr252
+  const customSource = fullOcr252 || revalidateOcr252
     ? OCR_252_SOURCE
     : sourceUrl
       ? {
@@ -118,11 +119,12 @@ export async function GET(request: Request) {
 
   let jobId: string = randomUUID();
   let reuseExistingCheckpoints = false;
-  if (revalidateOcr94) {
+  if (revalidateOcr94 || revalidateOcr252) {
     const existing = await readDurableIngestionState(number);
-    if (!existing?.runId || existing.totalPages !== 35 || existing.processedPages !== 35) {
+    const expectedPages = revalidateOcr252 ? 133 : 35;
+    if (!existing?.runId || existing.totalPages !== expectedPages || existing.processedPages !== expectedPages) {
       return NextResponse.json(
-        { error: "Chưa có đủ checkpoint 35/35 trang để revalidate Thông tư 94." },
+        { error: `Chưa có đủ checkpoint ${expectedPages}/${expectedPages} trang để revalidate ${number}.` },
         { status: 409 },
       );
     }
