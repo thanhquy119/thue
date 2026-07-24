@@ -99,7 +99,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: `Không tìm thấy nguồn chính xác ${number}.` }, { status: 404 });
   }
 
-  let jobId = randomUUID();
+  let jobId: string = randomUUID();
   let reuseExistingCheckpoints = false;
   if (revalidateOcr94) {
     const existing = await readDurableIngestionState(number);
