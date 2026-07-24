@@ -25,16 +25,10 @@ try {
   ]);
   assert.equal(state82?.status, "ready", "Blob phải lưu 82 ở trạng thái ready.");
   assert.equal(state94?.status, "ready", "Blob phải lưu 94 ở trạng thái ready.");
-  assert.deepEqual(cronIngestionDecision(state82), {
-    shouldStart: false,
-    reason: "ready",
-    ageHours: cronIngestionDecision(state82).ageHours,
-  });
-  assert.deepEqual(cronIngestionDecision(state94), {
-    shouldStart: false,
-    reason: "ready",
-    ageHours: cronIngestionDecision(state94).ageHours,
-  });
+  assert.equal(cronIngestionDecision(state82).shouldStart, false);
+  assert.equal(cronIngestionDecision(state82).reason, "ready");
+  assert.equal(cronIngestionDecision(state94).shouldStart, false);
+  assert.equal(cronIngestionDecision(state94).reason, "ready");
 
   const endpoint = "https://preview.thue-ro.local/api/cron/legal-ingestion?dry_run=1";
   const unauthorized = await cronApiGet(new Request(endpoint));
@@ -55,6 +49,7 @@ try {
     cleanup: { deletedObjects: number; deletedBytes: number; skipped?: string };
     usage_before_runs: { bytes: number; objects: number } | null;
     discovered: number;
+    run_limit: { requested: number; effective: number; hardCap: number; clamped: boolean };
     would_start: string[];
     started: Array<{ number: string; job_id: string; run_id: string }>;
     skipped: Array<{ number: string; reason: string }>;
@@ -67,6 +62,13 @@ try {
   assert.equal(payload.cleanup.skipped, "dry_run");
   assert.deepEqual(payload.started, [], "Dry-run tuyệt đối không được khởi động Workflow.");
   assert.ok(payload.discovered >= 1, "Cron discovery không tìm thấy văn bản nào.");
+  assert.ok(payload.run_limit.effective >= 1);
+  assert.ok(payload.run_limit.effective <= 2, "Cron free-tier không được vượt hai Workflow/lượt.");
+  assert.equal(payload.run_limit.hardCap, 2);
+  assert.ok(payload.would_start.length <= payload.run_limit.effective);
+  if (payload.run_limit.clamped) {
+    assert.match(payload.warnings.join(" "), /giới hạn 2 Workflow\/lượt/iu);
+  }
 
   const protectedNumbers = ["82/2026/TT-BTC", "94/2026/TT-BTC"];
   const skipped = new Map(payload.skipped.map((item) => [item.number, item.reason]));
@@ -88,6 +90,7 @@ try {
     },
     dryRun: payload.dry_run,
     discovered: payload.discovered,
+    runLimit: payload.run_limit,
     wouldStart: payload.would_start,
     skippedReady: payload.skipped.filter((item) => protectedNumbers.includes(item.number)),
     deferred: payload.deferred,
@@ -95,7 +98,7 @@ try {
     usageBeforeRuns: payload.usage_before_runs,
     warnings: payload.warnings,
   }));
-  console.log("[live-cron-route] authentication, discovery, ready-state idempotency and no-start dry-run passed");
+  console.log("[live-cron-route] authentication, discovery, free-tier cap, ready-state idempotency and no-start dry-run passed");
 } finally {
   if (previousSecret === undefined) delete process.env.CRON_SECRET;
   else process.env.CRON_SECRET = previousSecret;
