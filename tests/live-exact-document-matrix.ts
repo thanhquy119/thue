@@ -3,7 +3,7 @@ import { looksLikeGovernmentPortalShell } from "../lib/legal/document-quality.ts
 import {
   discoverExactOfficialSources,
   loadExactOfficialDocument,
-} from "../lib/legal/exact-official-document.ts";
+} from "../lib/legal/exact-official-document-resolver.ts";
 import { normalizeDocumentNumber } from "../lib/legal/durable-ingestion-types.ts";
 
 const COMMIT_MARKER = "[live-exact-documents]";
