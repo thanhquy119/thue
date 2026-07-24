@@ -12,6 +12,15 @@ test("recognizes exact lookup for Circular 90/2026/TT-BTC", () => {
   assert.match(document?.officialPage ?? "", /docid=218839/i);
 });
 
+test("recognizes natural lookup with number, named year and finance issuer", () => {
+  const document = findRecentDocumentForQuery("thông tư 90 năm 2026 bộ tài chính");
+  assert.equal(document?.number, "90/2026/TT-BTC");
+});
+
+test("does not guess a ministry circular when the issuer is missing", () => {
+  assert.equal(findRecentDocumentForQuery("thông tư 90 năm 2026"), null);
+});
+
 test("recognizes Circular 94 while avoiding unsafe full-document OCR", () => {
   const document = findRecentDocumentForQuery("Thông tư 94/2026/TT-BTC");
   assert.equal(document?.number, "94/2026/TT-BTC");

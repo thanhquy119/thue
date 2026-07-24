@@ -168,12 +168,13 @@ export function extractSearchHint(query: string): SearchHint {
   const compactIdentifier = normalized.match(/\b(?:nd|tt|nq|qd)\s*(\d{1,4})\s*[/-]\s*(20\d{2})\b/);
   const slashIdentifier = normalized.match(/\b(\d{1,4})\s*[/-]\s*(20\d{2})\b/);
   const directIdentifier = normalized.match(
-    /\b(?:nghi dinh|thong tu|nghi quyet|quyet dinh|luat|nd|tt|nq|qd)\s+(?:so\s+)?(\d{1,4})(?:\s+(20\d{2}))?\b/,
+    /\b(?:nghi dinh|thong tu|nghi quyet|quyet dinh|luat|nd|tt|nq|qd)\s+(?:so\s+)?(\d{1,4})(?:\s+(?:nam\s+)?(20\d{2}))?\b/,
   );
   const trailingIdentifier = trailingNamedIdentifier(normalized, type);
+  const namedYear = normalized.match(/\bnam\s+(20\d{2})\b/)?.[1] ?? null;
   const match = fullIdentifier ?? compactIdentifier ?? slashIdentifier ?? directIdentifier;
   const number = plausibleDocumentNumber(match?.[1]) ?? trailingIdentifier?.number ?? null;
-  const year = match?.[2] ?? trailingIdentifier?.year ?? null;
+  const year = match?.[2] ?? trailingIdentifier?.year ?? (number ? namedYear : null);
   const hasQuestionLanguage = QUESTION_PATTERNS.test(normalized);
   const wordCount = normalized.split(" ").filter(Boolean).length;
   const looksLikeDocumentLookup = Boolean(type && (number || (!hasQuestionLanguage && wordCount <= 18)));

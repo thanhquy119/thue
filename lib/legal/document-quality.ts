@@ -1,3 +1,4 @@
+import { prepareDocumentForPresentation } from "./document-presentation.ts";
 import type { SearchCandidate, TaxSearchResponse } from "./types.ts";
 
 function normalize(value: string) {
@@ -57,7 +58,10 @@ function candidateFromDocument(result: TaxSearchResponse): SearchCandidate | nul
 
 export function rejectPortalShellDocument(result: TaxSearchResponse): TaxSearchResponse {
   const document = result.document;
-  if (!document || !looksLikeGovernmentPortalShell(document.official_text)) return result;
+  if (!document) return result;
+  if (!looksLikeGovernmentPortalShell(document.official_text)) {
+    return { ...result, document: prepareDocumentForPresentation(document) };
+  }
 
   const candidate = candidateFromDocument(result);
   const candidates = candidate

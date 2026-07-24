@@ -5,7 +5,7 @@
   "engines": { "node": "22.x" },
   "scripts": {
     "dev": "next dev",
-    "build": "npm test && npm run smoke:live && npm run smoke:questions && npm run smoke:grounding && npm run smoke:persistent && npm run smoke:cron && next build",
+    "build": "npm test && npm run smoke:live && npm run smoke:questions && npm run smoke:grounding && npm run smoke:persistent && npm run smoke:cron && npm run smoke:presentation-search && next build",
     "start": "next start",
     "lint": "eslint . --ignore-pattern .next",
     "typecheck": "tsc --noEmit",
@@ -15,6 +15,7 @@
     "smoke:grounding": "tsx tests/live-search-grounding-smoke.ts",
     "smoke:persistent": "tsx tests/live-persistent-ingestion-smoke.ts",
     "smoke:cron": "tsx tests/live-cron-smoke.ts",
+    "smoke:presentation-search": "tsx tests/live-presentation-search-smoke.ts",
     "verify": "npm run lint && npm run typecheck && npm run build"
   },
   "dependencies": {

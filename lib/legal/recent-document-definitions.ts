@@ -1,3 +1,5 @@
+import { extractSearchHint, normalizeLegalQuery } from "./query.ts";
+
 export type RecentDocumentDownload = {
   url: string;
   fileName: string;
@@ -73,5 +75,19 @@ export function findRecentDocumentByNumber(number: string) {
 
 export function findRecentDocumentForQuery(query: string) {
   const normalized = normalize(query);
-  return DOCUMENTS.find((document) => normalized.includes(normalize(document.number))) ?? null;
+  const exact = DOCUMENTS.find((document) => normalized.includes(normalize(document.number)));
+  if (exact) return exact;
+
+  const hint = extractSearchHint(query);
+  const normalizedQuery = normalizeLegalQuery(query);
+  const financeCircular =
+    hint.type === "Thông tư" &&
+    Boolean(hint.number && hint.year) &&
+    /\b(?:bo tai chinh|btc|tt-btc)\b/.test(normalizedQuery);
+  if (!financeCircular) return null;
+
+  return DOCUMENTS.find((document) => {
+    const [number, year, suffix] = document.number.split("/");
+    return number === hint.number && year === hint.year && suffix === "TT-BTC";
+  }) ?? null;
 }
