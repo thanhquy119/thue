@@ -1,5 +1,6 @@
 import { unstable_cache } from "next/cache";
 import { hasUsableLegalDocumentText } from "./document-quality.ts";
+import { durableDocumentResponse } from "./durable-document-lookup.ts";
 import { extractFromFile, parseLegalHierarchy, slugifyDocument } from "./ingestion.ts";
 import {
   findRecentDocumentByNumber,
@@ -163,6 +164,9 @@ export async function loadRecentVerifiedDocument(number: string) {
 }
 
 export async function recentVerifiedDocumentResponse(query: string): Promise<TaxSearchResponse | null> {
+  const durable = await durableDocumentResponse(query);
+  if (durable) return durable;
+
   const definition = findRecentDocumentForQuery(query);
   if (!definition) return null;
 
