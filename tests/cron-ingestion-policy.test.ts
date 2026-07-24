@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cronIngestionDecision } from "../lib/legal/cron-ingestion-policy.ts";
+import {
+  cronIngestionDecision,
+  cronRunLimit,
+} from "../lib/legal/cron-ingestion-policy.ts";
 import type { DurableIngestionState } from "../lib/legal/durable-ingestion-types.ts";
 
 const NOW = Date.parse("2026-07-24T06:30:00.000Z");
@@ -24,6 +27,36 @@ function state(
     updatedAt,
   };
 }
+
+test("defaults Cron to one Workflow per daily run", () => {
+  assert.deepEqual(cronRunLimit(undefined), {
+    requested: 1,
+    effective: 1,
+    hardCap: 2,
+    clamped: false,
+  });
+});
+
+test("allows two Cron Workflows but no more on the free-tier policy", () => {
+  assert.deepEqual(cronRunLimit("2"), {
+    requested: 2,
+    effective: 2,
+    hardCap: 2,
+    clamped: false,
+  });
+  assert.deepEqual(cronRunLimit("8"), {
+    requested: 8,
+    effective: 2,
+    hardCap: 2,
+    clamped: true,
+  });
+});
+
+test("invalid Cron limits fall back to one instead of disabling ingestion", () => {
+  for (const value of ["0", "invalid", "-2"]) {
+    assert.equal(cronRunLimit(value).effective, 1, value);
+  }
+});
 
 test("starts documents that have no durable state", () => {
   assert.deepEqual(cronIngestionDecision(null, false, NOW), {
