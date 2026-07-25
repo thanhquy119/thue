@@ -24,9 +24,18 @@ function withEnvironment(values: Record<string, string | undefined>, run: () => 
   }
 }
 
+const WITHOUT_R2 = {
+  R2_ENDPOINT: undefined,
+  R2_BUCKET: undefined,
+  R2_ACCESS_KEY_ID: undefined,
+  R2_SECRET_ACCESS_KEY: undefined,
+  LEGAL_R2_SOFT_LIMIT_BYTES: undefined,
+} as const;
+
 test("uses conservative free-tier Blob defaults", () => {
   withEnvironment(
     {
+      ...WITHOUT_R2,
       LEGAL_BLOB_ACCESS: undefined,
       LEGAL_BLOB_SOFT_LIMIT_BYTES: undefined,
       LEGAL_RUN_RETENTION_DAYS: undefined,
@@ -42,6 +51,7 @@ test("uses conservative free-tier Blob defaults", () => {
 test("accepts private Blob and explicit retention limits", () => {
   withEnvironment(
     {
+      ...WITHOUT_R2,
       LEGAL_BLOB_ACCESS: "private",
       LEGAL_BLOB_SOFT_LIMIT_BYTES: "700000000",
       LEGAL_RUN_RETENTION_DAYS: "14",
@@ -54,9 +64,10 @@ test("accepts private Blob and explicit retention limits", () => {
   );
 });
 
-test("rejects invalid policy values and returns safe defaults", () => {
+test("rejects invalid Blob policy values and returns safe defaults", () => {
   withEnvironment(
     {
+      ...WITHOUT_R2,
       LEGAL_BLOB_SOFT_LIMIT_BYTES: "not-a-number",
       LEGAL_RUN_RETENTION_DAYS: "0",
     },
@@ -64,5 +75,18 @@ test("rejects invalid policy values and returns safe defaults", () => {
       assert.equal(durableStoreSoftLimitBytes(), 750_000_000);
       assert.equal(durableRunRetentionDays(), 30);
     },
+  );
+});
+
+test("uses a five-gigabyte R2 soft limit when R2 is configured", () => {
+  withEnvironment(
+    {
+      R2_ENDPOINT: "https://example.r2.cloudflarestorage.com",
+      R2_BUCKET: "private-bucket",
+      R2_ACCESS_KEY_ID: "access-key",
+      R2_SECRET_ACCESS_KEY: "secret-key",
+      LEGAL_R2_SOFT_LIMIT_BYTES: undefined,
+    },
+    () => assert.equal(durableStoreSoftLimitBytes(), 5_000_000_000),
   );
 });
