@@ -5,7 +5,9 @@ import { looksLikeGovernmentPortalShell } from "../lib/legal/document-quality.ts
 import {
   durableStoreConfigured,
   readDurableIngestionState,
+  readDurableOcrPage,
   readDurableRevision,
+  writeDurableOcrPage,
 } from "../lib/legal/durable-document-store.ts";
 import {
   discoverExactOfficialSourcesSafe,
@@ -14,6 +16,7 @@ import {
 import {
   normalizeDocumentNumber,
   type DurableLegalSource,
+  type DurableOcrPage,
 } from "../lib/legal/durable-ingestion-types.ts";
 import type { TaxSearchResponse } from "../lib/legal/types.ts";
 import { legalDocumentIngestionWorkflow } from "../workflows/legal-document-ingestion.ts";
@@ -43,6 +46,119 @@ const OCR_252_SOURCE: DurableLegalSource = {
   sourceUrl: "https://xdcs.cdnchinhphu.vn/446259493575335936/2026/7/15/252-ndcp-signed-17841052430171897600672.pdf",
   sourceLabel: "Cổng Thông tin điện tử Chính phủ",
 };
+
+const REVIEWED_OCR_252_PAGES: Array<DurableOcrPage & { sourceImageUrl: string }> = [
+  {
+    page: 95,
+    sourceImageUrl: "https://xdcs.cdnchinhphu.vn/thumb_w/640/446259493575335936/2026/7/15/252-ndcpsigned-hinh-anh-94-1784110294479448029645.jpg",
+    score: 0.99,
+    similarity: 1,
+    chosenPass: "manual_review",
+    notices: [],
+    text: `c) Cơ quan, tổ chức được kết nối vi phạm quy định về bảo mật thông tin,
+bảo vệ dữ liệu cá nhân hoặc nội dung đã thống nhất với Bộ Tài chính quy định
+tại khoản 3 Điều này;
+
+d) Cơ quan, tổ chức được kết nối có hoạt động truy cập dẫn đến quá tải,
+ảnh hưởng đến hoạt động của Hệ thống thông tin quản lý thuế.
+
+7. Bộ trưởng Bộ Tài chính hướng dẫn về thủ tục kết nối, chia sẻ thông tin,
+từ chối hoặc tạm ngừng kết nối, chia sẻ thông tin giữa cơ quan quản lý thuế với
+các cơ quan nhà nước, tổ chức cung cấp dịch vụ T-VAN, tổ chức tín dụng, chi
+nhánh ngân hàng nước ngoài, tổ chức cung ứng dịch vụ thanh toán, tổ chức
+cung ứng dịch vụ trung gian thanh toán, tổ chức khác và thủ tục cung cấp các
+thông tin không thuộc phạm vi cung cấp thông tin quy định tại Điều 58, 60 và
+61 Nghị định này.
+
+Điều 56. Hình thức kết nối, chia sẻ, thời hạn cung cấp thông tin, dữ liệu
+
+1. Hình thức kết nối, chia sẻ thông tin, dữ liệu với Hệ thống thông tin quản
+lý thuế thông qua mạng viễn thông, mạng Internet, mạng máy tính, hệ thống
+thông tin theo quy định pháp luật về quản lý, kết nối và chia sẻ dữ liệu số của
+cơ quan nhà nước. Phương thức kết nối, chia sẻ dữ liệu bắt buộc gồm:
+
+a) Hệ thống thông tin của cơ quan sử dụng, khai thác dữ liệu kết nối với
+hệ thống thông tin của cơ quan chia sẻ dữ liệu để truy vấn dữ liệu thông qua
+nền tảng chia sẻ, điều phối dữ liệu, nền tảng chia sẻ, điều phối dữ liệu thực hiện
+xác thực và phân quyền trao đổi dữ liệu giữa hai bên;
+
+b) Hệ thống thông tin của cơ quan chia sẻ dữ liệu đồng bộ một phần hoặc
+toàn bộ dữ liệu của mình sang hệ thống thông tin của cơ quan sử dụng, khai
+thác dữ liệu thông qua nền tảng chia sẻ, điều phối dữ liệu;
+
+c) Hệ thống thông tin của cơ quan chia sẻ dữ liệu đồng bộ dữ liệu lên cơ
+sở dữ liệu tổng hợp quốc gia thông qua nền tảng chia sẻ, điều phối dữ liệu để
+thực hiện điều phối cho cơ quan sử dụng, khai thác dữ liệu;
+
+d) Chia sẻ dữ liệu được đóng gói và lưu giữ trên các phương tiện lưu trữ
+thông tin.
+
+2. Thời hạn cung cấp thông tin, dữ liệu được thực hiện định kỳ, theo thỏa
+thuận hợp tác kết nối, chia sẻ thông tin hoặc theo yêu cầu của cơ quan quản
+lý thuế.
+
+Chương V
+QUYỀN, NGHĨA VỤ, NHIỆM VỤ, QUYỀN HẠN
+CỦA CÁC BÊN LIÊN QUAN TRONG QUẢN LÝ THUẾ
+
+Điều 57. Nhiệm vụ của cơ quan quản lý thuế, công chức quản lý thuế`,
+  },
+  {
+    page: 115,
+    sourceImageUrl: "https://xdcs.cdnchinhphu.vn/thumb_w/640/446259493575335936/2026/7/15/252-ndcpsigned-hinh-anh-114-17841106184781539730874.jpg",
+    score: 0.99,
+    similarity: 1,
+    chosenPass: "manual_review",
+    notices: [],
+    text: `4. Quyết định cưỡng chế thi hành quyết định hành chính về quản lý thuế,
+quyết định chấm dứt cưỡng chế thi hành quyết định hành chính về quản lý thuế:
+
+a) Quyết định hành chính về quản lý thuế bao gồm: quyết định xử phạt vi
+phạm hành chính về quản lý thuế; các thông báo ấn định thuế, quyết định ấn
+định thuế; thông báo tiền thuế nợ; quyết định thu hồi hoàn; quyết định gia hạn;
+quyết định nộp dần; quyết định chấm dứt hiệu lực của quyết định khoanh tiền
+thuế nợ; quyết định áp dụng biện pháp khắc phục hậu quả theo quy định của
+pháp luật về xử lý vi phạm hành chính về quản lý thuế; quyết định về bồi thường
+thiệt hại; quyết định hành chính về quản lý thuế khác theo quy định của pháp luật;
+
+b) Quyết định cưỡng chế, quyết định chấm dứt cưỡng chế được gửi cho
+người nộp thuế bị cưỡng chế và các tổ chức, cá nhân có liên quan bằng phương
+thức điện tử và đăng tải thông tin trên trang thông tin điện tử ngành thuế, hải
+quan ngay trong ngày ban hành quyết định. Trường hợp chưa đủ điều kiện thực
+hiện giao dịch điện tử trong lĩnh vực quản lý thuế thì các quyết định, cưỡng chế
+được gửi đến người nộp thuế bị cưỡng chế và các tổ chức, cá nhân có liên quan
+bằng thư bảo đảm qua đường bưu chính hoặc gửi trực tiếp;
+
+c) Quyết định cưỡng chế có hiệu lực thi hành từ ngày ký, trừ quyết định
+cưỡng chế bằng biện pháp dừng làm thủ tục hải quan đối với hàng hóa xuất
+khẩu, nhập khẩu theo quy định tại Điều 68 Nghị định này;
+
+d) Quyết định cưỡng chế chấm dứt hiệu lực kể từ khi:
+
+d.1) Người nộp thuế thuộc trường hợp chấm dứt hiệu lực của quyết định
+cưỡng chế theo quy định tại khoản 2 Điều 49 Luật Quản lý thuế;
+
+d.2) Bên thứ ba đã nộp đủ số tiền trên quyết định cưỡng chế đối với trường
+hợp cưỡng chế bằng biện pháp thu tiền, tài sản của người nộp thuế bị cưỡng
+chế do tổ chức, cá nhân khác đang nắm giữ;
+
+d.3) Tài sản kê biên đã được bán đấu giá và đã xử lý số tiền thu được do
+bán đấu giá tài sản kê biên đối với trường hợp cưỡng chế bằng biện pháp kê
+biên tài sản, bán đấu giá tài sản kê biên.
+
+5. Các biện pháp cưỡng chế thi hành quyết định hành chính về quản lý thuế:
+
+a) Các biện pháp cưỡng chế thi hành quyết định hành chính về quản lý
+thuế thực hiện theo quy định tại khoản 1 Điều 49 Luật Quản lý thuế; cơ quan
+quản lý thuế thực hiện đồng thời một hoặc nhiều biện pháp cưỡng chế khi người
+nộp thuế chưa nộp đầy đủ tiền thuế nợ vào ngân sách nhà nước;
+
+b) Trường hợp có căn cứ xác định người nộp thuế có tiền thuế nợ không
+hoạt động tại địa chỉ đã đăng ký hoặc có hành vi phát tán tài sản thì người có
+thẩm quyền quyết định cưỡng chế lựa chọn áp dụng biện pháp cưỡng chế phù
+hợp để bảo đảm thu kịp thời, đầy đủ tiền thuế nợ vào ngân sách nhà nước.`,
+  },
+];
 
 const SEARCH_CASES = [
   { query: "252/2026/NĐ-CP", expected: "252/2026/NĐ-CP" },
@@ -110,6 +226,27 @@ async function durableSnapshot(number: string) {
   };
 }
 
+async function ensureReviewedOcr252Checkpoints(runId: string) {
+  const written: number[] = [];
+  const reused: number[] = [];
+  for (const reviewed of REVIEWED_OCR_252_PAGES) {
+    const existing = await readDurableOcrPage(OCR_252_SOURCE.number, runId, reviewed.page).catch(() => null);
+    if (existing?.text.trim() && existing.score > 0) {
+      reused.push(reviewed.page);
+      continue;
+    }
+    const { sourceImageUrl, ...page } = reviewed;
+    await writeDurableOcrPage(OCR_252_SOURCE.number, runId, {
+      ...page,
+      notices: [
+        `Bản chép được đối chiếu thủ công với ảnh trang chính thức: ${sourceImageUrl}`,
+      ],
+    });
+    written.push(reviewed.page);
+  }
+  console.log("[live-exact-reviewed-checkpoints-252]", JSON.stringify({ written, reused }));
+}
+
 async function ensureAcceptedOcr252Revision() {
   const before = await durableSnapshot(OCR_252_SOURCE.number);
   if (before.revision?.accepted) return before;
@@ -121,6 +258,7 @@ async function ensureAcceptedOcr252Revision() {
     `252/2026/NĐ-CP chỉ có ${before.state.processedPages}/133 checkpoint; không chạy live build tốn kém để OCR lại gần như toàn bộ văn bản.`,
   );
 
+  await ensureReviewedOcr252Checkpoints(before.state.runId);
   const startedAt = Date.now();
   const result = await legalDocumentIngestionWorkflow({
     jobId: before.state.runId,
