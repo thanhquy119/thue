@@ -14,9 +14,9 @@ import {
 } from "@/lib/legal/durable-document-store";
 import { discoverRecentTaxDocuments } from "@/lib/legal/recent-tax-discovery";
 import type { DurableLegalSource } from "@/lib/legal/durable-ingestion-types";
-import { classifyTaxDocumentForNotification } from "@/lib/notifications/push-core";
 import { dispatchPublishedDocumentNotifications } from "@/lib/notifications/push-service";
 import { cleanupExpiredPushReceipts } from "@/lib/notifications/push-store";
+import { classifyStrictTaxDocumentForNotification } from "@/lib/notifications/tax-notification-policy";
 import { legalDocumentIngestionWorkflow } from "@/workflows/legal-document-ingestion";
 
 export const runtime = "nodejs";
@@ -92,7 +92,7 @@ export async function GET(request: Request) {
         issuer: revision.document.issuer,
         officialText: revision.document.official_text,
       };
-      const taxScope = classifyTaxDocumentForNotification(notification);
+      const taxScope = classifyStrictTaxDocumentForNotification(notification);
       if (!taxScope.eligible) {
         notificationDispatches.push({
           number: revision.document.number,
