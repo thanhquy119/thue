@@ -6,6 +6,8 @@ import {
   readDurableIngestionState,
   verifyDurableStore,
 } from "@/lib/legal/durable-document-store";
+import { readVapidConfig } from "@/lib/notifications/push-store";
+import { storageBackend } from "@/lib/storage/r2-blob-compat";
 import { discoverTaxDocumentByNumber } from "@/lib/legal/recent-tax-discovery";
 import { legalDocumentIngestionWorkflow } from "@/workflows/legal-document-ingestion";
 
@@ -73,6 +75,20 @@ export async function GET(request: Request) {
     });
   }
 
+  if (url.searchParams.get("check") === "push-store") {
+    const config = await readVapidConfig().catch(() => null);
+    return NextResponse.json({
+      ok: Boolean(config?.publicKey && config?.privateKey),
+      backend: storageBackend(),
+      public_key_present: Boolean(config?.publicKey),
+      private_key_present: Boolean(config?.privateKey),
+      subject_present: Boolean(config?.subject),
+    }, {
+      status: config?.publicKey && config?.privateKey ? 200 : 503,
+      headers: { "cache-control": "no-store", "x-robots-tag": "noindex" },
+    });
+  }
+
   const smokeCase = url.searchParams.get("case")?.trim() ?? "";
   const fullOcr94 = smokeCase === "full-ocr-94";
   const revalidateOcr94 = smokeCase === "revalidate-ocr-94";
@@ -91,7 +107,7 @@ export async function GET(request: Request) {
   const persist = fullOcr94 || revalidateOcr94 || fullOcr252 || revalidateOcr252 || url.searchParams.get("persist") === "1";
   if (persist && !durableStoreConfigured()) {
     return NextResponse.json(
-      { error: "Vercel Blob chưa được cấu hình cho Preview." },
+      { error: "Kho lưu trữ bền vững chưa được cấu hình cho Preview." },
       { status: 503 },
     );
   }
