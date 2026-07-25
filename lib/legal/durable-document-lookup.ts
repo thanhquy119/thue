@@ -1,3 +1,4 @@
+import { prepareDocumentForPresentation } from "./document-presentation.ts";
 import {
   durableStoreConfigured,
   readDurableIngestionState,
@@ -8,6 +9,11 @@ import {
   responseFromDurableRecord,
 } from "./durable-document-lookup-core.ts";
 
+function prepareDurableResponse(response: ReturnType<typeof responseFromDurableRecord>) {
+  if (!response?.document) return response;
+  return { ...response, document: prepareDocumentForPresentation(response.document) };
+}
+
 export async function durableDocumentResponse(query: string) {
   if (!durableStoreConfigured()) return null;
   const number = extractExactLegalNumber(query);
@@ -15,9 +21,9 @@ export async function durableDocumentResponse(query: string) {
 
   const revision = await readDurableRevision(number).catch(() => null);
   if (revision?.validation.accepted) {
-    return responseFromDurableRecord(query, number, null, revision);
+    return prepareDurableResponse(responseFromDurableRecord(query, number, null, revision));
   }
 
   const state = await readDurableIngestionState(number).catch(() => null);
-  return responseFromDurableRecord(query, number, state, revision);
+  return prepareDurableResponse(responseFromDurableRecord(query, number, state, revision));
 }
