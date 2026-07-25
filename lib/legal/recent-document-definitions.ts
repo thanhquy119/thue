@@ -23,6 +23,23 @@ export type RecentDocumentDefinition = {
 
 const DOCUMENTS: RecentDocumentDefinition[] = [
   {
+    number: "108/2025/QH15",
+    title: "Luật Quản lý thuế",
+    issuedDate: "2025-12-10",
+    effectiveDate: "2026-07-01",
+    officialPage: "https://congbao.chinhphu.vn/van-ban/luat-so-108-2025-qh15-468670/61635.htm",
+    minimumTextLength: 10_000,
+    downloads: [
+      {
+        url: "https://g7.cdnchinhphu.vn/api/download/stream?Url=tm-8mq6BhNw0NbrKRhTDAaHMpvrqWaeHuYm7lW3HNfzTzww8Myg35dDL_fJB4izw4hPXncfHJQbhdCGlxb8TQvmvpGInXk1XW_EQtJ6G5fzHZ4Ju3kkVHLOdmjON8vyu&file_name=2026_38_108%2F2025%2FQH15.docx",
+        fileName: "2026_38_108_2025_QH15.docx",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        referer: "https://congbao.chinhphu.vn/van-ban/luat-so-108-2025-qh15-468670/61635.htm",
+        label: "Bản DOCX chính thức từ Công báo điện tử Chính phủ",
+      },
+    ],
+  },
+  {
     number: "90/2026/TT-BTC",
     title: "Quy định về đăng ký thuế",
     issuedDate: "2026-06-30",
