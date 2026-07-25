@@ -41,8 +41,9 @@ export async function readNotificationHistory(): Promise<NotificationHistoryItem
   const database = await openDatabase();
   try {
     const readTransaction = database.transaction(STORE_NAME, "readonly");
+    const readCompleted = transactionComplete(readTransaction);
     const values = await requestResult(readTransaction.objectStore(STORE_NAME).getAll());
-    await transactionComplete(readTransaction);
+    await readCompleted;
 
     const retained = pruneNotificationHistory(values);
     const retainedIds = new Set(retained.map((item) => item.id));
@@ -53,9 +54,10 @@ export async function readNotificationHistory(): Promise<NotificationHistoryItem
 
     if (expiredIds.length) {
       const cleanupTransaction = database.transaction(STORE_NAME, "readwrite");
+      const cleanupCompleted = transactionComplete(cleanupTransaction);
       const store = cleanupTransaction.objectStore(STORE_NAME);
       for (const id of expiredIds) store.delete(id);
-      await transactionComplete(cleanupTransaction);
+      await cleanupCompleted;
     }
     return retained;
   } finally {
@@ -68,8 +70,9 @@ export async function clearNotificationHistory() {
   const database = await openDatabase();
   try {
     const transaction = database.transaction(STORE_NAME, "readwrite");
+    const completed = transactionComplete(transaction);
     transaction.objectStore(STORE_NAME).clear();
-    await transactionComplete(transaction);
+    await completed;
   } finally {
     database.close();
   }
