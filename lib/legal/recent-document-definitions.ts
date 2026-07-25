@@ -37,6 +37,15 @@ const DOCUMENTS: RecentDocumentDefinition[] = [
         referer: "https://congbao.chinhphu.vn/van-ban/luat-so-108-2025-qh15-468670/61635.htm",
         label: "Bản DOCX chính thức từ Công báo điện tử Chính phủ",
       },
+      {
+        url: "https://ketoannavi.vn/van_ban/luat-so-108-2025-qh15-luat-quan-ly-thue/",
+        fileName: "Luat so 108_2025_QH15.html",
+        mimeType: "text/html",
+        referer: "https://ketoannavi.vn/",
+        label: "Bản HTML toàn văn công bố lại đã đối chiếu với bản scan chính thức",
+        textStartMarker: "QUỐC HỘI",
+        textEndMarker: "Xem thêm: Bài viết mới tại:",
+      },
     ],
   },
   {
