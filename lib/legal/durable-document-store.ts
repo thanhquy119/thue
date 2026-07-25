@@ -1,4 +1,13 @@
-import { del, get, list, put, type PutBlobResult } from "@vercel/blob";
+import {
+  del,
+  get,
+  list,
+  put,
+  r2Configured,
+  storageBackend,
+  storageConfigured,
+  type PutBlobResult,
+} from "../storage/r2-blob-compat.ts";
 import type { DocumentDetail } from "./types.ts";
 import {
   documentStorageKey,
@@ -44,7 +53,7 @@ function sleep(milliseconds: number) {
 }
 
 export function durableStoreConfigured() {
-  return Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
+  return storageConfigured();
 }
 
 export function durableStoreAccess() {
@@ -52,7 +61,9 @@ export function durableStoreAccess() {
 }
 
 export function durableStoreSoftLimitBytes() {
-  return positiveNumber(process.env.LEGAL_BLOB_SOFT_LIMIT_BYTES, 750_000_000);
+  return r2Configured()
+    ? positiveNumber(process.env.LEGAL_R2_SOFT_LIMIT_BYTES, 5_000_000_000)
+    : positiveNumber(process.env.LEGAL_BLOB_SOFT_LIMIT_BYTES, 750_000_000);
 }
 
 export function durableRunRetentionDays() {
@@ -78,7 +89,7 @@ async function readJson<T>(pathname: string, consistent = false): Promise<T | nu
 
 async function writeJson(pathname: string, value: unknown, mutable: boolean) {
   if (!durableStoreConfigured()) {
-    throw new Error("Chưa có BLOB_READ_WRITE_TOKEN cho kho nhập văn bản bền vững.");
+    throw new Error("Chưa cấu hình R2 hoặc Vercel Blob cho kho nhập văn bản bền vững.");
   }
   return put(pathname, JSON.stringify(value), {
     access: blobAccess(),
@@ -145,7 +156,7 @@ export async function ensureDurableStoreCapacity(incomingBytes = 0) {
   usage = await readDurableStoreUsage();
   if (usage.bytes + incomingBytes > softLimitBytes) {
     throw new Error(
-      `Kho Blob đã chạm ngưỡng an toàn ${softLimitBytes} byte; tạm dừng nhập mới để giữ dự án trong hạn mức miễn phí.`,
+      `Kho ${storageBackend()} đã chạm ngưỡng an toàn ${softLimitBytes} byte; tạm dừng nhập mới để tránh phát sinh chi phí.`,
     );
   }
   return { usage, softLimitBytes, cleaned };
@@ -157,7 +168,8 @@ export async function verifyDurableStore() {
       ok: false,
       configured: false,
       access: blobAccess(),
-      error: "BLOB_READ_WRITE_TOKEN chưa được cấu hình.",
+      backend: storageBackend(),
+      error: "R2 và BLOB_READ_WRITE_TOKEN đều chưa được cấu hình.",
     };
   }
   const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -179,6 +191,7 @@ export async function verifyDurableStore() {
       ok: value?.nonce === nonce,
       configured: true,
       access: blobAccess(),
+      backend: storageBackend(),
       softLimitBytes: durableStoreSoftLimitBytes(),
       retentionDays: durableRunRetentionDays(),
       attempts,
@@ -189,8 +202,9 @@ export async function verifyDurableStore() {
       ok: false,
       configured: true,
       access: blobAccess(),
+      backend: storageBackend(),
       attempts,
-      error: error instanceof Error ? error.message : "Kiểm tra Blob thất bại.",
+      error: error instanceof Error ? error.message : "Kiểm tra kho lưu trữ thất bại.",
     };
   } finally {
     await del(pathname).catch(() => undefined);
@@ -242,7 +256,7 @@ export async function writeDurableSource(
   contentType: string,
 ): Promise<PutBlobResult> {
   if (!durableStoreConfigured()) {
-    throw new Error("Chưa có BLOB_READ_WRITE_TOKEN cho kho nhập văn bản bền vững.");
+    throw new Error("Chưa cấu hình R2 hoặc Vercel Blob cho kho nhập văn bản bền vững.");
   }
   const safeExtension = extension.replace(/[^a-z0-9]/giu, "").toLocaleLowerCase("en") || "bin";
   const payload = Buffer.isBuffer(body) ? body : Buffer.from(body);
