@@ -4,7 +4,7 @@ import type { DocumentDetail, ProvisionDetail } from "./types.ts";
 const ARTICLE_PATTERN = /^\s*Điều\s+(\d+[a-zA-Z]?)\s*[.:]?\s*([^\n]*)$/gimu;
 
 const SIGNATURE_BOUNDARIES = [
-  /(\.\s*\/.\s*)(?=(?:(?:KT|TM|TL|TUQ)\.\s*)?(?:BỘ TRƯỞNG|THỦ TƯỚNG(?: CHÍNH PHỦ)?|CHỦ TỊCH|PHÓ CHỦ TỊCH|TỔNG CỤC TRƯỞNG|CỤC TRƯỞNG|TỔNG KIỂM TOÁN NHÀ NƯỚC|CHÁNH ÁN|VIỆN TRƯỞNG)\b)/imu,
+  /(\.\s*\/\.\s*)(?=(?:(?:KT|TM|TL|TUQ)\.\s*)?(?:BỘ TRƯỞNG|THỦ TƯỚNG(?: CHÍNH PHỦ)?|CHỦ TỊCH|PHÓ CHỦ TỊCH|TỔNG CỤC TRƯỞNG|CỤC TRƯỞNG|TỔNG KIỂM TOÁN NHÀ NƯỚC|CHÁNH ÁN|VIỆN TRƯỞNG)\b)/imu,
   /(^|\n)(?=(?:KT|TM|TL|TUQ)\.\s*(?:BỘ TRƯỞNG|THỦ TƯỚNG(?: CHÍNH PHỦ)?|CHỦ TỊCH|PHÓ CHỦ TỊCH|TỔNG CỤC TRƯỞNG|CỤC TRƯỞNG|TỔNG KIỂM TOÁN NHÀ NƯỚC|CHÁNH ÁN|VIỆN TRƯỞNG)\b)/imu,
   /(^|\n)(?=Nơi\s+nhận\s*:)/imu,
 ];
