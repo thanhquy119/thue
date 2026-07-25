@@ -39,6 +39,26 @@ const DOCUMENTS: RecentDocumentDefinition[] = [
     ],
   },
   {
+    number: "91/2026/TT-BTC",
+    title:
+      "Quy định một số điều của Luật Quản lý thuế và Nghị định số 254/2026/NĐ-CP về hóa đơn điện tử, chứng từ điện tử",
+    issuedDate: "2026-06-30",
+    effectiveDate: "2026-07-01",
+    officialPage:
+      "https://xaydungchinhsach.chinhphu.vn/nhung-diem-moi-cua-nghi-dinh-254-2026-nd-cp-va-thong-tu-91-2026-tt-btc-ve-hoa-don-dien-tu-chung-tu-dien-tu-119260717143502375.htm",
+    minimumTextLength: 5_000,
+    downloads: [
+      {
+        url: "https://baocaotaichinh.vn/tintuc/download?file=1670286540thong-tu-so-91_2026_tt-btc.pdf",
+        fileName: "Thong tu so 91_2026_TT-BTC.pdf",
+        mimeType: "application/pdf",
+        referer:
+          "https://baocaotaichinh.vn/thu-vien/thong-tu-so-91-2026-ttbtc-cua-bo-tai-chinh-quy-dinh-mot-so-dieu-cua-luat-quan-ly-thue-va-nghi-dinh-254-2026-ndcp-cua-chinh-phu-quy-dinh-chi-tiet-mot-so-dieu-va-bien-phap-de-to-chuc-huong-dan-thi-hanh-luat-quan-ly-thue-so-108-2025-qh15-ve-hoa-don-dien-tu-chung-tu-dien-tu-1647512103-313179",
+        label: "Bản PDF công bố lại đã đối chiếu với nguồn Chính phủ",
+      },
+    ],
+  },
+  {
     number: "94/2026/TT-BTC",
     title: "Quy định về quản lý tuân thủ, quản lý rủi ro trong quản lý thuế",
     issuedDate: "2026-07-01",
