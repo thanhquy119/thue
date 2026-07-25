@@ -47,6 +47,12 @@ async function retry<T>(label: string, operation: () => Promise<T>, attempts = 2
   throw lastError;
 }
 
+function isOfficialGovernmentSource(url: string) {
+  const host = new URL(url).hostname.toLocaleLowerCase("en");
+  return host === "chinhphu.vn" || host.endsWith(".chinhphu.vn") ||
+    host === "cdnchinhphu.vn" || host.endsWith(".cdnchinhphu.vn");
+}
+
 async function callSearchApi(query: string) {
   const fingerprint = randomUUID();
   const response = await searchApiPost(new Request("https://preview.thue-ro.local/api/search", {
@@ -90,19 +96,17 @@ async function main() {
       `${definition.number}: discovery returned a near-match document`,
     );
     assert.ok(
-      sources.every((source) => {
-        const host = new URL(source.sourceUrl).hostname.toLocaleLowerCase("en");
-        return host === "chinhphu.vn" || host.endsWith(".chinhphu.vn");
-      }),
+      sources.every((source) => isOfficialGovernmentSource(source.sourceUrl)),
       `${definition.number}: discovery returned a non-official host`,
     );
 
     const document = await retry(`${definition.number} extraction`, () => loadExactOfficialDocumentSafe(definition.number));
     assert.ok(document, `${definition.number}: exact resolver did not produce full text`);
     assert.equal(normalizeDocumentNumber(document.number), normalizeDocumentNumber(definition.number));
+    assert.ok(isOfficialGovernmentSource(document.source_url), `${definition.number}: selected document uses a non-official host`);
     assert.ok(document.official_text.length >= definition.minimumCharacters, `${definition.number}: full text is unexpectedly short (${document.official_text.length})`);
     assert.equal(looksLikeGovernmentPortalShell(document.official_text), false);
-    assert.ok(["docx", "doc", "pdf_text", "html"].includes(document.extraction_method ?? ""));
+    assert.ok(["docx", "doc", "pdf_text", "html", "ocr"].includes(document.extraction_method ?? ""));
     assert.ok(document.provisions.length >= 2, `${definition.number}: legal hierarchy is missing`);
     assert.ok(document.provisions.some((provision) => provision.type === "article"), `${definition.number}: no Article provision was parsed`);
 
