@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  NOTIFICATION_HISTORY_RETENTION_DAYS,
+  pruneNotificationHistory,
+  type NotificationHistoryItem,
+} from "../lib/notifications/history-core.ts";
+import {
   expiredPushSubscriptionError,
   normalizePushSubscription,
   publishedDocumentPayload,
@@ -29,6 +34,18 @@ function revision(patch: Partial<PublishedDocumentNotification> = {}): Published
     publishedAt: "2026-07-24T08:00:00.000Z",
     accepted: true,
     ...patch,
+  };
+}
+
+function historyItem(id: string, receivedAt: number): NotificationHistoryItem {
+  return {
+    id,
+    title: "Văn bản mới đã sẵn sàng",
+    body: "254/2026/NĐ-CP",
+    url: "/?document=254%2F2026%2FN%C4%90-CP",
+    number: "254/2026/NĐ-CP",
+    revisionId: id,
+    receivedAt,
   };
 }
 
@@ -87,10 +104,39 @@ test("recognizes expired push endpoints for automatic cleanup", () => {
   assert.equal(expiredPushSubscriptionError(new Error("network")), false);
 });
 
-test("service worker receives pushes and opens the selected document", () => {
+test("keeps notification history for seven days and sorts newest first", () => {
+  const now = Date.parse("2026-07-25T12:00:00.000Z");
+  const day = 24 * 60 * 60 * 1_000;
+  const retained = pruneNotificationHistory([
+    historyItem("six-days", now - 6 * day),
+    historyItem("one-day", now - day),
+    historyItem("eight-days", now - 8 * day),
+    { id: "invalid" },
+  ], now);
+  assert.equal(NOTIFICATION_HISTORY_RETENTION_DAYS, 7);
+  assert.deepEqual(retained.map((item) => item.id), ["one-day", "six-days"]);
+});
+
+test("notification UI uses a bell, first-use prompt and history without removed copy", () => {
+  const source = readFileSync(new URL("../app/notification-settings.tsx", import.meta.url), "utf8");
+  assert.match(source, /<svg viewBox="0 0 24 24"/u);
+  assert.match(source, /Bật thông báo\?/u);
+  assert.match(source, /Lịch sử thông báo/u);
+  assert.match(source, /Tự xóa sau 7 ngày/u);
+  assert.doesNotMatch(source, />\s*Thông báo\{state/u);
+  assert.doesNotMatch(source, /Nhận thông báo văn bản mới/u);
+  assert.doesNotMatch(source, /Chỉ thông báo khi toàn văn từ nguồn chính thức/u);
+  assert.doesNotMatch(source, /Thông báo chỉ được bật sau khi bạn đồng ý/u);
+  assert.doesNotMatch(source, /Thuế chỉ lưu endpoint kỹ thuật/u);
+});
+
+test("service worker receives pushes, stores seven-day history and opens the selected document", () => {
   const source = readFileSync(new URL("../public/sw.js", import.meta.url), "utf8");
   assert.match(source, /addEventListener\("push"/u);
   assert.match(source, /showNotification/u);
+  assert.match(source, /indexedDB\.open\(HISTORY_DATABASE/u);
+  assert.match(source, /HISTORY_RETENTION_MS = 7 \* 24 \* 60 \* 60 \* 1000/u);
+  assert.match(source, /THUE_NOTIFICATION_HISTORY_UPDATED/u);
   assert.match(source, /addEventListener\("notificationclick"/u);
   assert.match(source, /THUE_OPEN_DOCUMENT/u);
 });
