@@ -115,8 +115,11 @@ async function ensureAcceptedOcr252Revision() {
   if (before.revision?.accepted) return before;
   assert.equal(before.configured, true, "Vercel Blob chưa được cấu hình cho live exact matrix.");
   assert.ok(before.state?.runId, "252/2026/NĐ-CP chưa có runId chứa checkpoint OCR.");
-  assert.equal(before.state.processedPages, 133, "252/2026/NĐ-CP chưa đủ 133 checkpoint OCR.");
   assert.equal(before.state.totalPages, 133, "252/2026/NĐ-CP có tổng số trang checkpoint không đúng.");
+  assert.ok(
+    before.state.processedPages >= 120 && before.state.processedPages <= 133,
+    `252/2026/NĐ-CP chỉ có ${before.state.processedPages}/133 checkpoint; không chạy live build tốn kém để OCR lại gần như toàn bộ văn bản.`,
+  );
 
   const startedAt = Date.now();
   const result = await legalDocumentIngestionWorkflow({
