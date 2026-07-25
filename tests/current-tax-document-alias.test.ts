@@ -28,3 +28,8 @@ test("respects an explicit year and issuer instead of silently choosing a near m
   assert.equal(resolveCurrentTaxDocumentNumber("nghị định 252 bộ tài chính"), null);
   assert.equal(resolveCurrentTaxDocumentNumber("thông tư 252 chính phủ"), null);
 });
+
+test("short aliases exclude internal tax-sector administration documents", () => {
+  assert.equal(resolveCurrentTaxDocumentNumber("đọc nghị định 256"), null);
+  assert.deepEqual(currentTaxDocumentCandidates("mở nghị định 256"), []);
+});
