@@ -184,7 +184,8 @@ export default function NotificationSettings() {
     const mode = !onboardingSeen && state !== "on" ? "prompt" : "history";
     setPanelMode(mode);
     setOpen(true);
-    if (mode === "history") void refreshHistory();
+    if (mode === "prompt") rememberOnboarding();
+    else void refreshHistory();
   }
 
   async function enableNotifications() {
@@ -239,7 +240,6 @@ export default function NotificationSettings() {
   }
 
   function skipOnboarding() {
-    rememberOnboarding();
     setOpen(false);
   }
 
@@ -340,7 +340,7 @@ export default function NotificationSettings() {
                   </div>
                   {state === "on" ? (
                     <button className="notificationToggle" type="button" onClick={disableNotifications} disabled={busy}>
-                      {busy ? "Đang tắt…" : "Tắt"}
+                      {busy ? "Đang xử lý…" : "Tắt"}
                     </button>
                   ) : (
                     <button className="notificationToggle" type="button" onClick={enableNotifications} disabled={cannotEnable}>
