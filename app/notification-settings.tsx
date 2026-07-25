@@ -243,30 +243,6 @@ export default function NotificationSettings() {
     setOpen(false);
   }
 
-  async function disableNotifications() {
-    setBusy(true);
-    setNotice("");
-    try {
-      const subscription = await currentSubscription();
-      if (subscription) {
-        const response = await fetch("/api/notifications/subscriptions", {
-          method: "DELETE",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ endpoint: subscription.endpoint }),
-        });
-        const payload = await response.json() as { error?: string };
-        if (!response.ok) throw new Error(payload.error || "Không hủy được thiết bị nhận thông báo.");
-        await subscription.unsubscribe();
-      }
-      setState("off");
-      setNotice("Đã tắt thông báo trên thiết bị này.");
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Không tắt được thông báo.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function clearHistory() {
     setHistoryLoading(true);
     try {
@@ -338,15 +314,11 @@ export default function NotificationSettings() {
                     <p className="eyebrow">7 ngày gần đây</p>
                     <h2 id="notification-title">Lịch sử thông báo</h2>
                   </div>
-                  {state === "on" ? (
-                    <button className="notificationToggle" type="button" onClick={disableNotifications} disabled={busy}>
-                      {busy ? "Đang xử lý…" : "Tắt"}
-                    </button>
-                  ) : (
+                  {state !== "on" ? (
                     <button className="notificationToggle" type="button" onClick={enableNotifications} disabled={cannotEnable}>
                       {busy ? "Đang bật…" : "Bật"}
                     </button>
-                  )}
+                  ) : null}
                 </div>
 
                 {blockedReason ? <p className="notificationNotice" role="status">{blockedReason}</p> : null}

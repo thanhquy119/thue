@@ -1,4 +1,10 @@
-import { del, get, list, put } from "@vercel/blob";
+import {
+  del,
+  get,
+  list,
+  put,
+  storageConfigured,
+} from "../storage/r2-blob-compat.ts";
 import {
   pushSubscriptionId,
   type BrowserPushSubscription,
@@ -25,7 +31,7 @@ function positiveInteger(value: string | undefined, fallback: number, maximum: n
 }
 
 export function pushStoreConfigured() {
-  return Boolean(process.env.BLOB_READ_WRITE_TOKEN?.trim());
+  return storageConfigured();
 }
 
 export function maximumPushSubscriptions() {
@@ -55,7 +61,7 @@ async function readPrivateJson<T>(pathname: string): Promise<T | null> {
 }
 
 async function writePrivateJson(pathname: string, value: unknown, allowOverwrite: boolean) {
-  if (!pushStoreConfigured()) throw new Error("Private Blob chưa được cấu hình cho Web Push.");
+  if (!pushStoreConfigured()) throw new Error("R2 hoặc Private Blob chưa được cấu hình cho Web Push.");
   return put(pathname, JSON.stringify(value), {
     access: "private",
     allowOverwrite,
