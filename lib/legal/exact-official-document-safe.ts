@@ -26,6 +26,22 @@ import type { DocumentDetail, OnlineLegalSource, TaxSearchResponse } from "./typ
 
 const CACHE_SECONDS = 24 * 60 * 60;
 
+type ExactOfficialPageOverride = {
+  title: string;
+  url: string;
+  issuedDate: string | null;
+  effectiveDate: string | null;
+};
+
+const EXACT_OFFICIAL_PAGE_OVERRIDES = new Map<string, ExactOfficialPageOverride>([
+  [normalizeDocumentNumber("253/2026/NĐ-CP"), {
+    title: "Nghị định số 253/2026/NĐ-CP quy định chi tiết một số điều và biện pháp để tổ chức, hướng dẫn thi hành Luật Thuế thu nhập cá nhân",
+    url: "https://congbao.chinhphu.vn/van-ban/nghi-dinh-so-253-2026-nd-cp-469959.htm",
+    issuedDate: "2026-06-30",
+    effectiveDate: "2026-07-01",
+  }],
+]);
+
 function sourcePriority(url: string) {
   let decoded = url;
   try {
@@ -34,6 +50,7 @@ function sourcePriority(url: string) {
     // Keep the encoded URL.
   }
   const value = decoded.toLocaleLowerCase("en");
+  if (/congbao\.chinhphu\.vn\/van-ban\//u.test(value)) return -1;
   if (/\.docx(?:$|[?&#])/u.test(value)) return 0;
   if (/\.doc(?:$|[?&#])/u.test(value)) return 1;
   if (/\.pdf(?:$|[?&#])/u.test(value)) return 2;
@@ -87,6 +104,22 @@ function inferIssuer(number: string) {
   return "";
 }
 
+function officialPageOverrides(number: string): DurableLegalSource[] {
+  const override = EXACT_OFFICIAL_PAGE_OVERRIDES.get(normalizeDocumentNumber(number));
+  if (!override) return [];
+  return [{
+    number,
+    title: override.title,
+    type: inferType(number),
+    issuer: inferIssuer(number),
+    issuedDate: override.issuedDate,
+    effectiveDate: override.effectiveDate,
+    officialPageUrl: override.url,
+    sourceUrl: override.url,
+    sourceLabel: "Công báo điện tử Chính phủ",
+  }];
+}
+
 export async function discoverExactOfficialSourcesSafe(number: string) {
   const [primary, discoveries, articleUrls, attachments] = await Promise.all([
     discoverExactOfficialSources(number).catch(() => []),
@@ -97,6 +130,7 @@ export async function discoverExactOfficialSourcesSafe(number: string) {
     discoverPolicyFullTextUrls(number),
     discoverPolicyAttachmentSources(number),
   ]);
+  const overrides = officialPageOverrides(number);
   const legacy = discoveries.flatMap((result) => exactLegacySources(number, result.sources));
   const articleSources: DurableLegalSource[] = articleUrls.map((url) => ({
     number,
@@ -110,7 +144,7 @@ export async function discoverExactOfficialSourcesSafe(number: string) {
     sourceLabel: "Cổng Thông tin điện tử Chính phủ",
   }));
   const seen = new Set<string>();
-  return [...primary, ...attachments, ...legacy, ...articleSources]
+  return [...overrides, ...primary, ...attachments, ...legacy, ...articleSources]
     .filter((source) => {
       if (!source.sourceUrl || seen.has(source.sourceUrl)) return false;
       seen.add(source.sourceUrl);
@@ -221,7 +255,7 @@ async function loadSafeUncached(number: string) {
 
 const loadSafeCached = unstable_cache(
   loadSafeUncached,
-  ["thue-ro-exact-official-document-safe-v7"],
+  ["thue-ro-exact-official-document-safe-v8"],
   { revalidate: CACHE_SECONDS, tags: ["official-legal-documents"] },
 );
 
