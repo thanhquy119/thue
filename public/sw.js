@@ -1,5 +1,82 @@
-const CACHE_NAME = "thue-v9";
+const CACHE_NAME = "thue-v10";
 const APP_SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
+const HISTORY_DATABASE = "thue-notification-history";
+const HISTORY_DATABASE_VERSION = 1;
+const HISTORY_STORE = "notifications";
+const HISTORY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+function transactionComplete(transaction) {
+  return new Promise((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error || new Error("Notification history transaction failed."));
+    transaction.onabort = () => reject(transaction.error || new Error("Notification history transaction aborted."));
+  });
+}
+
+function openHistoryDatabase() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(HISTORY_DATABASE, HISTORY_DATABASE_VERSION);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (database.objectStoreNames.contains(HISTORY_STORE)) return;
+      const store = database.createObjectStore(HISTORY_STORE, { keyPath: "id" });
+      store.createIndex("receivedAt", "receivedAt");
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Notification history database failed to open."));
+  });
+}
+
+async function pruneNotificationHistory() {
+  const database = await openHistoryDatabase();
+  try {
+    const transaction = database.transaction(HISTORY_STORE, "readwrite");
+    const index = transaction.objectStore(HISTORY_STORE).index("receivedAt");
+    const cutoff = Date.now() - HISTORY_RETENTION_MS;
+    const request = index.openCursor(IDBKeyRange.upperBound(cutoff, true));
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) return;
+      cursor.delete();
+      cursor.continue();
+    };
+    await transactionComplete(transaction);
+  } finally {
+    database.close();
+  }
+}
+
+async function notifyHistoryUpdated() {
+  const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  for (const client of windows) client.postMessage({ type: "THUE_NOTIFICATION_HISTORY_UPDATED" });
+}
+
+async function saveNotificationHistory(payload) {
+  const receivedAt = Date.now();
+  const revisionId = typeof payload.revisionId === "string" && payload.revisionId ? payload.revisionId : null;
+  const tag = typeof payload.tag === "string" && payload.tag ? payload.tag : "notification";
+  const item = {
+    id: revisionId || `${tag}-${receivedAt}`,
+    title: typeof payload.title === "string" && payload.title ? payload.title : "Thuế",
+    body: typeof payload.body === "string" ? payload.body : "",
+    url: typeof payload.url === "string" && payload.url.startsWith("/") ? payload.url : "/?source=notification",
+    number: typeof payload.number === "string" && payload.number ? payload.number : null,
+    revisionId,
+    receivedAt,
+  };
+
+  const database = await openHistoryDatabase();
+  try {
+    const transaction = database.transaction(HISTORY_STORE, "readwrite");
+    transaction.objectStore(HISTORY_STORE).put(item);
+    await transactionComplete(transaction);
+  } finally {
+    database.close();
+  }
+  await pruneNotificationHistory();
+  await notifyHistoryUpdated();
+  return item.id;
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
@@ -8,9 +85,12 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))),
-    ),
+    Promise.all([
+      caches.keys().then((keys) =>
+        Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))),
+      ),
+      pruneNotificationHistory().catch(() => undefined),
+    ]),
   );
   self.clients.claim();
 });
@@ -59,7 +139,13 @@ self.addEventListener("push", (event) => {
     },
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  const tasks = [self.registration.showNotification(title, options)];
+  if (payload.tag !== "thue-notifications-enabled") {
+    tasks.push(saveNotificationHistory(payload).catch((error) => {
+      console.warn("[notification-history-save-failed]", error instanceof Error ? error.message : String(error));
+    }));
+  }
+  event.waitUntil(Promise.all(tasks));
 });
 
 self.addEventListener("notificationclick", (event) => {
