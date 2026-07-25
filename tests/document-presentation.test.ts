@@ -65,3 +65,18 @@ test("separates an appendix that starts on a new line even when no signature is 
     /DANH MỤC BIỂU MẪU/u,
   );
 });
+
+test("recovers OCR articles whose headings contain Markdown or split structural markers", () => {
+  const prepared = prepareDocumentForPresentation(documentWithText(`BỘ TÀI CHÍNH\nSố: 94/2026/TT-BTC\nTHÔNG TƯ\nQuy định về quản lý tuân thủ, quản lý rủi ro trong quản lý thuế\n\n**Điều 3. Giải thích từ ngữ** Trong Thông tư này, các từ ngữ dưới đây được hiểu như sau:\n1. Thông tin quản lý tuân thủ là thông tin về thuế.\n\nĐiều\n4. Nguyên tắc quản lý tuân thủ\nViệc quản lý tuân thủ được thực hiện theo mức độ rủi ro.\n\nĐiều 5. Thu thập thông tin\nCơ quan thuế thu thập thông tin theo quy định.`));
+
+  assert.equal(prepared.official_text.includes("**"), false);
+  assert.deepEqual(
+    prepared.provisions.filter((provision) => provision.type === "article").map((provision) => provision.identifier),
+    ["Điều 3", "Điều 4", "Điều 5"],
+  );
+  const article3 = prepared.provisions.find((provision) => provision.identifier === "Điều 3");
+  const article4 = prepared.provisions.find((provision) => provision.identifier === "Điều 4");
+  assert.equal(article3?.heading, "Giải thích từ ngữ");
+  assert.match(article3?.official_text ?? "", /^Trong Thông tư này/u);
+  assert.equal(article4?.heading, "Nguyên tắc quản lý tuân thủ");
+});
