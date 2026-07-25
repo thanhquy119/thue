@@ -21,6 +21,7 @@ import {
   discoverPolicyFullTextUrls,
   loadPolicyFullTextDocument,
 } from "./policy-fulltext.ts";
+import { findRecentDocumentByNumber } from "./recent-document-definitions.ts";
 import { durableSourceFromDiscovery } from "./recent-tax-discovery-core.ts";
 import type { DocumentDetail, OnlineLegalSource, TaxSearchResponse } from "./types.ts";
 
@@ -233,6 +234,12 @@ async function loadAcceptedDurableDocument(number: string) {
   return document;
 }
 
+async function loadRecentVerifiedExactDocument(number: string) {
+  if (!findRecentDocumentByNumber(number)) return null;
+  const { loadRecentVerifiedDocument } = await import("./recent-verified-documents.ts");
+  return loadRecentVerifiedDocument(number);
+}
+
 async function loadFromDiscoveredSources(number: string) {
   const sources = await discoverExactOfficialSourcesSafe(number);
   const documents: DocumentDetail[] = [];
@@ -258,13 +265,14 @@ async function loadFromDiscoveredSources(number: string) {
 }
 
 async function loadSafeUncached(number: string) {
-  const [durable, primary, policyArticle, discovered] = await Promise.all([
+  const [durable, recent, primary, policyArticle, discovered] = await Promise.all([
     loadAcceptedDurableDocument(number).catch(() => null),
+    loadRecentVerifiedExactDocument(number).catch(() => null),
     loadExactOfficialDocument(number).catch(() => null),
     loadPolicyFullTextDocument(number).catch(() => null),
     loadFromDiscoveredSources(number).catch(() => null),
   ]);
-  const candidates = [durable, primary, policyArticle, discovered]
+  const candidates = [durable, recent, primary, policyArticle, discovered]
     .filter((value): value is DocumentDetail => value !== null)
     .filter(isCompleteExactDocument)
     .sort((left, right) => documentCompletenessScore(right) - documentCompletenessScore(left));
@@ -273,7 +281,7 @@ async function loadSafeUncached(number: string) {
 
 const loadSafeCached = unstable_cache(
   loadSafeUncached,
-  ["thue-ro-exact-official-document-safe-v9"],
+  ["thue-ro-exact-official-document-safe-v10"],
   { revalidate: CACHE_SECONDS, tags: ["official-legal-documents"] },
 );
 
