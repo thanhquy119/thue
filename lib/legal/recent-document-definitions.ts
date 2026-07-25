@@ -6,6 +6,8 @@ export type RecentDocumentDownload = {
   mimeType: string;
   referer: string;
   label: string;
+  textStartMarker?: string;
+  textEndMarker?: string;
 };
 
 export type RecentDocumentDefinition = {
@@ -49,20 +51,21 @@ const DOCUMENTS: RecentDocumentDefinition[] = [
     minimumTextLength: 5_000,
     downloads: [
       {
+        url: "https://dulieuphapluat.vn/van-ban/thue-phi-le-phi-van-ban/thong-tu-912026tt-btc-huong-dan-luat-quan-ly-thue-va-nghi-dinh-2542026nd-cp-huong-dan-luat-quan-ly-thue-ve-hoa-don-dien-tu-chung-tu-dien-tu-do-bo-truong-bo-tai-chinh-ban-hanh-1389630.html",
+        fileName: "Thong tu so 91_2026_TT-BTC.html",
+        mimeType: "text/html",
+        referer: "https://dulieuphapluat.vn/",
+        label: "Bản HTML toàn văn công bố lại đã đối chiếu với nguồn Chính phủ",
+        textStartMarker: "BỘ TÀI CHÍNH",
+        textEndMarker: "Từ khóa:",
+      },
+      {
         url: "https://baocaotaichinh.vn/tintuc/download?file=1670286540thong-tu-so-91_2026_tt-btc.pdf",
         fileName: "Thong tu so 91_2026_TT-BTC.pdf",
         mimeType: "application/pdf",
         referer:
           "https://baocaotaichinh.vn/thu-vien/thong-tu-so-91-2026-ttbtc-cua-bo-tai-chinh-quy-dinh-mot-so-dieu-cua-luat-quan-ly-thue-va-nghi-dinh-254-2026-ndcp-cua-chinh-phu-quy-dinh-chi-tiet-mot-so-dieu-va-bien-phap-de-to-chuc-huong-dan-thi-hanh-luat-quan-ly-thue-so-108-2025-qh15-ve-hoa-don-dien-tu-chung-tu-dien-tu-1647512103-313179",
         label: "Bản PDF công bố lại đã đối chiếu với nguồn Chính phủ",
-      },
-      {
-        url: "https://files.hethongphapluat.com/docs/downloadv3/816ecdb862cff04d658fafd310c373f0/word/RUVHVBlRUVtcSxg%3D/",
-        fileName: "Thong tu so 91_2026_TT-BTC.docx",
-        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        referer:
-          "https://hethongphapluat.com/thong-tu-91-2026-tt-btc-huong-dan-luat-quan-ly-thue-va-nghi-dinh-254-2026-nd-cp-huong-dan-luat-quan-ly-thue-ve-hoa-don-dien-tu-chung-tu-dien-tu-do-bo-truong-bo-tai-chinh-ban-hanh.html",
-        label: "Bản DOCX công bố lại đã đối chiếu với nguồn Chính phủ và một bản HTML toàn văn độc lập",
       },
     ],
   },

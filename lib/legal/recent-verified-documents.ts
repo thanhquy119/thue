@@ -34,6 +34,21 @@ function downloadPriority(download: RecentDocumentDownload) {
   return 4;
 }
 
+function trimMirroredText(value: string, download: RecentDocumentDownload) {
+  let text = value.trim();
+  if (download.textStartMarker) {
+    const start = text.indexOf(download.textStartMarker);
+    if (start < 0) throw new Error(`Không tìm thấy điểm bắt đầu ${download.textStartMarker} trong nguồn toàn văn.`);
+    text = text.slice(start);
+  }
+  if (download.textEndMarker) {
+    const end = text.indexOf(download.textEndMarker);
+    if (end < 0) throw new Error(`Không tìm thấy điểm kết thúc ${download.textEndMarker} trong nguồn toàn văn.`);
+    text = text.slice(0, end);
+  }
+  return text.trim();
+}
+
 async function fetchDownload(download: RecentDocumentDownload) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 22_000);
@@ -76,7 +91,7 @@ async function extractVerifiedDocument(definition: RecentDocumentDefinition) {
       const buffer = await fetchDownload(download);
       const file = new File([new Uint8Array(buffer)], download.fileName, { type: download.mimeType });
       const extracted = await extractFromFile(file);
-      const officialText = extracted.officialText.trim();
+      const officialText = trimMirroredText(extracted.officialText, download);
 
       if (extracted.requiresOcr) {
         throw new Error("Tệp PDF là bản scan và OCR chưa tạo được lớp chữ đạt yêu cầu.");
@@ -152,7 +167,7 @@ async function loadUncachedRecentDocument(number: string): Promise<DocumentDetai
 
 const loadCachedRecentDocument = unstable_cache(
   loadUncachedRecentDocument,
-  ["thue-ro-recent-verified-documents-v3"],
+  ["thue-ro-recent-verified-documents-v4"],
   { revalidate: 24 * 60 * 60 },
 );
 
