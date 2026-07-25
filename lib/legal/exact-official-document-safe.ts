@@ -1,6 +1,7 @@
 import { unstable_cache } from "next/cache";
 import { discoverOfficialSources } from "./discovery.ts";
 import { hasUsableLegalDocumentText, looksLikeGovernmentPortalShell } from "./document-quality.ts";
+import { readDurableRevision } from "./durable-document-store.ts";
 import { extractDurableLegalSource, type DurableExtractedSource } from "./durable-extraction.ts";
 import {
   normalizeDocumentNumber,
@@ -169,6 +170,17 @@ function documentCompletenessScore(document: DocumentDetail) {
   return articleCount(document) * 1_000_000 + chapterCount(document) * 100_000 + Math.min(document.official_text.length, 99_999);
 }
 
+async function loadAcceptedDurableDocument(number: string) {
+  const revision = await readDurableRevision(number);
+  const document = revision?.document ?? null;
+  if (!revision?.validation.accepted || !document) return null;
+  if (normalizeDocumentNumber(document.number) !== normalizeDocumentNumber(number)) return null;
+  if (looksLikeGovernmentPortalShell(document.official_text)) return null;
+  if (!hasUsableLegalDocumentText(document.official_text, number)) return null;
+  if (!isCompleteExactDocument(document)) return null;
+  return document;
+}
+
 async function loadFromDiscoveredSources(number: string) {
   const sources = await discoverExactOfficialSourcesSafe(number);
   const documents: DocumentDetail[] = [];
@@ -194,12 +206,13 @@ async function loadFromDiscoveredSources(number: string) {
 }
 
 async function loadSafeUncached(number: string) {
-  const [primary, policyArticle, discovered] = await Promise.all([
+  const [durable, primary, policyArticle, discovered] = await Promise.all([
+    loadAcceptedDurableDocument(number).catch(() => null),
     loadExactOfficialDocument(number).catch(() => null),
     loadPolicyFullTextDocument(number).catch(() => null),
     loadFromDiscoveredSources(number).catch(() => null),
   ]);
-  const candidates = [primary, policyArticle, discovered]
+  const candidates = [durable, primary, policyArticle, discovered]
     .filter((value): value is DocumentDetail => value !== null)
     .filter(isCompleteExactDocument)
     .sort((left, right) => documentCompletenessScore(right) - documentCompletenessScore(left));
@@ -208,7 +221,7 @@ async function loadSafeUncached(number: string) {
 
 const loadSafeCached = unstable_cache(
   loadSafeUncached,
-  ["thue-ro-exact-official-document-safe-v6"],
+  ["thue-ro-exact-official-document-safe-v7"],
   { revalidate: CACHE_SECONDS, tags: ["official-legal-documents"] },
 );
 
