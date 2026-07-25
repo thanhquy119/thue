@@ -54,6 +54,7 @@ type ExtractedWorkflowSource = Omit<DurableExtractedSource, "sourceBuffer"> & {
 
 const EMPTY_OCR_RETRY_MIN_MS = 5_000;
 const EMPTY_OCR_RETRY_MAX_MS = 65_000;
+const EMPTY_OCR_MAX_RETRIES = 3;
 
 function now() {
   return new Date().toISOString();
@@ -79,10 +80,7 @@ function quotaRetryDelayMs(pages: DurableOcrPage[]) {
 
 function mergeOcrPages(original: DurableOcrPage[], retried: DurableOcrPage[]) {
   const byPage = new Map(original.map((page) => [page.page, page]));
-  for (const page of retried) {
-    const previous = byPage.get(page.page);
-    if (!previous || usableOcrPage(page) || page.score > previous.score) byPage.set(page.page, page);
-  }
+  for (const page of retried) byPage.set(page.page, page);
   return [...byPage.values()].sort((left, right) => left.page - right.page);
 }
 
@@ -345,14 +343,19 @@ async function ocrPagesStep(
     }));
 
   let completed = toDurablePages(await runOcrBatch(sourceUrl, { pages }));
-  const unusablePages = completed.filter((page) => !usableOcrPage(page));
-  let retryDelayMs = 0;
-  if (unusablePages.length) {
-    retryDelayMs = quotaRetryDelayMs(unusablePages);
+  let unusablePages = completed.filter((page) => !usableOcrPage(page));
+  const retryDelaysMs: number[] = [];
+  let retryAttempts = 0;
+  while (unusablePages.length && retryAttempts < EMPTY_OCR_MAX_RETRIES) {
+    const retryDelayMs = quotaRetryDelayMs(unusablePages);
+    retryDelaysMs.push(retryDelayMs);
+    retryAttempts += 1;
     console.warn("[legal-ingestion-ocr-retry]", JSON.stringify({
       number,
       jobId,
       pages: unusablePages.map((page) => page.page),
+      attempt: retryAttempts,
+      maxAttempts: EMPTY_OCR_MAX_RETRIES,
       delayMs: retryDelayMs,
       reason: "empty_or_zero_score",
     }));
@@ -361,6 +364,7 @@ async function ocrPagesStep(
       pages: unusablePages.map((page) => page.page),
     }));
     completed = mergeOcrPages(completed, retried);
+    unusablePages = completed.filter((page) => !usableOcrPage(page));
   }
 
   const usable = completed.filter(usableOcrPage);
@@ -374,7 +378,8 @@ async function ocrPagesStep(
     requestedPages: pages,
     processedPages: usable.map((page) => page.page),
     rejectedPages: rejected.map((page) => page.page),
-    retryDelayMs,
+    retryAttempts,
+    retryDelaysMs,
     scores: completed.map((page) => ({
       page: page.page,
       score: page.score,
