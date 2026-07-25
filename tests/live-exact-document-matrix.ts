@@ -24,11 +24,14 @@ const DOCUMENTS = [
 ] as const;
 
 const SEARCH_CASES = [
+  { query: "252/2026/NĐ-CP", expected: "252/2026/NĐ-CP" },
+  { query: "253/2026/NĐ-CP", expected: "253/2026/NĐ-CP" },
   { query: "254/2026/NĐ-CP", expected: "254/2026/NĐ-CP" },
   { query: "254/2026/ND-CP", expected: "254/2026/NĐ-CP" },
   { query: "Nghị định 254 năm 2026", expected: "254/2026/NĐ-CP" },
   { query: "nghi dinh so 254 nam 2026", expected: "254/2026/NĐ-CP" },
-  { query: "252/2026/NĐ-CP", expected: "252/2026/NĐ-CP" },
+  { query: "256/2026/ND-CP", expected: "256/2026/NĐ-CP" },
+  { query: "Thông tư 90 năm 2026 Bộ Tài chính", expected: "90/2026/TT-BTC" },
   { query: "Thông tư 91 năm 2026 Bộ Tài chính", expected: "91/2026/TT-BTC" },
   { query: "108/2025/QH15", expected: "108/2025/QH15" },
 ] as const;
