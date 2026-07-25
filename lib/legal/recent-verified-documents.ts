@@ -1,4 +1,5 @@
 import { unstable_cache } from "next/cache";
+import { resolveCurrentTaxDocumentNumber } from "./current-tax-document-alias.ts";
 import { hasUsableLegalDocumentText, looksLikeGovernmentPortalShell } from "./document-quality.ts";
 import { durableDocumentResponse } from "./durable-document-lookup.ts";
 import {
@@ -200,17 +201,24 @@ export function recentVerifiedCandidate(number: string): SearchCandidate | null 
 }
 
 export async function loadRecentVerifiedDocument(number: string) {
+  const durable = await durableDocumentResponse(number);
+  if (durable?.document) return durable.document;
+
   const definition = findRecentDocumentByNumber(number);
   if (!definition) return loadExactOfficialDocumentSafe(number);
   return loadRecentDocument(definition.number);
 }
 
 export async function recentVerifiedDocumentResponse(query: string): Promise<TaxSearchResponse | null> {
-  const durable = await durableDocumentResponse(query);
+  const resolvedNumber = resolveCurrentTaxDocumentNumber(query);
+  const lookupQuery = resolvedNumber ?? query;
+  const durable = await durableDocumentResponse(lookupQuery);
   if (durable) return durable;
 
-  const definition = findRecentDocumentForQuery(query);
-  if (!definition) return exactOfficialDocumentResponseSafe(query);
+  const definition = resolvedNumber
+    ? findRecentDocumentByNumber(resolvedNumber)
+    : findRecentDocumentForQuery(query);
+  if (!definition) return exactOfficialDocumentResponseSafe(lookupQuery);
 
   try {
     const document = await loadRecentDocument(definition.number);

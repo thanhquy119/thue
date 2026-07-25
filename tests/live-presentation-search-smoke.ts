@@ -50,6 +50,38 @@ const appendix = circular82.document?.provisions.find((provision) => provision.i
 assert.ok(appendix, "Phụ lục chưa được tách thành phần riêng.");
 assert.match(appendix.official_text, /Phụ\s+lục|Mẫu\s+số\s+01/iu);
 
+const circular94Query = "thông tư 94 năm 2026 bộ tài chính";
+const circular94 = await search(circular94Query, 3);
+assert.equal(circular94.query_kind, "document");
+assert.equal(circular94.document?.number, "94/2026/TT-BTC");
+assert.equal(circular94.document?.extraction_method, "ocr");
+assert.equal(circular94.document?.status, "effective");
+assert.ok((circular94.document?.official_text.length ?? 0) > 60_000, "Thông tư 94 không đọc revision OCR bền vững.");
+assert.doesNotMatch(circular94.document?.official_text ?? "", /\*\*\s*Điều\s+\d+/iu);
+for (const identifier of ["Điều 3", "Điều 4", "Điều 5"]) {
+  assert.ok(
+    circular94.document?.provisions.find((provision) => provision.identifier === identifier),
+    `${identifier} của Thông tư 94 chưa được nhận diện sau chuẩn hóa OCR.`,
+  );
+}
+const circular94Article3 = circular94.document?.provisions.find((provision) => provision.identifier === "Điều 3");
+assert.match(circular94Article3?.heading ?? "", /Giải thích từ ngữ/iu);
+assert.match(circular94Article3?.official_text ?? "", /Trong Thông tư này/iu);
+
+const decree252Query = "Đọc nghị định 252";
+const decree252 = await search(decree252Query, 4);
+assert.equal(decree252.query_kind, "document");
+assert.equal(decree252.document?.number, "252/2026/NĐ-CP");
+assert.equal(decree252.document?.status, "effective");
+assert.ok((decree252.document?.official_text.length ?? 0) > 100_000, "Nghị định 252 không đọc revision hiện hành đã nhập.");
+assert.ok(
+  decree252.document?.provisions.some((provision) => provision.identifier === "Điều 1"),
+  "Nghị định 252 chưa có cấu trúc Điều sau tra cứu dạng rút gọn.",
+);
+
+const decree252Variant = await search("mở Nghị định số 252", 5);
+assert.equal(decree252Variant.document?.number, "252/2026/NĐ-CP");
+
 console.log(
   "[live-presentation-search-result]",
   JSON.stringify({
@@ -70,6 +102,21 @@ console.log(
       appendixCharacters: appendix.official_text.length,
       verificationNotes: circular82.document?.verification_notes,
     },
+    circular94: {
+      query: circular94Query,
+      number: circular94.document?.number,
+      characters: circular94.document?.official_text.length,
+      provisionCount: circular94.document?.provisions.length,
+      article3Heading: circular94Article3?.heading,
+      markdownRemoved: !circular94.document?.official_text.includes("**"),
+    },
+    decree252: {
+      query: decree252Query,
+      number: decree252.document?.number,
+      characters: decree252.document?.official_text.length,
+      provisionCount: decree252.document?.provisions.length,
+      status: decree252.document?.status,
+    },
   }),
 );
-console.log("[live-presentation-search] exact-year routing, hidden technical notes and final-article repair passed");
+console.log("[live-presentation-search] current aliases, durable OCR and article reconstruction passed");
