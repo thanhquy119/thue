@@ -11,8 +11,12 @@ import {
   discoverExactOfficialSourcesSafe,
   loadExactOfficialDocumentSafe,
 } from "../lib/legal/exact-official-document-safe.ts";
-import { normalizeDocumentNumber } from "../lib/legal/durable-ingestion-types.ts";
+import {
+  normalizeDocumentNumber,
+  type DurableLegalSource,
+} from "../lib/legal/durable-ingestion-types.ts";
 import type { TaxSearchResponse } from "../lib/legal/types.ts";
+import { legalDocumentIngestionWorkflow } from "../workflows/legal-document-ingestion.ts";
 
 const COMMIT_MARKER = "[live-exact-documents]";
 const enabled = process.env.RUN_LIVE_EXACT_DOCUMENTS === "true" ||
@@ -27,6 +31,18 @@ const DOCUMENTS = [
   { number: "91/2026/TT-BTC", minimumCharacters: 5_000 },
   { number: "108/2025/QH15", minimumCharacters: 8_000 },
 ] as const;
+
+const OCR_252_SOURCE: DurableLegalSource = {
+  number: "252/2026/NĐ-CP",
+  title: "Nghị định số 252/2026/NĐ-CP quy định chi tiết một số điều và biện pháp để tổ chức, hướng dẫn thi hành Luật Quản lý thuế",
+  type: "Nghị định",
+  issuer: "Chính phủ",
+  issuedDate: "2026-06-30",
+  effectiveDate: "2026-07-01",
+  officialPageUrl: "https://xaydungchinhsach.chinhphu.vn/toan-van-nghi-dinh-252-2026-nd-cp-huong-dan-thi-hanh-luat-quan-ly-thue-119260715155021635.htm",
+  sourceUrl: "https://xdcs.cdnchinhphu.vn/446259493575335936/2026/7/15/252-ndcp-signed-17841052430171897600672.pdf",
+  sourceLabel: "Cổng Thông tin điện tử Chính phủ",
+};
 
 const SEARCH_CASES = [
   { query: "252/2026/NĐ-CP", expected: "252/2026/NĐ-CP" },
@@ -94,6 +110,38 @@ async function durableSnapshot(number: string) {
   };
 }
 
+async function ensureAcceptedOcr252Revision() {
+  const before = await durableSnapshot(OCR_252_SOURCE.number);
+  if (before.revision?.accepted) return before;
+  assert.equal(before.configured, true, "Vercel Blob chưa được cấu hình cho live exact matrix.");
+  assert.ok(before.state?.runId, "252/2026/NĐ-CP chưa có runId chứa checkpoint OCR.");
+  assert.equal(before.state.processedPages, 133, "252/2026/NĐ-CP chưa đủ 133 checkpoint OCR.");
+  assert.equal(before.state.totalPages, 133, "252/2026/NĐ-CP có tổng số trang checkpoint không đúng.");
+
+  const startedAt = Date.now();
+  const result = await legalDocumentIngestionWorkflow({
+    jobId: before.state.runId,
+    source: OCR_252_SOURCE,
+    persist: true,
+    reuseExistingCheckpoints: true,
+  });
+  const durationMs = Date.now() - startedAt;
+  assert.equal(result.status, "ready", result.error ?? result.warnings.join(" "));
+  assert.equal(result.processedPages, 133);
+  assert.equal(result.totalPages, 133);
+  assert.equal(result.revision?.validation.accepted, true);
+
+  const after = await durableSnapshot(OCR_252_SOURCE.number);
+  assert.equal(after.state?.status, "ready");
+  assert.equal(after.revision?.accepted, true);
+  console.log("[live-exact-revalidated-252]", JSON.stringify({
+    durationMs,
+    before,
+    after,
+  }));
+  return after;
+}
+
 async function callSearchApi(query: string) {
   const fingerprint = randomUUID();
   const response = await searchApiPost(new Request("https://preview.thue-ro.local/api/search", {
@@ -128,6 +176,7 @@ async function main() {
 
   process.env.LEGAL_MAX_SOURCE_BYTES ||= "100000000";
   console.log("[live-exact-documents] starting exact official-source matrix");
+  await ensureAcceptedOcr252Revision();
 
   for (const definition of DOCUMENTS) {
     const sources = await retry(`${definition.number} discovery`, () => discoverExactOfficialSourcesSafe(definition.number));
