@@ -3,12 +3,16 @@ import { discoverOfficialSources } from "./discovery.ts";
 import { hasUsableLegalDocumentText, looksLikeGovernmentPortalShell } from "./document-quality.ts";
 import { readDurableRevision } from "./durable-document-store.ts";
 import { extractDurableLegalSource, type DurableExtractedSource } from "./durable-extraction.ts";
+import { fetchDurableLegalBuffer } from "./durable-fetch.ts";
 import {
   normalizeDocumentNumber,
   validateDurableLegalText,
   type DurableLegalSource,
 } from "./durable-ingestion-types.ts";
-import { canonicalExactDocumentNumber } from "./exact-official-document-core.ts";
+import {
+  canonicalExactDocumentNumber,
+  extractOfficialAttachmentUrls,
+} from "./exact-official-document-core.ts";
 import {
   discoverExactOfficialSources,
   exactOfficialDocumentResponse,
@@ -139,8 +143,26 @@ function officialPageOverrides(number: string): DurableLegalSource[] {
   }];
 }
 
+async function expandOfficialPageOverrides(sources: DurableLegalSource[]) {
+  const expanded: DurableLegalSource[] = [];
+  for (const source of sources) {
+    expanded.push(source);
+    try {
+      const fetched = await fetchDurableLegalBuffer(source.sourceUrl);
+      const mimeType = fetched.response.headers.get("content-type")?.toLocaleLowerCase("en") ?? "";
+      if (!mimeType.includes("html") && !/\.html?$/iu.test(new URL(fetched.url).pathname)) continue;
+      const html = fetched.buffer.toString("utf8");
+      const attachments = extractOfficialAttachmentUrls(html, fetched.url);
+      expanded.push(...attachments.map((sourceUrl) => ({ ...source, sourceUrl })));
+    } catch {
+      // Keep the reviewed page itself and let other discovery layers continue.
+    }
+  }
+  return expanded;
+}
+
 export async function discoverExactOfficialSourcesSafe(number: string) {
-  const [primary, discoveries, articleUrls, attachments] = await Promise.all([
+  const [primary, discoveries, articleUrls, attachments, overrides] = await Promise.all([
     discoverExactOfficialSources(number).catch(() => []),
     Promise.all([
       discoverOfficialSources(number).catch(() => ({ sources: [], warnings: [] })),
@@ -148,8 +170,8 @@ export async function discoverExactOfficialSourcesSafe(number: string) {
     ]),
     discoverPolicyFullTextUrls(number),
     discoverPolicyAttachmentSources(number),
+    expandOfficialPageOverrides(officialPageOverrides(number)),
   ]);
-  const overrides = officialPageOverrides(number);
   const legacy = discoveries.flatMap((result) => exactLegacySources(number, result.sources));
   const articleSources: DurableLegalSource[] = articleUrls.map((url) => ({
     number,
@@ -281,7 +303,7 @@ async function loadSafeUncached(number: string) {
 
 const loadSafeCached = unstable_cache(
   loadSafeUncached,
-  ["thue-ro-exact-official-document-safe-v10"],
+  ["thue-ro-exact-official-document-safe-v11"],
   { revalidate: CACHE_SECONDS, tags: ["official-legal-documents"] },
 );
 
