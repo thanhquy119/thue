@@ -21,6 +21,13 @@ test("does not guess a ministry circular when the issuer is missing", () => {
   assert.equal(findRecentDocumentForQuery("thông tư 90 năm 2026"), null);
 });
 
+test("recognizes Circular 91 with its reviewed PDF source", () => {
+  const document = findRecentDocumentForQuery("91/2026/TT-BTC");
+  assert.equal(document?.number, "91/2026/TT-BTC");
+  assert.equal(document?.downloads[0]?.mimeType, "application/pdf");
+  assert.match(document?.officialPage ?? "", /thong-tu-91-2026-tt-btc/i);
+});
+
 test("recognizes Circular 94 while avoiding unsafe full-document OCR", () => {
   const document = findRecentDocumentForQuery("Thông tư 94/2026/TT-BTC");
   assert.equal(document?.number, "94/2026/TT-BTC");
@@ -31,6 +38,6 @@ test("recognizes Circular 94 while avoiding unsafe full-document OCR", () => {
 });
 
 test("does not intercept unrelated document numbers", () => {
-  assert.equal(findRecentDocumentForQuery("91/2026/TT-BTC"), null);
+  assert.equal(findRecentDocumentForQuery("92/2026/TT-BTC"), null);
   assert.equal(findRecentDocumentByNumber("94/2025/TT-BTC"), null);
 });
