@@ -4,10 +4,10 @@ import { CURRENT_TAX_DOCUMENT_NUMBERS } from "./recent-tax-discovery-core.ts";
 const LOOKUP_LANGUAGE = /\b(?:doc|mo|xem|tim|tra cuu|van ban|toan van)\b/u;
 
 function documentType(number: string) {
-  if (/\/ND-CP$/iu.test(number)) return "Nghị định";
+  if (/\/(?:NĐ|ND)-CP$/iu.test(number)) return "Nghị định";
   if (/\/TT-/iu.test(number)) return "Thông tư";
   if (/\/NQ-/iu.test(number)) return "Nghị quyết";
-  if (/\/QD-/iu.test(number)) return "Quyết định";
+  if (/\/(?:QĐ|QD)-/iu.test(number)) return "Quyết định";
   if (/\/(?:QH|UBTVQH)\d*$/iu.test(number)) return "Luật";
   return "Văn bản pháp luật";
 }
@@ -19,7 +19,7 @@ function typeMatches(expected: string | null, number: string) {
 
 function issuerMatches(normalized: string, number: string) {
   if (/\b(?:bo tai chinh|btc)\b/u.test(normalized)) return /\/TT-BTC$/iu.test(number);
-  if (/\b(?:chinh phu|nd-cp)\b/u.test(normalized)) return /\/ND-CP$/iu.test(number);
+  if (/\b(?:chinh phu|nd-cp)\b/u.test(normalized)) return /\/(?:NĐ|ND)-CP$/iu.test(number);
   return true;
 }
 
