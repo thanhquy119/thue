@@ -1,7 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import {
+  clearNotificationHistory,
+  readNotificationHistory,
+} from "@/lib/notifications/history-client";
+import type { NotificationHistoryItem } from "@/lib/notifications/history-core";
 
 type PushConfig = {
   enabled: boolean;
@@ -10,11 +15,14 @@ type PushConfig = {
 };
 
 type NotificationState = "loading" | "unsupported" | "unavailable" | "off" | "on" | "denied";
+type PanelMode = "prompt" | "history";
 
 type ServiceWorkerMessage = {
   type?: string;
   number?: string;
 };
+
+const ONBOARDING_KEY = "thue-notification-onboarding-v1";
 
 function applicationServerKey(value: string) {
   const padding = "=".repeat((4 - (value.length % 4)) % 4);
@@ -47,6 +55,15 @@ function openDocument(number: string) {
   return true;
 }
 
+function historyTime(receivedAt: number) {
+  return new Intl.DateTimeFormat("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(receivedAt));
+}
+
 async function currentSubscription() {
   const registration = await navigator.serviceWorker.ready;
   return registration.pushManager.getSubscription();
@@ -55,19 +72,43 @@ async function currentSubscription() {
 export default function NotificationSettings() {
   const [topbar, setTopbar] = useState<HTMLElement | null>(null);
   const [open, setOpen] = useState(false);
+  const [panelMode, setPanelMode] = useState<PanelMode>("prompt");
+  const [onboardingSeen, setOnboardingSeen] = useState(false);
   const [state, setState] = useState<NotificationState>("loading");
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [history, setHistory] = useState<NotificationHistoryItem[]>([]);
 
   const supported = useMemo(
     () => typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window,
     [],
   );
 
+  const refreshHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      setHistory(await readNotificationHistory());
+    } catch {
+      setHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  const rememberOnboarding = useCallback(() => {
+    window.localStorage.setItem(ONBOARDING_KEY, "seen");
+    setOnboardingSeen(true);
+  }, []);
+
   useEffect(() => {
     setTopbar(document.querySelector<HTMLElement>(".topbar"));
+    const seen = window.localStorage.getItem(ONBOARDING_KEY) === "seen";
+    setOnboardingSeen(seen);
+    void refreshHistory();
+
     if (!supported) {
       setState("unsupported");
       setReason("Trình duyệt này chưa hỗ trợ Web Push.");
@@ -90,9 +131,17 @@ export default function NotificationSettings() {
         await navigator.serviceWorker.register("/sw.js");
         const subscription = await currentSubscription();
         if (cancelled) return;
-        if (subscription) setState("on");
-        else if (Notification.permission === "denied") setState("denied");
-        else setState("off");
+        if (subscription) {
+          setState("on");
+          if (!seen) {
+            window.localStorage.setItem(ONBOARDING_KEY, "seen");
+            setOnboardingSeen(true);
+          }
+        } else if (Notification.permission === "denied") {
+          setState("denied");
+        } else {
+          setState("off");
+        }
       } catch (error) {
         if (cancelled) return;
         setState("unavailable");
@@ -102,6 +151,10 @@ export default function NotificationSettings() {
     void initialize();
 
     const onServiceWorkerMessage = (event: MessageEvent<ServiceWorkerMessage>) => {
+      if (event.data?.type === "THUE_NOTIFICATION_HISTORY_UPDATED") {
+        void refreshHistory();
+        return;
+      }
       if (event.data?.type !== "THUE_OPEN_DOCUMENT" || !event.data.number) return;
       setOpen(false);
       openDocument(event.data.number);
@@ -124,10 +177,19 @@ export default function NotificationSettings() {
       cancelled = true;
       navigator.serviceWorker.removeEventListener("message", onServiceWorkerMessage);
     };
-  }, [supported]);
+  }, [refreshHistory, supported]);
+
+  function openPanel() {
+    setNotice("");
+    const mode = !onboardingSeen && state !== "on" ? "prompt" : "history";
+    setPanelMode(mode);
+    setOpen(true);
+    if (mode === "history") void refreshHistory();
+  }
 
   async function enableNotifications() {
     if (!supported || !publicKey) return;
+    rememberOnboarding();
     setBusy(true);
     setNotice("");
     try {
@@ -164,14 +226,21 @@ export default function NotificationSettings() {
       }
 
       setState("on");
+      setPanelMode("history");
       setNotice(payload.welcome_sent === false
-        ? "Đã bật thông báo. Thông báo thử chưa gửi được nhưng thiết bị vẫn được lưu để thử ở văn bản tiếp theo."
-        : "Đã bật. Thiết bị này sẽ nhận một thông báo xác nhận.");
+        ? "Đã bật. Máy chủ sẽ thử gửi lại ở văn bản tiếp theo."
+        : "Đã bật thông báo trên thiết bị này.");
+      window.setTimeout(() => void refreshHistory(), 500);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Không bật được thông báo.");
     } finally {
       setBusy(false);
     }
+  }
+
+  function skipOnboarding() {
+    rememberOnboarding();
+    setOpen(false);
   }
 
   async function disableNotifications() {
@@ -198,17 +267,28 @@ export default function NotificationSettings() {
     }
   }
 
-  const statusCopy = state === "on"
-    ? ["Đang bật", "Thiết bị này sẽ nhận thông báo văn bản mới."]
-    : state === "denied"
-      ? ["Đang bị chặn", "Hãy cho phép thông báo trong cài đặt trình duyệt rồi thử lại."]
-      : state === "unsupported"
-        ? ["Không được hỗ trợ", reason || "Trình duyệt này chưa hỗ trợ Web Push."]
-        : state === "unavailable"
-          ? ["Chưa sẵn sàng", reason || "Máy chủ thông báo chưa sẵn sàng."]
-          : state === "loading"
-            ? ["Đang kiểm tra", "Đang kiểm tra khả năng nhận thông báo trên thiết bị."]
-            : ["Đang tắt", "Thông báo chỉ được bật sau khi bạn đồng ý trên thiết bị này."];
+  async function clearHistory() {
+    setHistoryLoading(true);
+    try {
+      await clearNotificationHistory();
+      setHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  function openHistoryItem(item: NotificationHistoryItem) {
+    setOpen(false);
+    if (item.number && openDocument(item.number)) return;
+    window.location.assign(item.url);
+  }
+
+  const cannotEnable = busy || state === "loading" || state === "unsupported" || state === "unavailable" || state === "denied";
+  const blockedReason = state === "denied"
+    ? "Trình duyệt đang chặn thông báo."
+    : state === "unsupported" || state === "unavailable"
+      ? reason
+      : "";
 
   return (
     <>
@@ -217,10 +297,14 @@ export default function NotificationSettings() {
             <button
               className={`notificationLink ${state === "on" ? "active" : ""}`}
               type="button"
-              onClick={() => setOpen(true)}
-              aria-label="Cài đặt thông báo văn bản mới"
+              onClick={openPanel}
+              aria-label="Mở lịch sử thông báo"
+              title="Thông báo"
             >
-              Thông báo{state === "on" ? <span aria-hidden="true">✓</span> : null}
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
+              </svg>
+              {history.length ? <span className="notificationBadge" aria-hidden="true">{Math.min(history.length, 99)}</span> : null}
             </button>,
             topbar,
           )
@@ -230,39 +314,70 @@ export default function NotificationSettings() {
         <div className="modalBackdrop" role="dialog" aria-modal="true" aria-labelledby="notification-title" onClick={() => setOpen(false)}>
           <section className="notificationSheet" onClick={(event) => event.stopPropagation()}>
             <button className="closeButton" type="button" onClick={() => setOpen(false)} aria-label="Đóng">×</button>
-            <p className="eyebrow">Kênh cập nhật</p>
-            <h2 id="notification-title">Nhận thông báo văn bản mới</h2>
-            <p className="notificationIntro">
-              Chỉ thông báo khi toàn văn từ nguồn chính thức đã được nhập đầy đủ và vượt kiểm tra chất lượng. OCR còn dở hoặc văn bản cần xem xét sẽ không được gửi.
-            </p>
 
-            <div className={`notificationStatus ${state === "on" ? "active" : ""}`}>
-              <span className="notificationDot" aria-hidden="true" />
-              <div><strong>{statusCopy[0]}</strong><p>{statusCopy[1]}</p></div>
-            </div>
+            {panelMode === "prompt" ? (
+              <>
+                <p className="eyebrow">Thông báo</p>
+                <h2 id="notification-title">Bật thông báo?</h2>
+                <p className="notificationPromptCopy">Nhận cập nhật khi có văn bản mới.</p>
+                {blockedReason ? <p className="notificationNotice" role="status">{blockedReason}</p> : null}
+                {notice ? <p className="notificationNotice" role="status">{notice}</p> : null}
+                <div className="notificationActions notificationPromptActions">
+                  <button className="notificationPrimary" type="button" onClick={enableNotifications} disabled={cannotEnable}>
+                    {busy ? "Đang bật…" : "Bật thông báo"}
+                  </button>
+                  <button className="notificationSecondary" type="button" onClick={skipOnboarding} disabled={busy}>
+                    Để sau
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="notificationHistoryHeader">
+                  <div>
+                    <p className="eyebrow">7 ngày gần đây</p>
+                    <h2 id="notification-title">Lịch sử thông báo</h2>
+                  </div>
+                  {state === "on" ? (
+                    <button className="notificationToggle" type="button" onClick={disableNotifications} disabled={busy}>
+                      {busy ? "Đang tắt…" : "Tắt"}
+                    </button>
+                  ) : (
+                    <button className="notificationToggle" type="button" onClick={enableNotifications} disabled={cannotEnable}>
+                      {busy ? "Đang bật…" : "Bật"}
+                    </button>
+                  )}
+                </div>
 
-            {notice ? <p className="notificationNotice" role="status">{notice}</p> : null}
+                {blockedReason ? <p className="notificationNotice" role="status">{blockedReason}</p> : null}
+                {notice ? <p className="notificationNotice" role="status">{notice}</p> : null}
 
-            <div className="notificationActions">
-              {state !== "on" ? (
-                <button
-                  className="notificationPrimary"
-                  type="button"
-                  onClick={enableNotifications}
-                  disabled={busy || state === "loading" || state === "unsupported" || state === "unavailable"}
-                >
-                  {busy ? "Đang bật…" : "Bật thông báo"}
-                </button>
-              ) : (
-                <button className="notificationSecondary" type="button" onClick={disableNotifications} disabled={busy}>
-                  {busy ? "Đang tắt…" : "Tắt trên thiết bị này"}
-                </button>
-              )}
-            </div>
+                {historyLoading ? (
+                  <p className="notificationEmpty">Đang tải…</p>
+                ) : history.length ? (
+                  <ul className="notificationHistoryList">
+                    {history.map((item) => (
+                      <li key={item.id}>
+                        <button type="button" onClick={() => openHistoryItem(item)}>
+                          <span className="notificationHistoryTitle">{item.title}</span>
+                          <span className="notificationHistoryBody">{item.body}</span>
+                          <time dateTime={new Date(item.receivedAt).toISOString()}>{historyTime(item.receivedAt)}</time>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="notificationEmpty">Chưa có thông báo nào.</p>
+                )}
 
-            <small className="notificationPrivacy">
-              Không cần tài khoản. Thuế chỉ lưu endpoint kỹ thuật của thiết bị trong Private Blob và tự xóa endpoint đã hết hiệu lực.
-            </small>
+                <div className="notificationHistoryFooter">
+                  <span>Tự xóa sau 7 ngày.</span>
+                  {history.length ? (
+                    <button type="button" onClick={clearHistory} disabled={historyLoading}>Xóa lịch sử</button>
+                  ) : null}
+                </div>
+              </>
+            )}
           </section>
         </div>
       ) : null}
