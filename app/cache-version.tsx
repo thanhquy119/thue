@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 
 const CACHE_VERSION_KEY = "thue-ro-cache-version";
-const CURRENT_CACHE_VERSION = "2026-07-24-exact-document-resolver-v3";
+const CURRENT_CACHE_VERSION = "2026-07-25-notification-history-v1";
 
 export default function CacheVersion() {
   useEffect(() => {
