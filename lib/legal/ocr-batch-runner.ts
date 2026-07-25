@@ -3,6 +3,7 @@ import { isAllowedLegalSource } from "./ingestion";
 import {
   cleanVisualArtifacts,
   hasVisualArtifactHints,
+  prepareOcrImageBands,
   prepareOcrImageVariants,
 } from "./ocr-artifacts";
 import {
@@ -21,6 +22,12 @@ const DEFAULT_MAX_PAGES = 3;
 const ABSOLUTE_PREVIEW_PAGES = 6;
 const MAX_BATCH_PAGES = 3;
 const RENDER_WIDTH = 1_800;
+const DEFAULT_OCR_SYSTEM =
+  "Bạn là bộ OCR cho văn bản pháp luật Việt Nam. Chép trung thực nội dung có ý nghĩa pháp lý nhìn thấy trong ảnh. Bỏ chữ LOGO, watermark, khung viền, đường kẻ trang trí, số trang đứng riêng, metadata máy quét và dòng chứng thực điện tử kiểu SAO Y kèm thời gian. Giữ tiêu đề, Điều/Khoản/Điểm, bảng, biểu mẫu, dòng chấm để điền, danh sách, ô lựa chọn, ghi chú và chú thích có ý nghĩa. Với bảng, mỗi hàng phải nằm trên một dòng và dùng dấu | để phân tách các ô. Không dùng trí nhớ để tự bổ sung. Khi chữ bị che và không thể đọc chắc chắn, ghi [không đọc rõ].";
+const NEUTRAL_OCR_SYSTEM =
+  "Bạn là công cụ nhận dạng ký tự quang học. Nhiệm vụ duy nhất là chuyển các ký tự đang nhìn thấy trong ảnh thành văn bản dữ liệu. Không nhận xét nội dung, không xác định tác giả, không tiếp tục câu ngoài ảnh và không dùng kiến thức có sẵn. Giữ nguyên thứ tự dòng, chữ, số, dấu câu và khoảng trống có ý nghĩa.";
+const NEUTRAL_BAND_PROMPT =
+  "Chép từng dòng ký tự nhìn thấy trong dải ảnh này từ trên xuống dưới. Chỉ trả dữ liệu ký tự, không mở đầu, không giải thích, không tóm tắt và không bổ sung câu ngoài ảnh. Bỏ số trang đứng riêng, logo, watermark, con dấu không che chữ và đường viền. Giữ nguyên tiêu đề, số thứ tự, dấu tiếng Việt, bảng, dòng chấm và dấu câu. Ký tự không xác định chắc chắn ghi [không đọc rõ].";
 
 export type OcrBatchRequest = {
   maxPages?: number;
@@ -48,6 +55,12 @@ type PdfScreenshotPage = {
   data: Uint8Array | Buffer;
 };
 
+type GeminiImageOptions = {
+  systemInstruction?: string;
+  models?: string[];
+  attempts?: number;
+};
+
 function maximumSourceBytes() {
   const configured = Number(process.env.LEGAL_MAX_SOURCE_BYTES ?? 0);
   return Number.isFinite(configured) && configured >= 1_000_000
@@ -62,6 +75,10 @@ function normalizeSpaces(value: string) {
     .replace(/[ ]{2,}/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function sleep(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function apiKey() {
@@ -113,14 +130,25 @@ function generationConfig(model: string) {
   return config;
 }
 
-async function callGeminiWithImage(image: Buffer, prompt: string, timeoutMs = 55_000) {
+async function callGeminiWithImage(
+  image: Buffer,
+  prompt: string,
+  timeoutMs = 55_000,
+  options: GeminiImageOptions = {},
+) {
   if (!hasGeminiConfig()) throw new Error("Gemini chưa được cấu hình cho OCR.");
 
-  const models = Array.from(new Set([ocrModel(), "gemini-3.1-flash-lite", "gemini-3-flash-preview"]));
+  const models = Array.from(new Set(
+    options.models?.length
+      ? options.models
+      : [ocrModel(), "gemini-3.1-flash-lite", "gemini-3-flash-preview"],
+  ));
+  const attempts = Math.max(1, Math.min(2, options.attempts ?? 2));
+  const systemInstruction = options.systemInstruction ?? DEFAULT_OCR_SYSTEM;
   let lastMessage = "";
 
   for (const model of models) {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs + attempt * 10_000);
       try {
@@ -138,12 +166,7 @@ async function callGeminiWithImage(image: Buffer, prompt: string, timeoutMs = 55
             },
             body: JSON.stringify({
               systemInstruction: {
-                parts: [
-                  {
-                    text:
-                      "Bạn là bộ OCR cho văn bản pháp luật Việt Nam. Chép trung thực nội dung có ý nghĩa pháp lý nhìn thấy trong ảnh. Bỏ chữ LOGO, watermark, khung viền, đường kẻ trang trí, số trang đứng riêng, metadata máy quét và dòng chứng thực điện tử kiểu SAO Y kèm thời gian. Giữ tiêu đề, Điều/Khoản/Điểm, bảng, biểu mẫu, dòng chấm để điền, danh sách, ô lựa chọn, ghi chú và chú thích có ý nghĩa. Với bảng, mỗi hàng phải nằm trên một dòng và dùng dấu | để phân tách các ô. Không dùng trí nhớ để tự bổ sung. Khi chữ bị che và không thể đọc chắc chắn, ghi [không đọc rõ].",
-                  },
-                ],
+                parts: [{ text: systemInstruction }],
               },
               contents: [
                 {
@@ -217,6 +240,35 @@ function settledMessage(result: PromiseSettledResult<{ text: string; model: stri
   return `${label}: ${result.reason instanceof Error ? result.reason.message : "không có kết quả"}`;
 }
 
+async function recoverEmptyPage(image: Buffer) {
+  const bands = await prepareOcrImageBands(image, 3);
+  const recovered: string[] = [];
+  const notices: string[] = [];
+  for (let index = 0; index < bands.length; index += 1) {
+    if (index) await sleep(4_100);
+    try {
+      const result = await callGeminiWithImage(
+        bands[index],
+        `${NEUTRAL_BAND_PROMPT}\n\nDải ${index + 1}/${bands.length}.`,
+        55_000,
+        {
+          systemInstruction: NEUTRAL_OCR_SYSTEM,
+          models: [ocrModel()],
+          attempts: 1,
+        },
+      );
+      const text = cleanVisualArtifacts(result.text).text;
+      if (text) recovered.push(text);
+    } catch (error) {
+      notices.push(`Dải ${index + 1}: ${error instanceof Error ? error.message : "không có kết quả"}`);
+    }
+  }
+  return {
+    text: normalizeSpaces(recovered.join("\n\n")),
+    notices,
+  };
+}
+
 async function comparePage(image: Buffer, page: number, embeddedFallback = ""): Promise<OcrPageComparison> {
   const variants = await prepareOcrImageVariants(image);
   const [literalResult, structureResult] = await Promise.allSettled([
@@ -270,6 +322,17 @@ async function comparePage(image: Buffer, page: number, embeddedFallback = ""): 
   }
 
   if (!drafts.length) {
+    const recovered = await recoverEmptyPage(variants.enhanced);
+    notices.push(...recovered.notices);
+    const recoveryDraft = cleanedDraft(recovered.text, "consensus");
+    consensusScore = recoveryDraft.score;
+    if (recoveryDraft.text && recoveryDraft.score >= 0.5) {
+      drafts.push(recoveryDraft);
+      notices.push("Hai lượt OCR chuẩn không trả chữ; trang đã được phục hồi bằng ba dải ảnh và prompt chép ký tự trung tính.");
+    }
+  }
+
+  if (!drafts.length) {
     const fallback = cleanVisualArtifacts(embeddedFallback).text;
     const embedded: OcrDraft = {
       text: fallback,
@@ -278,7 +341,7 @@ async function comparePage(image: Buffer, page: number, embeddedFallback = ""): 
     };
     notices.push(
       fallback
-        ? "Hai lượt OCR không trả chữ; trang này tạm dùng lớp chữ PDF để không làm hỏng toàn bộ tiến trình."
+        ? "Các lượt OCR không trả chữ; trang này tạm dùng lớp chữ PDF để không làm hỏng toàn bộ tiến trình."
         : "Trang này không có kết quả OCR và cũng không có lớp chữ PDF đủ dùng.",
     );
     return {

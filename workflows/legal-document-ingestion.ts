@@ -52,8 +52,36 @@ type ExtractedWorkflowSource = Omit<DurableExtractedSource, "sourceBuffer"> & {
   sourceBlobUrl: string | null;
 };
 
+const EMPTY_OCR_RETRY_MIN_MS = 5_000;
+const EMPTY_OCR_RETRY_MAX_MS = 65_000;
+const EMPTY_OCR_MAX_RETRIES = 3;
+
 function now() {
   return new Date().toISOString();
+}
+
+function usableOcrPage(page: DurableOcrPage) {
+  return Boolean(page.text.trim()) && page.score > 0;
+}
+
+function quotaRetryDelayMs(pages: DurableOcrPage[]) {
+  const retrySeconds = pages
+    .flatMap((page) => page.notices)
+    .flatMap((notice) =>
+      [...notice.matchAll(/retry in\s+(\d+(?:\.\d+)?)s/giu)]
+        .map((match) => Number(match[1]))
+        .filter(Number.isFinite),
+    );
+  const recommended = retrySeconds.length
+    ? Math.ceil(Math.max(...retrySeconds) * 1_000) + 1_500
+    : EMPTY_OCR_RETRY_MIN_MS;
+  return Math.max(EMPTY_OCR_RETRY_MIN_MS, Math.min(EMPTY_OCR_RETRY_MAX_MS, recommended));
+}
+
+function mergeOcrPages(original: DurableOcrPage[], retried: DurableOcrPage[]) {
+  const byPage = new Map(original.map((page) => [page.page, page]));
+  for (const page of retried) byPage.set(page.page, page);
+  return [...byPage.values()].sort((left, right) => left.page - right.page);
 }
 
 function state(
@@ -285,7 +313,7 @@ async function readOcrPagesStep(
   "use step";
   const pages = (
     await Promise.all(requestedPages.map((page) => readDurableOcrPage(number, jobId, page)))
-  ).filter((page): page is DurableOcrPage => Boolean(page?.text.trim()));
+  ).filter((page): page is DurableOcrPage => Boolean(page && usableOcrPage(page)));
   console.info("[legal-ingestion-ocr-checkpoints]", JSON.stringify({
     number,
     jobId,
@@ -304,23 +332,54 @@ async function ocrPagesStep(
   persist: boolean,
 ): Promise<DurableOcrPage[]> {
   "use step";
-  const result = await runOcrBatch(sourceUrl, { pages });
-  const completed = result.ocr.pages.map((page) => ({
-    page: page.page,
-    text: page.text,
-    score: page.chosenScore,
-    similarity: page.similarity,
-    chosenPass: page.chosenPass,
-    notices: page.notices ?? [],
-  }));
+  const toDurablePages = (result: Awaited<ReturnType<typeof runOcrBatch>>): DurableOcrPage[] =>
+    result.ocr.pages.map((page) => ({
+      page: page.page,
+      text: page.text,
+      score: page.chosenScore,
+      similarity: page.similarity,
+      chosenPass: page.chosenPass,
+      notices: page.notices ?? [],
+    }));
+
+  let completed = toDurablePages(await runOcrBatch(sourceUrl, { pages }));
+  let unusablePages = completed.filter((page) => !usableOcrPage(page));
+  const retryDelaysMs: number[] = [];
+  let retryAttempts = 0;
+  while (unusablePages.length && retryAttempts < EMPTY_OCR_MAX_RETRIES) {
+    const retryDelayMs = quotaRetryDelayMs(unusablePages);
+    retryDelaysMs.push(retryDelayMs);
+    retryAttempts += 1;
+    console.warn("[legal-ingestion-ocr-retry]", JSON.stringify({
+      number,
+      jobId,
+      pages: unusablePages.map((page) => page.page),
+      attempt: retryAttempts,
+      maxAttempts: EMPTY_OCR_MAX_RETRIES,
+      delayMs: retryDelayMs,
+      reason: "empty_or_zero_score",
+    }));
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    const retried = toDurablePages(await runOcrBatch(sourceUrl, {
+      pages: unusablePages.map((page) => page.page),
+    }));
+    completed = mergeOcrPages(completed, retried);
+    unusablePages = completed.filter((page) => !usableOcrPage(page));
+  }
+
+  const usable = completed.filter(usableOcrPage);
+  const rejected = completed.filter((page) => !usableOcrPage(page));
   if (persist) {
-    for (const page of completed) await writeDurableOcrPage(number, jobId, page);
+    for (const page of usable) await writeDurableOcrPage(number, jobId, page);
   }
   console.info("[legal-ingestion-ocr-batch]", JSON.stringify({
     number,
     jobId,
     requestedPages: pages,
-    processedPages: completed.map((page) => page.page),
+    processedPages: usable.map((page) => page.page),
+    rejectedPages: rejected.map((page) => page.page),
+    retryAttempts,
+    retryDelaysMs,
     scores: completed.map((page) => ({
       page: page.page,
       score: page.score,
@@ -330,7 +389,7 @@ async function ocrPagesStep(
     })),
     persist,
   }));
-  return completed;
+  return usable;
 }
 
 async function validateAndBuildRevisionStep(

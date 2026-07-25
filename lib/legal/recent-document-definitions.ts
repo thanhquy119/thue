@@ -6,6 +6,8 @@ export type RecentDocumentDownload = {
   mimeType: string;
   referer: string;
   label: string;
+  textStartMarker?: string;
+  textEndMarker?: string;
 };
 
 export type RecentDocumentDefinition = {
@@ -21,6 +23,32 @@ export type RecentDocumentDefinition = {
 
 const DOCUMENTS: RecentDocumentDefinition[] = [
   {
+    number: "108/2025/QH15",
+    title: "Luật Quản lý thuế",
+    issuedDate: "2025-12-10",
+    effectiveDate: "2026-07-01",
+    officialPage: "https://congbao.chinhphu.vn/van-ban/luat-so-108-2025-qh15-468670/61635.htm",
+    minimumTextLength: 10_000,
+    downloads: [
+      {
+        url: "https://g7.cdnchinhphu.vn/api/download/stream?Url=tm-8mq6BhNw0NbrKRhTDAaHMpvrqWaeHuYm7lW3HNfzTzww8Myg35dDL_fJB4izw4hPXncfHJQbhdCGlxb8TQvmvpGInXk1XW_EQtJ6G5fzHZ4Ju3kkVHLOdmjON8vyu&file_name=2026_38_108%2F2025%2FQH15.docx",
+        fileName: "2026_38_108_2025_QH15.docx",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        referer: "https://congbao.chinhphu.vn/van-ban/luat-so-108-2025-qh15-468670/61635.htm",
+        label: "Bản DOCX chính thức từ Công báo điện tử Chính phủ",
+      },
+      {
+        url: "https://ketoannavi.vn/van_ban/luat-so-108-2025-qh15-luat-quan-ly-thue/",
+        fileName: "Luat so 108_2025_QH15.html",
+        mimeType: "text/html",
+        referer: "https://ketoannavi.vn/",
+        label: "Bản HTML toàn văn công bố lại đã đối chiếu với bản scan chính thức",
+        textStartMarker: "QUỐC HỘI",
+        textEndMarker: "Xem thêm: Bài viết mới tại:",
+      },
+    ],
+  },
+  {
     number: "90/2026/TT-BTC",
     title: "Quy định về đăng ký thuế",
     issuedDate: "2026-06-30",
@@ -35,6 +63,35 @@ const DOCUMENTS: RecentDocumentDefinition[] = [
         referer:
           "https://baocaotaichinh.vn/thu-vien/thong-tu-so-90-2026-ttbtc-cua-bo-tai-chinh-quy-dinh-ve-dang-ky-thue-1178433928-429186",
         label: "Bản DOCX công bố lại đã đối chiếu với Cổng Chính phủ",
+      },
+    ],
+  },
+  {
+    number: "91/2026/TT-BTC",
+    title:
+      "Quy định một số điều của Luật Quản lý thuế và Nghị định số 254/2026/NĐ-CP về hóa đơn điện tử, chứng từ điện tử",
+    issuedDate: "2026-06-30",
+    effectiveDate: "2026-07-01",
+    officialPage:
+      "https://xaydungchinhsach.chinhphu.vn/nhung-diem-moi-cua-nghi-dinh-254-2026-nd-cp-va-thong-tu-91-2026-tt-btc-ve-hoa-don-dien-tu-chung-tu-dien-tu-119260717143502375.htm",
+    minimumTextLength: 5_000,
+    downloads: [
+      {
+        url: "https://dulieuphapluat.vn/van-ban/thue-phi-le-phi-van-ban/thong-tu-912026tt-btc-huong-dan-luat-quan-ly-thue-va-nghi-dinh-2542026nd-cp-huong-dan-luat-quan-ly-thue-ve-hoa-don-dien-tu-chung-tu-dien-tu-do-bo-truong-bo-tai-chinh-ban-hanh-1389630.html",
+        fileName: "Thong tu so 91_2026_TT-BTC.html",
+        mimeType: "text/html",
+        referer: "https://dulieuphapluat.vn/",
+        label: "Bản HTML toàn văn công bố lại đã đối chiếu với nguồn Chính phủ",
+        textStartMarker: "BỘ TÀI CHÍNH",
+        textEndMarker: "Từ khóa:",
+      },
+      {
+        url: "https://baocaotaichinh.vn/tintuc/download?file=1670286540thong-tu-so-91_2026_tt-btc.pdf",
+        fileName: "Thong tu so 91_2026_TT-BTC.pdf",
+        mimeType: "application/pdf",
+        referer:
+          "https://baocaotaichinh.vn/thu-vien/thong-tu-so-91-2026-ttbtc-cua-bo-tai-chinh-quy-dinh-mot-so-dieu-cua-luat-quan-ly-thue-va-nghi-dinh-254-2026-ndcp-cua-chinh-phu-quy-dinh-chi-tiet-mot-so-dieu-va-bien-phap-de-to-chuc-huong-dan-thi-hanh-luat-quan-ly-thue-so-108-2025-qh15-ve-hoa-don-dien-tu-chung-tu-dien-tu-1647512103-313179",
+        label: "Bản PDF công bố lại đã đối chiếu với nguồn Chính phủ",
       },
     ],
   },
