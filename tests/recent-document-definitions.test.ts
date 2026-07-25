@@ -21,10 +21,12 @@ test("does not guess a ministry circular when the issuer is missing", () => {
   assert.equal(findRecentDocumentForQuery("thông tư 90 năm 2026"), null);
 });
 
-test("recognizes Circular 91 with its reviewed PDF source", () => {
+test("recognizes Circular 91 with its reviewed full-text sources", () => {
   const document = findRecentDocumentForQuery("91/2026/TT-BTC");
   assert.equal(document?.number, "91/2026/TT-BTC");
-  assert.equal(document?.downloads[0]?.mimeType, "application/pdf");
+  assert.equal(document?.downloads[0]?.mimeType, "text/html");
+  assert.match(document?.downloads[0]?.textStartMarker ?? "", /BỘ TÀI CHÍNH/i);
+  assert.equal(document?.downloads.some((download) => download.mimeType === "application/pdf"), true);
   assert.match(document?.officialPage ?? "", /thong-tu-91-2026-tt-btc/i);
 });
 
