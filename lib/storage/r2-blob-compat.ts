@@ -1,4 +1,3 @@
-import { createHash, createHmac } from "node:crypto";
 import {
   del as blobDel,
   get as blobGet,
@@ -50,8 +49,9 @@ type R2Config = {
   secretAccessKey: string;
 };
 
-const EMPTY_SHA256 = createHash("sha256").update("").digest("hex");
+const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 const TOMBSTONE_PREFIX = "_storage-tombstones/";
+const encoder = new TextEncoder();
 
 function r2Config(): R2Config | null {
   const endpoint = process.env.R2_ENDPOINT?.trim().replace(/\/+$/u, "");
@@ -94,18 +94,34 @@ function encodePath(pathname: string) {
     .join("/");
 }
 
-function sha256(value: string | Buffer | Uint8Array) {
-  return createHash("sha256").update(value).digest("hex");
+function bytes(value: string | Buffer | Uint8Array) {
+  if (typeof value === "string") return encoder.encode(value);
+  return new Uint8Array(value);
 }
 
-function hmac(key: string | Buffer, value: string) {
-  return createHmac("sha256", key).update(value).digest();
+function hex(value: ArrayBuffer) {
+  return [...new Uint8Array(value)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function signingKey(secret: string, date: string, region: string) {
-  const dateKey = hmac(`AWS4${secret}`, date);
-  const regionKey = hmac(dateKey, region);
-  const serviceKey = hmac(regionKey, "s3");
+async function sha256(value: string | Buffer | Uint8Array) {
+  return hex(await crypto.subtle.digest("SHA-256", bytes(value)));
+}
+
+async function hmac(key: string | Uint8Array, value: string) {
+  const imported = await crypto.subtle.importKey(
+    "raw",
+    typeof key === "string" ? encoder.encode(key) : key,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  return new Uint8Array(await crypto.subtle.sign("HMAC", imported, encoder.encode(value)));
+}
+
+async function signingKey(secret: string, date: string, region: string) {
+  const dateKey = await hmac(`AWS4${secret}`, date);
+  const regionKey = await hmac(dateKey, region);
+  const serviceKey = await hmac(regionKey, "s3");
   return hmac(serviceKey, "aws4_request");
 }
 
@@ -132,12 +148,8 @@ async function signedR2Request(
   const config = r2Config();
   if (!config) throw new Error("R2 chưa được cấu hình đầy đủ.");
 
-  const body = options.body === undefined
-    ? Buffer.alloc(0)
-    : typeof options.body === "string"
-      ? Buffer.from(options.body)
-      : Buffer.from(options.body);
-  const payloadHash = body.byteLength ? sha256(body) : EMPTY_SHA256;
+  const body = options.body === undefined ? new Uint8Array() : bytes(options.body);
+  const payloadHash = body.byteLength ? await sha256(body) : EMPTY_SHA256;
   const now = new Date();
   const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/gu, "");
   const dateStamp = amzDate.slice(0, 8);
@@ -157,24 +169,18 @@ async function signedR2Request(
   const sortedHeaders = [...headers.entries()].sort(([left], [right]) => left.localeCompare(right));
   const canonicalHeaders = sortedHeaders.map(([key, value]) => `${key}:${value.trim()}\n`).join("");
   const signedHeaders = sortedHeaders.map(([key]) => key).join(";");
-  const canonicalRequest = [
-    method,
-    canonicalUri,
-    query,
-    canonicalHeaders,
-    signedHeaders,
-    payloadHash,
-  ].join("\n");
+  const canonicalRequest = [method, canonicalUri, query, canonicalHeaders, signedHeaders, payloadHash].join("\n");
   const scope = `${dateStamp}/${config.region}/s3/aws4_request`;
   const stringToSign = [
     "AWS4-HMAC-SHA256",
     amzDate,
     scope,
-    sha256(canonicalRequest),
+    await sha256(canonicalRequest),
   ].join("\n");
-  const signature = createHmac("sha256", signingKey(config.secretAccessKey, dateStamp, config.region))
-    .update(stringToSign)
-    .digest("hex");
+  const signature = hex((await hmac(
+    await signingKey(config.secretAccessKey, dateStamp, config.region),
+    stringToSign,
+  )).buffer);
   headers.set(
     "authorization",
     `AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
@@ -194,19 +200,19 @@ function r2Url(pathname: string) {
   return `r2://${config?.bucket ?? "bucket"}/${pathname}`;
 }
 
-function tombstonePath(pathname: string) {
-  return `${TOMBSTONE_PREFIX}${sha256(pathname)}.json`;
+async function tombstonePath(pathname: string) {
+  return `${TOMBSTONE_PREFIX}${await sha256(pathname)}.json`;
 }
 
 async function hasTombstone(pathname: string) {
   if (!r2Configured()) return false;
-  const response = await signedR2Request("GET", tombstonePath(pathname));
+  const response = await signedR2Request("GET", await tombstonePath(pathname));
   return response.status === 200;
 }
 
 async function writeTombstone(pathname: string) {
   if (!r2Configured()) return;
-  await signedR2Request("PUT", tombstonePath(pathname), {
+  await signedR2Request("PUT", await tombstonePath(pathname), {
     body: JSON.stringify({ pathname, deletedAt: new Date().toISOString() }),
     contentType: "application/json; charset=utf-8",
     cacheControl: "no-store",
@@ -233,7 +239,7 @@ async function putR2(pathname: string, body: string | Buffer | Uint8Array, optio
     pathname,
     contentType: options.contentType ?? "application/octet-stream",
     contentDisposition: "inline",
-    etag: response.headers.get("etag") ?? sha256(typeof body === "string" ? body : Buffer.from(body)),
+    etag: response.headers.get("etag") ?? await sha256(body),
   };
 }
 
@@ -241,20 +247,20 @@ async function getR2(pathname: string) {
   const response = await signedR2Request("GET", pathname);
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`R2 GET ${pathname} thất bại (${response.status}).`);
-  const bytes = new Uint8Array(await response.arrayBuffer());
+  const value = new Uint8Array(await response.arrayBuffer());
   const url = r2Url(pathname);
   return {
     statusCode: 200,
-    stream: new Response(bytes).body,
+    stream: new Response(value).body,
     blob: {
       url,
       downloadUrl: url,
       pathname,
       contentType: response.headers.get("content-type") ?? undefined,
       contentDisposition: response.headers.get("content-disposition") ?? "inline",
-      etag: response.headers.get("etag") ?? sha256(bytes),
+      etag: response.headers.get("etag") ?? await sha256(value),
     },
-    bytes,
+    bytes: value,
   };
 }
 
@@ -296,10 +302,7 @@ async function listR2(options: ListOptions = {}): Promise<ListResult> {
       uploadedAt,
     }];
   });
-  return {
-    blobs,
-    cursor: xmlValue(xml, "NextContinuationToken") ?? undefined,
-  };
+  return { blobs, cursor: xmlValue(xml, "NextContinuationToken") ?? undefined };
 }
 
 async function migrateBlobObject(pathname: string, access: "public" | "private") {
@@ -307,8 +310,8 @@ async function migrateBlobObject(pathname: string, access: "public" | "private")
     ? { access: "private", useCache: false }
     : { access: "public" });
   if (!legacy || legacy.statusCode !== 200 || !legacy.stream) return null;
-  const bytes = new Uint8Array(await new Response(legacy.stream).arrayBuffer());
-  await putR2(pathname, bytes, {
+  const value = new Uint8Array(await new Response(legacy.stream).arrayBuffer());
+  await putR2(pathname, value, {
     allowOverwrite: false,
     contentType: legacy.blob.contentType ?? "application/octet-stream",
   }).catch(async (error) => {
@@ -384,16 +387,15 @@ export async function list(options: ListOptions = {}): Promise<ListResult> {
   if (!r2Configured()) return blobList(options) as Promise<ListResult>;
   const primary = await listR2(options);
 
-  // Legal-document checkpoints and sources are new writes in R2. Reading exact files still
-  // falls back and migrates lazily, but broad Blob listings are intentionally avoided to
-  // protect the remaining Vercel Blob advanced-request quota.
+  // Exact reads migrate old documents lazily. Broad legal-document Blob listings are
+  // intentionally avoided so the remaining Vercel advanced-request quota is preserved.
   if (!options.prefix?.startsWith("legal-notifications/") || !blobFallbackConfigured()) return primary;
 
   const legacy = await blobList(options);
   const tombstones = await tombstonedPathHashes();
   const byPath = new Map(primary.blobs.map((blob) => [blob.pathname, blob]));
   for (const blob of legacy.blobs) {
-    if (tombstones.has(sha256(blob.pathname)) || byPath.has(blob.pathname)) continue;
+    if (tombstones.has(await sha256(blob.pathname)) || byPath.has(blob.pathname)) continue;
     byPath.set(blob.pathname, {
       url: blob.url,
       downloadUrl: blob.downloadUrl,
