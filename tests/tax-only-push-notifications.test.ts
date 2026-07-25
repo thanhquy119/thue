@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  classifyTaxDocumentForNotification,
   extractExplicitLegalRelations,
   publishedDocumentPayload,
   shouldNotifyPublishedDocument,
   type PublishedDocumentNotification,
 } from "../lib/notifications/push-core.ts";
+import { classifyStrictTaxDocumentForNotification } from "../lib/notifications/tax-notification-policy.ts";
 
 function notification(patch: Partial<PublishedDocumentNotification> = {}): PublishedDocumentNotification {
   return {
@@ -59,18 +59,18 @@ const NON_TAX_DOCUMENTS = [
 
 test("accepts the current tax-document matrix and common tax topics", () => {
   for (const [number, title] of CURRENT_TAX_DOCUMENTS) {
-    const result = classifyTaxDocumentForNotification(notification({ number, title }));
+    const result = classifyStrictTaxDocumentForNotification(notification({ number, title }));
     assert.equal(result.eligible, true, `${number}: ${result.reason}`);
   }
   for (const title of TAX_TOPIC_TITLES) {
-    const result = classifyTaxDocumentForNotification(notification({ title }));
+    const result = classifyStrictTaxDocumentForNotification(notification({ title }));
     assert.equal(result.eligible, true, `${title}: ${result.reason}`);
   }
 });
 
 test("rejects internal tax-sector administration and non-tax finance documents", () => {
   for (const [number, title] of NON_TAX_DOCUMENTS) {
-    const result = classifyTaxDocumentForNotification(notification({
+    const result = classifyStrictTaxDocumentForNotification(notification({
       number,
       title,
       officialText: "Văn bản có nhắc đến Bộ Tài chính, cơ quan thuế và người nộp thuế trong phần căn cứ.",
@@ -80,7 +80,7 @@ test("rejects internal tax-sector administration and non-tax finance documents",
 });
 
 test("uses multiple official-text signals only when a neutral legal title lacks tax words", () => {
-  const accepted = classifyTaxDocumentForNotification(notification({
+  const accepted = classifyStrictTaxDocumentForNotification(notification({
     title: "Quy định chi tiết một số điều của Luật số 108/2025/QH15",
     documentType: "Nghị định",
     officialText: "Người nộp thuế thực hiện khai thuế, nộp thuế tại cơ quan thuế quản lý trực tiếp.",
@@ -88,7 +88,7 @@ test("uses multiple official-text signals only when a neutral legal title lacks 
   assert.equal(accepted.eligible, true);
   assert.equal(accepted.reason, "tax_content");
 
-  const rejected = classifyTaxDocumentForNotification(notification({
+  const rejected = classifyStrictTaxDocumentForNotification(notification({
     title: "Quy định chi tiết một số điều của Luật số 01/2025/QH15",
     documentType: "Nghị định",
     officialText: "Kinh phí thực hiện được hạch toán; hồ sơ có thể sử dụng mã số thuế để đối chiếu.",
@@ -104,10 +104,10 @@ test("hard notification eligibility rejects non-tax documents even when accepted
     number: "256/2026/NĐ-CP",
     title: "Quy định về trang phục và phù hiệu của công chức thuế",
   }), now, 60), false);
-  assert.equal(shouldNotifyPublishedDocument(notification({
-    title: "Hướng dẫn chế độ kế toán doanh nghiệp",
-    officialText: "Văn bản có một dẫn chiếu tới nghĩa vụ thuế.",
-  }), now, 60), false);
+  assert.equal(classifyStrictTaxDocumentForNotification(notification({
+    title: "Quy định mức thu phí và lệ phí trong lĩnh vực xây dựng",
+    officialText: "Phần căn cứ nhắc tới cơ quan thuế và người nộp thuế.",
+  })).eligible, false);
 });
 
 test("extracts only explicit replacement, amendment and repeal relations", () => {
