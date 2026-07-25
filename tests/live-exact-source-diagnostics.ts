@@ -1,27 +1,50 @@
-import {
-  discoverExactGazetteSources,
-} from "../lib/legal/exact-official-document-resolver.ts";
+import { discoverExactGazetteSources } from "../lib/legal/exact-official-document-resolver.ts";
 import { discoverExactOfficialSourcesSafe } from "../lib/legal/exact-official-document-safe.ts";
-import { extractDurableLegalSource } from "../lib/legal/durable-extraction.ts";
+import { normalizeDocumentNumber } from "../lib/legal/durable-ingestion-types.ts";
 
 const enabled = process.env.RUN_LIVE_EXACT_DOCUMENTS === "true" ||
   (process.env.VERCEL_GIT_COMMIT_MESSAGE ?? "").includes("[live-exact-documents]");
 
-function safeUrlSummary(value: string) {
-  const url = new URL(value);
-  return {
-    host: url.hostname,
-    pathname: url.pathname,
-    fileName: url.searchParams.get("file_name"),
-    hasOpaqueToken: url.searchParams.has("Url"),
-    url: value,
-  };
+const GAZETTE_URL = "https://api-searchcongbao.chinhphu.vn/search/van-ban";
+const COMMON_REQUEST = { page: 1, page_size: 30 };
+
+const REQUEST_VARIANTS: Array<{ name: string; body: Record<string, unknown> }> = [
+  { name: "query", body: { ...COMMON_REQUEST, filters: {}, query: "253/2026/NĐ-CP" } },
+  { name: "keyword", body: { ...COMMON_REQUEST, filters: {}, keyword: "253/2026/NĐ-CP" } },
+  { name: "search", body: { ...COMMON_REQUEST, filters: {}, search: "253/2026/NĐ-CP" } },
+  { name: "search_text", body: { ...COMMON_REQUEST, filters: {}, search_text: "253/2026/NĐ-CP" } },
+  { name: "text_search", body: { ...COMMON_REQUEST, filters: {}, text_search: "253/2026/NĐ-CP" } },
+  { name: "tu_khoa", body: { ...COMMON_REQUEST, filters: {}, tu_khoa: "253/2026/NĐ-CP" } },
+  { name: "filter_so_ky_hieu", body: { ...COMMON_REQUEST, filters: { so_ky_hieu: "253/2026/NĐ-CP" } } },
+  { name: "filter_keyword", body: { ...COMMON_REQUEST, filters: { keyword: "253/2026/NĐ-CP" } } },
+];
+
+function exactRecords(data: unknown, number: string) {
+  if (!Array.isArray(data)) return [];
+  const expected = normalizeDocumentNumber(number);
+  return data
+    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
+    .filter((item) => normalizeDocumentNumber(String(item.so_ky_hieu ?? "")) === expected)
+    .map((item) => ({
+      id_van_ban: item.id_van_ban,
+      so_ky_hieu: item.so_ky_hieu,
+      attachments: Array.isArray(item.danh_sach_tep_van_ban)
+        ? item.danh_sach_tep_van_ban.map((attachment) => {
+            const value = attachment as Record<string, unknown>;
+            return {
+              duong_dan: value.duong_dan,
+              file_extension: value.file_extension,
+              ten_file: value.ten_file,
+            };
+          })
+        : [],
+    }));
 }
 
-async function inspectGazetteApi(number: string) {
+async function postVariant(name: string, body: Record<string, unknown>, number: string) {
   const startedAt = Date.now();
   try {
-    const response = await fetch("https://api-searchcongbao.chinhphu.vn/search/van-ban", {
+    const response = await fetch(GAZETTE_URL, {
       method: "POST",
       cache: "no-store",
       headers: {
@@ -32,37 +55,25 @@ async function inspectGazetteApi(number: string) {
         origin: "https://congbao.chinhphu.vn",
         referer: "https://congbao.chinhphu.vn/",
       },
-      body: JSON.stringify({ filters: {}, page: 1, page_size: 30, query: number }),
+      body: JSON.stringify(body),
     });
-    const text = await response.text();
-    let shape: unknown = null;
-    try {
-      const payload = JSON.parse(text) as Record<string, unknown>;
-      const data = payload.data;
-      shape = {
-        topLevelKeys: Object.keys(payload),
-        dataType: Array.isArray(data) ? "array" : typeof data,
-        dataKeys: data && !Array.isArray(data) && typeof data === "object"
-          ? Object.keys(data as Record<string, unknown>)
-          : [],
-        firstRecordKeys: Array.isArray(data) && data[0] && typeof data[0] === "object"
-          ? Object.keys(data[0] as Record<string, unknown>)
-          : [],
-      };
-    } catch {
-      // Keep the response preview for non-JSON diagnostics.
-    }
-    console.log("[live-gazette-api]", JSON.stringify({
-      number,
+    const payload = await response.json() as Record<string, unknown>;
+    const data = payload.data;
+    console.log("[live-gazette-request-variant]", JSON.stringify({
+      name,
       durationMs: Date.now() - startedAt,
       status: response.status,
-      contentType: response.headers.get("content-type"),
-      shape,
-      preview: text.slice(0, 4_000),
+      total: payload.total,
+      pagination: payload.pagination,
+      dataCount: Array.isArray(data) ? data.length : null,
+      firstNumbers: Array.isArray(data)
+        ? data.slice(0, 5).map((item) => String((item as Record<string, unknown>).so_ky_hieu ?? ""))
+        : [],
+      exactRecords: exactRecords(data, number),
     }));
   } catch (error) {
-    console.warn("[live-gazette-api-error]", JSON.stringify({
-      number,
+    console.warn("[live-gazette-request-variant-error]", JSON.stringify({
+      name,
       durationMs: Date.now() - startedAt,
       error: error instanceof Error ? error.message : String(error),
     }));
@@ -72,17 +83,14 @@ async function inspectGazetteApi(number: string) {
 async function main() {
   if (!enabled) return;
   const number = "253/2026/NĐ-CP";
-  await inspectGazetteApi(number);
+  for (const variant of REQUEST_VARIANTS) await postVariant(variant.name, variant.body, number);
+
   try {
     const gazette = await discoverExactGazetteSources(number);
     console.log("[live-exact-gazette-sources]", JSON.stringify({
       number,
       sourceCount: gazette.length,
-      sources: gazette.map((source, index) => ({
-        index,
-        officialPageUrl: source.officialPageUrl,
-        ...safeUrlSummary(source.sourceUrl),
-      })),
+      sources: gazette.map((source) => source.sourceUrl),
     }));
   } catch (error) {
     console.warn("[live-exact-gazette-error]", JSON.stringify({
@@ -95,41 +103,11 @@ async function main() {
   console.log("[live-exact-source-diagnostics]", JSON.stringify({
     number,
     sourceCount: sources.length,
-    sources: sources.map((source, index) => ({
-      index,
+    sources: sources.map((source) => ({
+      sourceUrl: source.sourceUrl,
       officialPageUrl: source.officialPageUrl,
-      ...safeUrlSummary(source.sourceUrl),
     })),
   }));
-
-  for (const [index, source] of sources.slice(0, 12).entries()) {
-    const startedAt = Date.now();
-    try {
-      const extracted = await extractDurableLegalSource(source.sourceUrl);
-      console.log("[live-exact-source-result]", JSON.stringify({
-        number,
-        index,
-        durationMs: Date.now() - startedAt,
-        sourceUrl: source.sourceUrl,
-        resolvedUrl: extracted.sourceUrl,
-        mimeType: extracted.mimeType,
-        fileName: extracted.fileName,
-        extractionMethod: extracted.extractionMethod,
-        requiresOcr: extracted.requiresOcr,
-        characters: extracted.officialText.length,
-        qualityScore: extracted.qualityScore,
-        totalPages: extracted.totalPages,
-      }));
-    } catch (error) {
-      console.warn("[live-exact-source-error]", JSON.stringify({
-        number,
-        index,
-        durationMs: Date.now() - startedAt,
-        sourceUrl: source.sourceUrl,
-        error: error instanceof Error ? error.message : String(error),
-      }));
-    }
-  }
 }
 
 main().catch((error) => {
