@@ -2,6 +2,9 @@ import { extractSearchHint, normalizeLegalQuery } from "./query.ts";
 import { CURRENT_TAX_DOCUMENT_NUMBERS } from "./recent-tax-discovery-core.ts";
 
 const LOOKUP_LANGUAGE = /\b(?:doc|mo|xem|tim|tra cuu|van ban|toan van)\b/u;
+const NON_SUBSTANTIVE_TAX_DOCUMENTS = new Set([
+  "256/2026/NĐ-CP",
+]);
 
 function documentType(number: string) {
   if (/\/(?:NĐ|ND)-CP$/iu.test(number)) return "Nghị định";
@@ -25,7 +28,8 @@ function issuerMatches(normalized: string, number: string) {
 
 /**
  * Chỉ suy ra số hiệu đầy đủ từ danh mục văn bản thuế hiện hành đã theo dõi.
- * Không đoán khi thiếu ý định tra cứu hoặc có hơn một ứng viên phù hợp.
+ * Không đoán khi thiếu ý định tra cứu, có hơn một ứng viên phù hợp hoặc văn bản
+ * chỉ điều chỉnh tổ chức, trang phục và quản trị nội bộ ngành Thuế.
  */
 export function currentTaxDocumentCandidates(query: string) {
   const hint = extractSearchHint(query);
@@ -36,6 +40,7 @@ export function currentTaxDocumentCandidates(query: string) {
   if (!hasLookupIntent) return [];
 
   return CURRENT_TAX_DOCUMENT_NUMBERS.filter((number) => {
+    if (NON_SUBSTANTIVE_TAX_DOCUMENTS.has(number)) return false;
     const [candidateNumber, candidateYear] = number.split("/");
     if (candidateNumber !== hint.number) return false;
     if (hint.year && candidateYear !== hint.year) return false;
