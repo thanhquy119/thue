@@ -16,6 +16,7 @@ import { discoverRecentTaxDocuments } from "@/lib/legal/recent-tax-discovery";
 import type { DurableLegalSource } from "@/lib/legal/durable-ingestion-types";
 import { dispatchPublishedDocumentNotifications } from "@/lib/notifications/push-service";
 import { cleanupExpiredPushReceipts } from "@/lib/notifications/push-store";
+import { classifyStrictTaxDocumentForNotification } from "@/lib/notifications/tax-notification-policy";
 import { legalDocumentIngestionWorkflow } from "@/workflows/legal-document-ingestion";
 
 export const runtime = "nodejs";
@@ -46,8 +47,8 @@ export async function GET(request: Request) {
   if (!durableStoreConfigured()) {
     return NextResponse.json(
       {
-        error: "Chưa kết nối Vercel Blob nên Cron không được phép tạo công việc không thể lưu checkpoint.",
-        code: "BLOB_NOT_CONFIGURED",
+        error: "Chưa kết nối kho bền vững nên Cron không được phép tạo công việc không thể lưu checkpoint.",
+        code: "DURABLE_STORE_NOT_CONFIGURED",
       },
       { status: 503 },
     );
@@ -80,14 +81,30 @@ export async function GET(request: Request) {
       if (processedRevisions >= notificationRevisionLimit()) break;
       const revision = await readDurableRevision(document.number).catch(() => null);
       if (!revision?.validation.accepted) continue;
-      const summary = await dispatchPublishedDocumentNotifications({
+      const notification = {
         revisionId: revision.revisionId,
         number: revision.document.number,
         title: revision.document.title,
         issuedDate: revision.document.issued_date,
         publishedAt: revision.publishedAt,
         accepted: revision.validation.accepted,
-      }).catch((error) => ({
+        documentType: revision.document.type,
+        issuer: revision.document.issuer,
+        officialText: revision.document.official_text,
+      };
+      const taxScope = classifyStrictTaxDocumentForNotification(notification);
+      if (!taxScope.eligible) {
+        notificationDispatches.push({
+          number: revision.document.number,
+          revision_id: revision.revisionId,
+          eligible: false,
+          alreadyDispatched: false,
+          reason: "not_tax_document",
+          classification: taxScope,
+        });
+        continue;
+      }
+      const summary = await dispatchPublishedDocumentNotifications(notification).catch((error) => ({
         eligible: true,
         alreadyDispatched: false,
         error: error instanceof Error ? error.message : "Không gửi được Web Push.",
@@ -95,6 +112,7 @@ export async function GET(request: Request) {
       notificationDispatches.push({
         number: revision.document.number,
         revision_id: revision.revisionId,
+        classification: taxScope,
         ...summary,
       });
       if (!("alreadyDispatched" in summary) || summary.alreadyDispatched !== true) processedRevisions += 1;

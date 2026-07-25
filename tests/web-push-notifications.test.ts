@@ -40,7 +40,7 @@ function revision(patch: Partial<PublishedDocumentNotification> = {}): Published
 function historyItem(id: string, receivedAt: number): NotificationHistoryItem {
   return {
     id,
-    title: "Văn bản mới đã sẵn sàng",
+    title: "Văn bản thuế mới",
     body: "254/2026/NĐ-CP",
     url: "/?document=254%2F2026%2FN%C4%90-CP",
     number: "254/2026/NĐ-CP",
@@ -90,7 +90,7 @@ test("notifies only accepted and recently issued documents", () => {
 
 test("builds an idempotent notification payload that deep-links to the document", () => {
   const payload = publishedDocumentPayload(revision());
-  assert.equal(payload.title, "Văn bản mới đã sẵn sàng");
+  assert.equal(payload.title, "Văn bản thuế mới");
   assert.match(payload.body, /254\/2026\/NĐ-CP/u);
   assert.match(payload.url, /document=254%2F2026%2FN%C4%90-CP/u);
   assert.match(payload.tag, /^legal-/u);
