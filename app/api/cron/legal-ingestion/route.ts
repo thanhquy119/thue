@@ -9,10 +9,13 @@ import {
   cleanupExpiredDurableRunCheckpoints,
   durableStoreConfigured,
   readDurableIngestionState,
+  readDurableRevision,
   readDurableStoreUsage,
 } from "@/lib/legal/durable-document-store";
 import { discoverRecentTaxDocuments } from "@/lib/legal/recent-tax-discovery";
 import type { DurableLegalSource } from "@/lib/legal/durable-ingestion-types";
+import { dispatchPublishedDocumentNotifications } from "@/lib/notifications/push-service";
+import { cleanupExpiredPushReceipts } from "@/lib/notifications/push-store";
 import { legalDocumentIngestionWorkflow } from "@/workflows/legal-document-ingestion";
 
 export const runtime = "nodejs";
@@ -23,6 +26,11 @@ function authorized(request: Request) {
   const secret = process.env.CRON_SECRET || "";
   if (!secret) return process.env.VERCEL_ENV !== "production";
   return request.headers.get("authorization") === `Bearer ${secret}`;
+}
+
+function notificationRevisionLimit() {
+  const parsed = Number(process.env.WEB_PUSH_CRON_MAX_REVISIONS ?? 2);
+  return Number.isFinite(parsed) && parsed >= 1 ? Math.min(4, Math.floor(parsed)) : 2;
 }
 
 async function startDocument(source: DurableLegalSource) {
@@ -55,9 +63,44 @@ export async function GET(request: Request) {
         deletedBytes: 0,
         error: error instanceof Error ? error.message : "Không thể dọn checkpoint cũ.",
       }));
+  const notificationCleanup = dryRun
+    ? { deletedObjects: 0, deletedBytes: 0, skipped: "dry_run" }
+    : await cleanupExpiredPushReceipts().catch((error) => ({
+        deletedObjects: 0,
+        deletedBytes: 0,
+        error: error instanceof Error ? error.message : "Không thể dọn biên nhận Web Push cũ.",
+      }));
   const usageBeforeRuns = await readDurableStoreUsage().catch(() => null);
 
   const discovery = await discoverRecentTaxDocuments();
+  const notificationDispatches: Array<Record<string, unknown>> = [];
+  if (!dryRun) {
+    let processedRevisions = 0;
+    for (const document of discovery.documents) {
+      if (processedRevisions >= notificationRevisionLimit()) break;
+      const revision = await readDurableRevision(document.number).catch(() => null);
+      if (!revision?.validation.accepted) continue;
+      const summary = await dispatchPublishedDocumentNotifications({
+        revisionId: revision.revisionId,
+        number: revision.document.number,
+        title: revision.document.title,
+        issuedDate: revision.document.issued_date,
+        publishedAt: revision.publishedAt,
+        accepted: revision.validation.accepted,
+      }).catch((error) => ({
+        eligible: true,
+        alreadyDispatched: false,
+        error: error instanceof Error ? error.message : "Không gửi được Web Push.",
+      }));
+      notificationDispatches.push({
+        number: revision.document.number,
+        revision_id: revision.revisionId,
+        ...summary,
+      });
+      if (!("alreadyDispatched" in summary) || summary.alreadyDispatched !== true) processedRevisions += 1;
+    }
+  }
+
   const selected: DurableLegalSource[] = [];
   const skipped: Array<{ number: string; reason: string }> = [];
   for (const document of discovery.documents) {
@@ -86,6 +129,8 @@ export async function GET(request: Request) {
       ok: true,
       dry_run: dryRun,
       cleanup,
+      notification_cleanup: notificationCleanup,
+      notification_dispatches: notificationDispatches,
       usage_before_runs: usageBeforeRuns,
       discovered: discovery.documents.length,
       run_limit: runLimit,
