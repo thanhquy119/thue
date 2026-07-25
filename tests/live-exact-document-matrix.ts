@@ -3,6 +3,11 @@ import { randomUUID } from "node:crypto";
 import { POST as searchApiPost } from "../app/api/search/route.ts";
 import { looksLikeGovernmentPortalShell } from "../lib/legal/document-quality.ts";
 import {
+  durableStoreConfigured,
+  readDurableIngestionState,
+  readDurableRevision,
+} from "../lib/legal/durable-document-store.ts";
+import {
   discoverExactOfficialSourcesSafe,
   loadExactOfficialDocumentSafe,
 } from "../lib/legal/exact-official-document-safe.ts";
@@ -56,6 +61,39 @@ function isOfficialGovernmentSource(url: string) {
     host === "cdnchinhphu.vn" || host.endsWith(".cdnchinhphu.vn");
 }
 
+async function durableSnapshot(number: string) {
+  const configured = durableStoreConfigured();
+  const [state, revision] = configured
+    ? await Promise.all([
+        readDurableIngestionState(number).catch(() => null),
+        readDurableRevision(number).catch(() => null),
+      ])
+    : [null, null];
+  return {
+    configured,
+    state: state && {
+      status: state.status,
+      stage: state.stage,
+      runId: state.runId,
+      processedPages: state.processedPages,
+      totalPages: state.totalPages,
+      extractionMethod: state.extractionMethod,
+      qualityScore: state.qualityScore,
+      error: state.error,
+      updatedAt: state.updatedAt,
+    },
+    revision: revision && {
+      revisionId: revision.revisionId,
+      accepted: revision.validation.accepted,
+      number: revision.document.number,
+      extractionMethod: revision.document.extraction_method,
+      characters: revision.document.official_text.length,
+      provisions: revision.document.provisions.length,
+      publishedAt: revision.publishedAt,
+    },
+  };
+}
+
 async function callSearchApi(query: string) {
   const fingerprint = randomUUID();
   const response = await searchApiPost(new Request("https://preview.thue-ro.local/api/search", {
@@ -103,8 +141,10 @@ async function main() {
       `${definition.number}: discovery returned a non-official host`,
     );
 
+    const snapshot = await durableSnapshot(definition.number);
+    console.log("[live-exact-durable-state]", definition.number, JSON.stringify(snapshot));
     const document = await retry(`${definition.number} extraction`, () => loadExactOfficialDocumentSafe(definition.number));
-    assert.ok(document, `${definition.number}: exact resolver did not produce full text`);
+    assert.ok(document, `${definition.number}: exact resolver did not produce full text; durable=${JSON.stringify(snapshot)}`);
     assert.equal(normalizeDocumentNumber(document.number), normalizeDocumentNumber(definition.number));
     assert.ok(isOfficialGovernmentSource(document.source_url), `${definition.number}: selected document uses a non-official host`);
     assert.ok(document.official_text.length >= definition.minimumCharacters, `${definition.number}: full text is unexpectedly short (${document.official_text.length})`);
