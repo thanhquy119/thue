@@ -99,23 +99,30 @@ function bytes(value: string | Buffer | Uint8Array) {
   return new Uint8Array(value);
 }
 
+function arrayBuffer(value: Uint8Array) {
+  const copy = new Uint8Array(value.byteLength);
+  copy.set(value);
+  return copy.buffer;
+}
+
 function hex(value: ArrayBuffer) {
   return [...new Uint8Array(value)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 async function sha256(value: string | Buffer | Uint8Array) {
-  return hex(await crypto.subtle.digest("SHA-256", bytes(value)));
+  return hex(await crypto.subtle.digest("SHA-256", arrayBuffer(bytes(value))));
 }
 
 async function hmac(key: string | Uint8Array, value: string) {
+  const keyBytes = typeof key === "string" ? encoder.encode(key) : key;
   const imported = await crypto.subtle.importKey(
     "raw",
-    typeof key === "string" ? encoder.encode(key) : key,
+    arrayBuffer(keyBytes),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
   );
-  return new Uint8Array(await crypto.subtle.sign("HMAC", imported, encoder.encode(value)));
+  return new Uint8Array(await crypto.subtle.sign("HMAC", imported, arrayBuffer(encoder.encode(value))));
 }
 
 async function signingKey(secret: string, date: string, region: string) {
@@ -177,10 +184,11 @@ async function signedR2Request(
     scope,
     await sha256(canonicalRequest),
   ].join("\n");
-  const signature = hex((await hmac(
+  const signatureBytes = await hmac(
     await signingKey(config.secretAccessKey, dateStamp, config.region),
     stringToSign,
-  )).buffer);
+  );
+  const signature = hex(arrayBuffer(signatureBytes));
   headers.set(
     "authorization",
     `AWS4-HMAC-SHA256 Credential=${config.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,
