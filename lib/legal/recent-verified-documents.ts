@@ -1,5 +1,5 @@
 import { unstable_cache } from "next/cache";
-import { hasUsableLegalDocumentText } from "./document-quality.ts";
+import { hasUsableLegalDocumentText, looksLikeGovernmentPortalShell } from "./document-quality.ts";
 import { durableDocumentResponse } from "./durable-document-lookup.ts";
 import {
   exactOfficialDocumentResponseSafe,
@@ -25,7 +25,40 @@ function normalizeIdentifier(value: string) {
     .toLocaleLowerCase("vi");
 }
 
-async function fetchDownload(definition: RecentDocumentDefinition) {
+function downloadPriority(download: RecentDocumentDownload) {
+  const value = `${download.mimeType} ${download.fileName}`.toLocaleLowerCase("en");
+  if (value.includes("wordprocessingml") || value.endsWith(".docx")) return 0;
+  if (value.includes("msword") || value.endsWith(".doc")) return 1;
+  if (value.includes("html") || value.endsWith(".html") || value.endsWith(".htm")) return 2;
+  if (value.includes("pdf") || value.endsWith(".pdf")) return 3;
+  return 4;
+}
+
+async function fetchDownload(download: RecentDocumentDownload) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 22_000);
+  try {
+    const response = await fetch(download.url, {
+      cache: "no-store",
+      signal: controller.signal,
+      headers: {
+        "user-agent": "Mozilla/5.0 Chrome/131 Safari/537.36",
+        accept: `${download.mimeType},*/*`,
+        referer: download.referer,
+      },
+    });
+    if (!response.ok) throw new Error(`Nguồn toàn văn trả lỗi ${response.status}.`);
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.byteLength < 2_000 || buffer.byteLength > MAX_SOURCE_BYTES) {
+      throw new Error("Tệp toàn văn không hợp lệ hoặc vượt giới hạn xử lý.");
+    }
+    return buffer;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function extractVerifiedDocument(definition: RecentDocumentDefinition) {
   if (!definition.downloads.length) {
     throw new Error(
       definition.fullTextUnavailableReason ??
@@ -34,53 +67,43 @@ async function fetchDownload(definition: RecentDocumentDefinition) {
   }
 
   let lastError: Error | null = null;
+  const downloads = [...definition.downloads].sort(
+    (left, right) => downloadPriority(left) - downloadPriority(right),
+  );
 
-  for (const download of definition.downloads) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 22_000);
+  for (const download of downloads) {
     try {
-      const response = await fetch(download.url, {
-        cache: "no-store",
-        signal: controller.signal,
-        headers: {
-          "user-agent": "Mozilla/5.0 Chrome/131 Safari/537.36",
-          accept: `${download.mimeType},*/*`,
-          referer: download.referer,
-        },
-      });
-      if (!response.ok) throw new Error(`Nguồn toàn văn trả lỗi ${response.status}.`);
-      const buffer = Buffer.from(await response.arrayBuffer());
-      if (buffer.byteLength < 2_000 || buffer.byteLength > MAX_SOURCE_BYTES) {
-        throw new Error("Tệp toàn văn không hợp lệ hoặc vượt giới hạn xử lý.");
+      const buffer = await fetchDownload(download);
+      const file = new File([new Uint8Array(buffer)], download.fileName, { type: download.mimeType });
+      const extracted = await extractFromFile(file);
+      const officialText = extracted.officialText.trim();
+
+      if (extracted.requiresOcr) {
+        throw new Error("Tệp PDF là bản scan và OCR chưa tạo được lớp chữ đạt yêu cầu.");
       }
-      return { buffer, download };
+      if (officialText.length < definition.minimumTextLength) {
+        throw new Error("Tệp nguồn chưa chứa đủ nội dung chữ để hiển thị toàn văn.");
+      }
+      if (looksLikeGovernmentPortalShell(officialText)) {
+        throw new Error("Nguồn trả phần giao diện trang thay cho toàn văn pháp luật.");
+      }
+      if (!hasUsableLegalDocumentText(officialText, definition.number)) {
+        throw new Error("Nội dung trích xuất không khớp cấu trúc hoặc số hiệu văn bản cần tìm.");
+      }
+
+      return { extracted, officialText, download };
     } catch (error) {
       lastError = error instanceof Error ? error : new Error("Không tải được tệp toàn văn.");
-    } finally {
-      clearTimeout(timer);
+      console.warn("[recent-verified-source-rejected]", JSON.stringify({
+        number: definition.number,
+        fileName: download.fileName,
+        mimeType: download.mimeType,
+        reason: lastError.message,
+      }));
     }
   }
 
   throw lastError ?? new Error("Không tải được tệp toàn văn.");
-}
-
-async function extractVerifiedDocument(definition: RecentDocumentDefinition) {
-  const { buffer, download } = await fetchDownload(definition);
-  const file = new File([new Uint8Array(buffer)], download.fileName, { type: download.mimeType });
-  const extracted = await extractFromFile(file);
-  const officialText = extracted.officialText.trim();
-
-  if (extracted.requiresOcr) {
-    throw new Error("Tệp PDF là bản scan và OCR chưa tạo được lớp chữ đạt yêu cầu.");
-  }
-  if (officialText.length < definition.minimumTextLength) {
-    throw new Error("Tệp nguồn chưa chứa đủ nội dung chữ để hiển thị toàn văn.");
-  }
-  if (!hasUsableLegalDocumentText(officialText, definition.number)) {
-    throw new Error("Nội dung trích xuất không khớp cấu trúc hoặc số hiệu văn bản cần tìm.");
-  }
-
-  return { extracted, officialText, download };
 }
 
 function buildDocument(
@@ -129,7 +152,7 @@ async function loadUncachedRecentDocument(number: string): Promise<DocumentDetai
 
 const loadCachedRecentDocument = unstable_cache(
   loadUncachedRecentDocument,
-  ["thue-ro-recent-verified-documents-v2"],
+  ["thue-ro-recent-verified-documents-v3"],
   { revalidate: 24 * 60 * 60 },
 );
 

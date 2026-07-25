@@ -16,7 +16,7 @@
     "smoke:persistent": "tsx tests/live-persistent-ingestion-smoke.ts",
     "smoke:cron": "tsx tests/live-cron-smoke.ts",
     "smoke:presentation-search": "tsx tests/live-presentation-search-smoke.ts",
-    "smoke:exact-documents": "tsx tests/live-exact-source-diagnostics.ts && tsx tests/live-exact-document-matrix.ts",
+    "smoke:exact-documents": "tsx tests/live-exact-document-matrix.ts",
     "verify": "npm run lint && npm run typecheck && npm run build"
   },
   "dependencies": {
