@@ -40,6 +40,24 @@ const EXACT_OFFICIAL_PAGE_OVERRIDES = new Map<string, ExactOfficialPageOverride>
     issuedDate: "2026-06-30",
     effectiveDate: "2026-07-01",
   }],
+  [normalizeDocumentNumber("254/2026/NĐ-CP"), {
+    title: "Nghị định số 254/2026/NĐ-CP quy định chi tiết một số điều và biện pháp để tổ chức, hướng dẫn thi hành Luật Quản lý thuế số 108/2025/QH15 về hóa đơn điện tử, chứng từ điện tử",
+    url: "https://congbao.chinhphu.vn/van-ban/nghi-dinh-so-254-2026-nd-cp-469957/66826.htm",
+    issuedDate: "2026-06-30",
+    effectiveDate: "2026-07-01",
+  }],
+  [normalizeDocumentNumber("256/2026/NĐ-CP"), {
+    title: "Nghị định số 256/2026/NĐ-CP quy định về phù hiệu, cấp hiệu, trang phục và biển hiệu của công chức thuế",
+    url: "https://congbao.chinhphu.vn/van-ban/nghi-dinh-so-256-2026-nd-cp-469949/66721.htm",
+    issuedDate: "2026-06-30",
+    effectiveDate: "2026-07-01",
+  }],
+  [normalizeDocumentNumber("108/2025/QH15"), {
+    title: "Luật số 108/2025/QH15 Luật Quản lý thuế",
+    url: "https://congbao.chinhphu.vn/van-ban/luat-so-108-2025-qh15-468670/61635.htm",
+    issuedDate: "2025-12-10",
+    effectiveDate: "2026-07-01",
+  }],
 ]);
 
 function sourcePriority(url: string) {
@@ -255,7 +273,7 @@ async function loadSafeUncached(number: string) {
 
 const loadSafeCached = unstable_cache(
   loadSafeUncached,
-  ["thue-ro-exact-official-document-safe-v8"],
+  ["thue-ro-exact-official-document-safe-v9"],
   { revalidate: CACHE_SECONDS, tags: ["official-legal-documents"] },
 );
 
