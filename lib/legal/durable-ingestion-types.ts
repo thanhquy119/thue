@@ -150,6 +150,11 @@ function pageCoverage(totalPages: number, pages: DurableOcrPage[]) {
   return { coveredPages: covered.size, ratio: covered.size / totalPages, missing };
 }
 
+function articleHeadingNumbers(text: string) {
+  return [...text.matchAll(/^\s*Điều\s+(\d+)[a-zA-Z]?\s*[.:]\s*(?=\S)/gimu)]
+    .map((match) => Number(match[1]));
+}
+
 export function validateDurableLegalText(input: DurableValidationInput): DurableValidationResult {
   const text = input.text.trim();
   const warnings: string[] = [];
@@ -197,10 +202,10 @@ export function validateDurableLegalText(input: DurableValidationInput): Durable
   if (pages.some((page) => page.similarity > 0 && page.similarity < 0.72)) {
     warnings.push("Có trang mà hai lượt OCR khác nhau đáng kể.");
   }
-  if (articleMarkers > 1) {
-    const articleNumbers = [...text.matchAll(/^\s*Điều\s+(\d+)[a-zA-Z]?\b/gimu)].map((match) => Number(match[1]));
+  const articleNumbers = articleHeadingNumbers(text);
+  if (articleNumbers.length > 1) {
     const backwardJump = articleNumbers.some((number, index) => index > 0 && number < articleNumbers[index - 1]);
-    if (backwardJump) warnings.push("Thứ tự Điều bị lùi, có thể do ghép trang sai hoặc lặp nội dung.");
+    if (backwardJump) warnings.push("Thứ tự tiêu đề Điều bị lùi, có thể do ghép trang sai hoặc lặp nội dung.");
   }
 
   return {
