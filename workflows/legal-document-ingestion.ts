@@ -332,7 +332,7 @@ async function ocrPagesStep(
   persist: boolean,
 ): Promise<DurableOcrPage[]> {
   "use step";
-  const toDurablePages = (result: Awaited<ReturnType<typeof runOcrBatch>>) =>
+  const toDurablePages = (result: Awaited<ReturnType<typeof runOcrBatch>>): DurableOcrPage[] =>
     result.ocr.pages.map((page) => ({
       page: page.page,
       text: page.text,
