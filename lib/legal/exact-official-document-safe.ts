@@ -256,7 +256,7 @@ async function loadAcceptedDurableDocument(number: string) {
   return document;
 }
 
-async function loadRecentVerifiedExactDocument(number: string) {
+async function loadRecentVerifiedExactDocument(number: string): Promise<DocumentDetail | null> {
   if (!findRecentDocumentByNumber(number)) return null;
   const { loadRecentVerifiedDocument } = await import("./recent-verified-documents.ts");
   return loadRecentVerifiedDocument(number);
