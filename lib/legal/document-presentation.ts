@@ -1,9 +1,10 @@
+import { normalizeLegalDocumentText } from "./legal-text-normalization.ts";
 import type { DocumentDetail, ProvisionDetail } from "./types.ts";
 
 const ARTICLE_PATTERN = /^\s*Điều\s+(\d+[a-zA-Z]?)\s*[.:]?\s*([^\n]*)$/gimu;
 
 const SIGNATURE_BOUNDARIES = [
-  /(\.\s*\/\.\s*)(?=(?:(?:KT|TM|TL|TUQ)\.\s*)?(?:BỘ TRƯỞNG|THỦ TƯỚNG(?: CHÍNH PHỦ)?|CHỦ TỊCH|PHÓ CHỦ TỊCH|TỔNG CỤC TRƯỞNG|CỤC TRƯỞNG|TỔNG KIỂM TOÁN NHÀ NƯỚC|CHÁNH ÁN|VIỆN TRƯỞNG)\b)/imu,
+  /(\.\s*\/.\s*)(?=(?:(?:KT|TM|TL|TUQ)\.\s*)?(?:BỘ TRƯỞNG|THỦ TƯỚNG(?: CHÍNH PHỦ)?|CHỦ TỊCH|PHÓ CHỦ TỊCH|TỔNG CỤC TRƯỞNG|CỤC TRƯỞNG|TỔNG KIỂM TOÁN NHÀ NƯỚC|CHÁNH ÁN|VIỆN TRƯỞNG)\b)/imu,
   /(^|\n)(?=(?:KT|TM|TL|TUQ)\.\s*(?:BỘ TRƯỞNG|THỦ TƯỚNG(?: CHÍNH PHỦ)?|CHỦ TỊCH|PHÓ CHỦ TỊCH|TỔNG CỤC TRƯỞNG|CỤC TRƯỞNG|TỔNG KIỂM TOÁN NHÀ NƯỚC|CHÁNH ÁN|VIỆN TRƯỞNG)\b)/imu,
   /(^|\n)(?=Nơi\s+nhận\s*:)/imu,
 ];
@@ -14,12 +15,7 @@ const APPENDIX_BOUNDARIES = [
 ];
 
 function normalizeText(value: string) {
-  return value
-    .replace(/\r\n?/g, "\n")
-    .replace(/[\t\u00a0]+/g, " ")
-    .replace(/[ ]{2,}/g, " ")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return normalizeLegalDocumentText(value);
 }
 
 function matchesArticles(value: string) {
@@ -95,6 +91,20 @@ function tailProvisions(document: DocumentDetail, tail: string, startOrder: numb
   return provisions;
 }
 
+function headingFromFirstBodyLine(body: string) {
+  const lines = body.split("\n").map((line) => line.trim()).filter(Boolean);
+  const first = lines[0] ?? "";
+  const words = first.split(/\s+/u).filter(Boolean);
+  const looksLikeSentence = /[.;:]$/u.test(first) || /\b(?:là|được|quy định|bao gồm|thực hiện|có trách nhiệm|áp dụng|phải|không được)\b/iu.test(first);
+  if (lines.length < 2 || first.length > 160 || words.length < 2 || words.length > 14 || looksLikeSentence) {
+    return { heading: null, body };
+  }
+  return {
+    heading: first,
+    body: normalizeText(lines.slice(1).join("\n")),
+  };
+}
+
 export function rebuildPresentationProvisions(document: DocumentDetail): ProvisionDetail[] {
   const text = normalizeText(document.official_text);
   const initialArticles = matchesArticles(text);
@@ -128,14 +138,17 @@ export function rebuildPresentationProvisions(document: DocumentDetail): Provisi
     const nextStart = articles[index + 1]?.index ?? mainText.length;
     const article = match[1];
     const identifier = `Điều ${article}`;
+    const rawBody = normalizeText(mainText.slice(headingEnd, nextStart));
+    const inlineHeading = match[2]?.trim() || null;
+    const inferred = inlineHeading ? { heading: inlineHeading, body: rawBody } : headingFromFirstBodyLine(rawBody);
 
     provisions.push({
       id: existingId(document, "article", identifier, `article-${article}`),
       type: "article",
       identifier,
       article,
-      heading: match[2]?.trim() || null,
-      official_text: normalizeText(mainText.slice(headingEnd, nextStart)),
+      heading: inferred.heading,
+      official_text: inferred.body,
       order_index: (index + 1) * 100,
     });
   }
@@ -145,9 +158,11 @@ export function rebuildPresentationProvisions(document: DocumentDetail): Provisi
 }
 
 export function prepareDocumentForPresentation(document: DocumentDetail): DocumentDetail {
+  const officialText = normalizeText(document.official_text);
   return {
     ...document,
+    official_text: officialText,
     verification_notes: null,
-    provisions: rebuildPresentationProvisions(document),
+    provisions: rebuildPresentationProvisions({ ...document, official_text: officialText }),
   };
 }
