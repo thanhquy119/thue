@@ -18,6 +18,7 @@ import {
   writePushRevisionDispatch,
   type StoredVapidConfig,
 } from "./push-store.ts";
+import { classifyStrictTaxDocumentForNotification } from "./tax-notification-policy.ts";
 
 let cachedConfig: StoredVapidConfig | null = null;
 
@@ -122,6 +123,21 @@ export async function sendWelcomeNotification(stored: StoredPushSubscription, or
 }
 
 export async function dispatchPublishedDocumentNotifications(input: PublishedDocumentNotification) {
+  const taxScope = classifyStrictTaxDocumentForNotification(input);
+  if (!taxScope.eligible) {
+    return {
+      eligible: false,
+      alreadyDispatched: false,
+      subscribers: 0,
+      pending: 0,
+      sent: 0,
+      skipped: 0,
+      expired: 0,
+      failed: 0,
+      reason: "not_tax_document" as const,
+      classification: taxScope,
+    };
+  }
   if (await hasPushRevisionDispatch(input.revisionId)) {
     return { eligible: true, alreadyDispatched: true, subscribers: 0, pending: 0, sent: 0, skipped: 0, expired: 0, failed: 0 };
   }
