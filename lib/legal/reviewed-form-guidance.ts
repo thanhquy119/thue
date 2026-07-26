@@ -160,10 +160,8 @@ export function reviewedFormGuidanceEvidence(
     issued_date: "2026-06-30",
     effective_date: "2026-07-01",
     status: "effective",
-    evidence_kind: "reviewed_form_guidance",
-    source_label: guidance.sourceLabel,
-    source_url: guidance.officialPage,
     excerpts: [
+      `Nguồn và mức độ kiểm chứng: ${guidance.sourceLabel}. Trang công bố chính thức: ${guidance.officialPage}. Bản biểu mẫu dùng để đối chiếu trực quan: ${guidance.reviewedFormCopy}. Ngày rà soát: ${guidance.reviewedAt}.`,
       guidance.summary,
       ...selectedRules.map(
         (rule) => `${rule.title}\n${rule.text}\nCăn cứ: ${rule.references.join("; ")}.`,
@@ -192,6 +190,6 @@ export function answerFromReviewedFormGuidance(
     `Câu hỏi này là về Mẫu ${guidance.formNumber} — tờ khai thuế GTGT theo phương pháp khấu trừ, không phải tờ khai khấu trừ thuế TNCN. Theo phần Ghi chú của mẫu tại Phụ lục I Thông tư ${guidance.documentNumber}:`,
     meanings.join("\n"),
     ...selectedRules.map((rule, index) => `${index + 1}. ${rule.title}: ${rule.text}`),
-    "Khi nhập số liệu, dùng số tiền thuế GTGT đầu vào cần điều chỉnh, không dùng tổng giá trị hóa đơn. Không nên đưa mọi sai sót vào [37]/[38]; trường hợp làm tăng số thuế phải nộp, làm giảm số thuế được hoàn hoặc nằm ngoài các tình huống nêu trên phải kiểm tra quy định khai bổ sung tương ứng.",
+    "Số điền vào [37] hoặc [38] là số thuế GTGT đầu vào cần điều chỉnh theo tình huống thực tế. Không mặc nhiên đưa mọi sai sót vào hai chỉ tiêu này; các trường hợp khác phải tiếp tục đối chiếu quy định về khai bổ sung.",
   ].join("\n\n");
 }
