@@ -66,6 +66,8 @@ export type SearchCandidate = {
   issued_date: string | null;
   source_url: string;
   source_label: string;
+  action_url?: string | null;
+  action_label?: string | null;
 };
 
 export type TaxSearchResponse = {
