@@ -17,10 +17,11 @@ function withModel(value: string | undefined, run: () => void) {
   }
 }
 
-test("defaults Search Grounding to Gemini 2.5 Pro", () => {
+test("defaults Search Grounding to Gemini 2.5 Flash", () => {
   withModel(undefined, () => {
-    assert.equal(searchGroundingModel(), "gemini-2.5-pro");
+    assert.equal(searchGroundingModel(), "gemini-2.5-flash");
     assert.deepEqual(searchGroundingModelCandidates(), [
+      "gemini-2.5-flash",
       "gemini-2.5-pro",
       "gemini-3.5-flash-lite",
       "gemini-3.5-flash",
@@ -32,16 +33,18 @@ test("keeps an explicitly configured supported model first", () => {
   withModel("models/gemini-3.5-flash-lite", () => {
     assert.deepEqual(searchGroundingModelCandidates(), [
       "gemini-3.5-flash-lite",
+      "gemini-2.5-flash",
       "gemini-2.5-pro",
       "gemini-3.5-flash",
     ]);
   });
 });
 
-test("retired Flash 2.5 variants fall back to Gemini 2.5 Pro", () => {
-  withModel("gemini-2.5-flash-lite", () => {
-    assert.equal(searchGroundingModel(), "gemini-2.5-pro");
+test("unsupported model names fall back to Gemini 2.5 Flash", () => {
+  withModel("gemini-2.5-flash-preview-09-2025", () => {
+    assert.equal(searchGroundingModel(), "gemini-2.5-flash");
     assert.deepEqual(searchGroundingModelCandidates(), [
+      "gemini-2.5-flash",
       "gemini-2.5-pro",
       "gemini-3.5-flash-lite",
       "gemini-3.5-flash",
