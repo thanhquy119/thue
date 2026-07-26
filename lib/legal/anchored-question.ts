@@ -1,9 +1,9 @@
-import { answerFromOfficialEvidence, GeminiUnavailableError, type OfficialEvidence } from "./gemini";
-import { lexicalRelevance, normalizeLegalQuery } from "./query";
-import type { AnchoredReference } from "./anchored-reference";
-import type { DocumentDetail, ProvisionDetail, SearchCandidate, TaxSearchResponse } from "./types";
+import { answerFromOfficialEvidence, GeminiUnavailableError, type OfficialEvidence } from "./gemini.ts";
+import { lexicalRelevance, normalizeLegalQuery } from "./query.ts";
+import type { AnchoredReference } from "./anchored-reference.ts";
+import type { DocumentDetail, ProvisionDetail, SearchCandidate, TaxSearchResponse } from "./types.ts";
 
-export { extractAnchoredReferences, isAnchoredLegalQuestion } from "./anchored-reference";
+export { extractAnchoredReferences, isAnchoredLegalQuestion } from "./anchored-reference.ts";
 
 const MAX_SEGMENT_CHARACTERS = 3_600;
 const SEGMENT_OVERLAP_LINES = 4;
