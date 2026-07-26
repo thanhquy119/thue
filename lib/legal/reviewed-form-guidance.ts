@@ -93,6 +93,7 @@ function normalizeIdentifier(value: string) {
 
 function queryWithoutDocumentIdentifiers(query: string) {
   return normalizeLegalQuery(query)
+    .replace(/\b(?:mau(?: so)?|to khai)?\s*0?\d{1,3}\s*\/?\s*gtgt\b/g, " ")
     .replace(/\b\d{1,4}\s*[/-]\s*20\d{2}(?:\s*[/-]\s*[a-z0-9-]+)?\b/g, " ")
     .replace(/\b20\d{2}\b/g, " ")
     .replace(/\s+/g, " ")
