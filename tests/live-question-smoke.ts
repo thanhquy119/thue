@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { POST as searchApiPost } from "../app/api/search/route.ts";
 import { buildAnchoredEvidence } from "../lib/legal/anchored-evidence.ts";
 import { answerQuestionFromAnchors } from "../lib/legal/anchored-question.ts";
 import { extractDurableLegalSource } from "../lib/legal/durable-extraction.ts";
@@ -40,6 +41,23 @@ async function retry<T>(label: string, operation: () => Promise<T>, attempts = 2
     }
   }
   throw lastError;
+}
+
+async function searchThroughApi(query: string, requestIndex: number) {
+  const response = await searchApiPost(
+    new Request("https://preview.thue-ro.local/api/search", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forwarded-for": `203.0.113.${requestIndex}`,
+        "user-agent": `ThueRo-LiveQuestionSmoke/${requestIndex}`,
+      },
+      body: JSON.stringify({ query }),
+    }),
+  );
+  const body = await response.text();
+  assert.equal(response.status, 200, `${query} trả ${response.status}: ${body.slice(0, 1_200)}`);
+  return JSON.parse(body) as TaxSearchResponse;
 }
 
 function documentFromText(text: string, qualityScore: number): DocumentDetail {
@@ -91,6 +109,22 @@ async function assertRuleQuestion(query: string, pattern: RegExp) {
   console.log("[live-question-case]", JSON.stringify({ query, ...summarize(result) }));
 }
 
+function assertFieldAnswer(result: TaxSearchResponse) {
+  const answer = normalized(result.direct_answer);
+  assert.equal(result.query_kind, "question");
+  assert.equal(result.document?.number, "89/2026/TT-BTC");
+  assert.match(answer, /\b37\b/u);
+  assert.match(answer, /\b38\b/u);
+  assert.match(answer, /dieu chinh giam/u);
+  assert.match(answer, /dieu chinh tang/u);
+  assert.match(answer, /05 trieu dong/u);
+  assert.match(answer, /thanh toan khong dung tien mat/u);
+  assert.doesNotMatch(
+    answer,
+    /khong co dieu khoan|khong xuat hien trong evidence|chua du du kien|khong the dua ra huong dan/u,
+  );
+}
+
 async function main() {
   if (!enabled) {
     console.log(`[live-questions] skipped; add ${COMMIT_MARKER} to the commit message or set RUN_LIVE_QUESTION_SMOKE=true.`);
@@ -116,17 +150,12 @@ async function main() {
   }));
 
   const fieldResult = await retry(fieldQuery, () => answerQuestionFromAnchors(fieldQuery, [document89]));
-  const normalizedFieldAnswer = normalized(fieldResult.direct_answer);
-  assert.equal(fieldResult.document?.number, "89/2026/TT-BTC");
-  assert.match(normalizedFieldAnswer, /\b37\b/u);
-  assert.match(normalizedFieldAnswer, /\b38\b/u);
-  assert.match(normalizedFieldAnswer, /dieu chinh giam/u);
-  assert.match(normalizedFieldAnswer, /dieu chinh tang/u);
-  assert.doesNotMatch(
-    normalizedFieldAnswer,
-    /khong co dieu khoan|khong xuat hien trong evidence|chua du du kien|khong the dua ra huong dan/u,
-  );
+  assertFieldAnswer(fieldResult);
   console.log("[live-question-89-answer]", JSON.stringify({ query: fieldQuery, ...summarize(fieldResult) }));
+
+  const routeFieldResult = await retry("89 field guidance through POST /api/search", () => searchThroughApi(fieldQuery, 89));
+  assertFieldAnswer(routeFieldResult);
+  console.log("[live-question-89-route-answer]", JSON.stringify({ query: fieldQuery, ...summarize(routeFieldResult) }));
 
   const source = await retry("87 official DOCX", () => extractDurableLegalSource(SOURCE_87_DOCX));
   assert.equal(source.extractionMethod, "docx");
