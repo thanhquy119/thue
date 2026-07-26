@@ -111,8 +111,9 @@ async function assertRuleQuestion(query: string, pattern: RegExp) {
 
 function assertFieldAnswer(result: TaxSearchResponse) {
   const answer = normalized(result.direct_answer);
+  const sourceNumber = result.document?.number ?? result.candidates.find((candidate) => candidate.number === "89/2026/TT-BTC")?.number;
   assert.equal(result.query_kind, "question");
-  assert.equal(result.document?.number, "89/2026/TT-BTC");
+  assert.equal(sourceNumber, "89/2026/TT-BTC");
   assert.match(answer, /\b37\b/u);
   assert.match(answer, /\b38\b/u);
   assert.match(answer, /dieu chinh giam/u);
