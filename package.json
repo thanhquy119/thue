@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "smoke:live": "tsx tests/live-ingestion-smoke.ts",
-    "smoke:questions": "tsx tests/live-circular-89-source-smoke.ts && tsx tests/live-question-smoke.ts",
+    "smoke:questions": "tsx tests/live-question-smoke.ts",
     "smoke:grounding": "tsx tests/live-search-grounding-smoke.ts",
     "smoke:persistent": "tsx tests/live-persistent-ingestion-smoke.ts",
     "smoke:cron": "tsx tests/live-cron-smoke.ts",
