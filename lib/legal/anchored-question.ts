@@ -4,6 +4,7 @@ import { normalizeLegalQuery } from "./query";
 import {
   answerFromReviewedFormGuidance,
   requestedFormFieldNumbers,
+  reviewedFormGuidanceCandidate,
   reviewedFormGuidanceForQuery,
 } from "./reviewed-form-guidance.ts";
 import type { AnchoredReference } from "./anchored-reference";
@@ -71,20 +72,6 @@ export async function answerQuestionFromAnchors(
 ): Promise<TaxSearchResponse> {
   const retrievedAt = new Date().toISOString();
   const primary = documents[0] ?? null;
-  if (!primary) {
-    return {
-      query_normalized: normalizeLegalQuery(query),
-      query_kind: "question",
-      direct_answer:
-        "Câu hỏi có dẫn chiếu văn bản cụ thể nhưng hệ thống chưa mở được đúng văn bản đó. Hệ thống không dùng các văn bản gần giống để tránh nhầm căn cứ pháp lý.",
-      document: null,
-      candidates: [],
-      warnings: [],
-      confidence: 0.3,
-      retrieved_at: retrievedAt,
-    };
-  }
-
   const reviewedGuidance = reviewedFormGuidanceForQuery(query, documents);
   const requestedFields = requestedFormFieldNumbers(query);
   if (
@@ -97,11 +84,27 @@ export async function answerQuestionFromAnchors(
       query_kind: "question",
       direct_answer: answerFromReviewedFormGuidance(reviewedGuidance, requestedFields),
       document: primary,
-      candidates: documents.slice(1).map(candidateFromDocument),
+      candidates: primary
+        ? documents.slice(1).map(candidateFromDocument)
+        : [reviewedFormGuidanceCandidate(reviewedGuidance)],
       warnings: [
         `Phần hướng dẫn biểu mẫu được đối chiếu từ Mẫu ${reviewedGuidance.formNumber}, Phụ lục I Thông tư ${reviewedGuidance.documentNumber}. Tệp Word cũ không cung cấp đầy đủ lớp chữ của các ô và ghi chú biểu mẫu nên hệ thống dùng bản ghi đã được rà soát trực quan.`,
       ],
       confidence: 0.97,
+      retrieved_at: retrievedAt,
+    };
+  }
+
+  if (!primary) {
+    return {
+      query_normalized: normalizeLegalQuery(query),
+      query_kind: "question",
+      direct_answer:
+        "Câu hỏi có dẫn chiếu văn bản cụ thể nhưng hệ thống chưa mở được đúng văn bản đó. Hệ thống không dùng các văn bản gần giống để tránh nhầm căn cứ pháp lý.",
+      document: null,
+      candidates: [],
+      warnings: [],
+      confidence: 0.3,
       retrieved_at: retrievedAt,
     };
   }
