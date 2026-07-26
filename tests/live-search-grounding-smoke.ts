@@ -19,6 +19,7 @@ if (!enabled) {
   process.exit(0);
 }
 
+// Live verification deliberately bypasses adaptive selection and exercises the provider directly.
 process.env.SEARCH_GROUNDING_MODE = "always";
 assert.equal(searchGroundingMode(), "always");
 assert.equal(searchGroundingEnabled(), true);
