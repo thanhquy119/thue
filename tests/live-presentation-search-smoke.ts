@@ -30,14 +30,26 @@ async function search(query: string, requestIndex: number) {
   return (await response.json()) as TaxSearchResponse;
 }
 
+const circular89Query = "thông tư 89 mới nhất";
+const circular89 = await search(circular89Query, 1);
+assert.equal(circular89.query_kind, "document");
+assert.equal(circular89.document?.number, "89/2026/TT-BTC");
+assert.equal(circular89.document?.status, "effective");
+assert.match(circular89.document?.extraction_method ?? "", /docx/iu);
+assert.match(circular89.document?.extraction_method ?? "", /doc/iu);
+assert.ok((circular89.document?.official_text.length ?? 0) > 25_000, "Thông tư 89 chưa đọc nguồn chữ có cấu trúc.");
+assert.match(circular89.document?.official_text ?? "", /Điều\s+101\b/iu);
+assert.match(circular89.document?.official_text ?? "", /PHỤ LỤC KÈM THEO/iu);
+assert.doesNotMatch(circular89.warnings.join(" "), /trang\s+48,\s*77,\s*96,\s*97/iu);
+
 const circular90Query = "thông tư 90 năm 2026 bộ tài chính";
-const circular90 = await search(circular90Query, 1);
+const circular90 = await search(circular90Query, 2);
 assert.equal(circular90.query_kind, "document");
 assert.equal(circular90.document?.number, "90/2026/TT-BTC");
 assert.equal(circular90.document?.number.includes("2024"), false);
 assert.equal(circular90.document?.verification_notes, null);
 
-const circular82 = await search("82/2026/TT-BTC", 2);
+const circular82 = await search("82/2026/TT-BTC", 3);
 assert.equal(circular82.document?.number, "82/2026/TT-BTC");
 assert.equal(circular82.document?.verification_notes, null);
 
@@ -51,7 +63,7 @@ assert.ok(appendix, "Phụ lục chưa được tách thành phần riêng.");
 assert.match(appendix.official_text, /Phụ\s+lục|Mẫu\s+số\s+01/iu);
 
 const circular94Query = "thông tư 94 năm 2026 bộ tài chính";
-const circular94 = await search(circular94Query, 3);
+const circular94 = await search(circular94Query, 4);
 assert.equal(circular94.query_kind, "document");
 assert.equal(circular94.document?.number, "94/2026/TT-BTC");
 assert.equal(circular94.document?.extraction_method, "ocr");
@@ -69,7 +81,7 @@ assert.match(circular94Article3?.heading ?? "", /Giải thích từ ngữ/iu);
 assert.match(circular94Article3?.official_text ?? "", /Trong Thông tư này/iu);
 
 const decree252Query = "Đọc nghị định 252";
-const decree252 = await search(decree252Query, 4);
+const decree252 = await search(decree252Query, 5);
 assert.equal(decree252.query_kind, "document");
 assert.equal(decree252.document?.number, "252/2026/NĐ-CP");
 assert.equal(decree252.document?.status, "effective");
@@ -79,12 +91,21 @@ assert.ok(
   "Nghị định 252 chưa có cấu trúc Điều sau tra cứu dạng rút gọn.",
 );
 
-const decree252Variant = await search("mở Nghị định số 252", 5);
+const decree252Variant = await search("mở Nghị định số 252", 6);
 assert.equal(decree252Variant.document?.number, "252/2026/NĐ-CP");
 
 console.log(
   "[live-presentation-search-result]",
   JSON.stringify({
+    circular89: {
+      query: circular89Query,
+      number: circular89.document?.number,
+      characters: circular89.document?.official_text.length,
+      provisionCount: circular89.document?.provisions.length,
+      extractionMethod: circular89.document?.extraction_method,
+      appendixIncluded: circular89.document?.official_text.includes("PHỤ LỤC KÈM THEO"),
+      warnings: circular89.warnings,
+    },
     circular90: {
       query: circular90Query,
       number: circular90.document?.number,
@@ -119,4 +140,4 @@ console.log(
     },
   }),
 );
-console.log("[live-presentation-search] current aliases, durable OCR and article reconstruction passed");
+console.log("[live-presentation-search] structured fallback, current aliases, durable OCR and article reconstruction passed");
