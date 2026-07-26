@@ -1,6 +1,11 @@
 import { buildAnchoredEvidence } from "./anchored-evidence.ts";
 import { answerFromOfficialEvidence, GeminiUnavailableError } from "./gemini";
 import { normalizeLegalQuery } from "./query";
+import {
+  answerFromReviewedFormGuidance,
+  requestedFormFieldNumbers,
+  reviewedFormGuidanceForQuery,
+} from "./reviewed-form-guidance.ts";
 import type { AnchoredReference } from "./anchored-reference";
 import type { DocumentDetail, SearchCandidate, TaxSearchResponse } from "./types";
 
@@ -76,6 +81,27 @@ export async function answerQuestionFromAnchors(
       candidates: [],
       warnings: [],
       confidence: 0.3,
+      retrieved_at: retrievedAt,
+    };
+  }
+
+  const reviewedGuidance = reviewedFormGuidanceForQuery(query, documents);
+  const requestedFields = requestedFormFieldNumbers(query);
+  if (
+    reviewedGuidance &&
+    requestedFields.length > 0 &&
+    requestedFields.every((field) => reviewedGuidance.fieldNumbers.includes(field))
+  ) {
+    return {
+      query_normalized: normalizeLegalQuery(query),
+      query_kind: "question",
+      direct_answer: answerFromReviewedFormGuidance(reviewedGuidance, requestedFields),
+      document: primary,
+      candidates: documents.slice(1).map(candidateFromDocument),
+      warnings: [
+        `Phần hướng dẫn biểu mẫu được đối chiếu từ Mẫu ${reviewedGuidance.formNumber}, Phụ lục I Thông tư ${reviewedGuidance.documentNumber}. Tệp Word cũ không cung cấp đầy đủ lớp chữ của các ô và ghi chú biểu mẫu nên hệ thống dùng bản ghi đã được rà soát trực quan.`,
+      ],
+      confidence: 0.97,
       retrieved_at: retrievedAt,
     };
   }
