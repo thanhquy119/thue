@@ -31,8 +31,12 @@ type GroundingRequestResult = {
 
 export type SearchGroundingMode = "off" | "auto" | "always";
 
-const DEFAULT_GROUNDING_MODEL = "gemini-3.5-flash-lite";
-const SUPPORTED_GROUNDING_MODELS = new Set(["gemini-3.5-flash-lite", "gemini-3.5-flash"]);
+const DEFAULT_GROUNDING_MODEL = "gemini-2.5-pro";
+const SUPPORTED_GROUNDING_MODELS = new Set([
+  "gemini-2.5-pro",
+  "gemini-3.5-flash-lite",
+  "gemini-3.5-flash",
+]);
 const RETRYABLE_GROUNDING_STATUSES = new Set([404, 429, 500, 502, 503, 504]);
 const GROUNDING_REDIRECT_HOSTS = new Set(["vertexaisearch.cloud.google.com"]);
 const FULL_DOCUMENT_NUMBER =
@@ -115,6 +119,7 @@ export function searchGroundingModelCandidates() {
     new Set([
       searchGroundingModel(),
       DEFAULT_GROUNDING_MODEL,
+      "gemini-3.5-flash-lite",
       "gemini-3.5-flash",
     ]),
   ).filter((model) => SUPPORTED_GROUNDING_MODELS.has(model));
