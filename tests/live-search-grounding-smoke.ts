@@ -25,7 +25,43 @@ assert.equal(searchGroundingMode(), "always");
 assert.equal(searchGroundingEnabled(), true);
 assert.equal(searchGroundingUsable(), true, "Gemini API key is required for the live grounding smoke.");
 
+const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
 const candidateModels = searchGroundingModelCandidates();
+let availableModel = "";
+const probeStatuses: string[] = [];
+
+for (const model of candidateModels) {
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: "Tìm một trang chính thức của Chính phủ Việt Nam về đăng ký thuế." }] }],
+        tools: [{ google_search: {} }],
+        generationConfig: { maxOutputTokens: 256 },
+      }),
+    },
+  );
+  const payload = await response.json().catch(() => ({})) as { error?: { message?: unknown } };
+  const message = typeof payload.error?.message === "string" ? payload.error.message.slice(0, 120) : "";
+  probeStatuses.push(`${model}:${response.status}${message ? `:${message}` : ""}`);
+  console.log(`[live-grounding-model] model=${model} status=${response.status}`);
+  if (response.ok) {
+    availableModel = model;
+    break;
+  }
+}
+
+assert.ok(
+  availableModel,
+  `No configured Gemini model can use Search Grounding: ${probeStatuses.join(" | ")}`,
+);
+process.env.SEARCH_GROUNDING_GEMINI_MODEL = availableModel;
+
 const queries = [
   "Quy định thuế Việt Nam hiện hành về đăng ký thuế khi doanh nghiệp chuyển trụ sở sang tỉnh khác",
   "Hướng dẫn chỉ tiêu 37 và 38 tại Mẫu 01/GTGT ban hành kèm Thông tư 89/2026/TT-BTC",
@@ -56,7 +92,7 @@ for (const model of usedModels) {
 }
 
 console.log(
-  `[live-grounding] mode=${searchGroundingMode()} configured=${searchGroundingModel()} candidates=${candidateModels.join(",")} used=${usedModels.join(",")} queries=${queries.length} officialSources=${allSources.length} hosts=${[
+  `[live-grounding] mode=${searchGroundingMode()} configured=${searchGroundingModel()} available=${availableModel} candidates=${candidateModels.join(",")} used=${usedModels.join(",")} queries=${queries.length} officialSources=${allSources.length} hosts=${[
     ...new Set(allSources.map((source) => new URL(source.url).hostname)),
   ].join(",")}`,
 );
