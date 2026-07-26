@@ -21,7 +21,7 @@ test("Circular 89 has a structured main source and a required appendix", () => {
   assert.match(definition.attachments?.[0]?.fileName ?? "", /phu luc.*\.doc$/iu);
 });
 
-test("compacts hundreds of missing OCR pages into one readable warning", () => {
+test("compacts hundreds of missing OCR pages and never offers incomplete text as openable", () => {
   const state: DurableIngestionState = {
     number: "89/2026/TT-BTC",
     status: "needs_review",
@@ -47,6 +47,7 @@ test("compacts hundreds of missing OCR pages into one readable warning", () => {
   );
 
   assert.equal(response?.document, null);
+  assert.deepEqual(response?.candidates, []);
   assert.match(response?.direct_answer ?? "", /254\/839 trang/iu);
   assert.match(response?.warnings[0] ?? "", /585\/839 trang/iu);
   assert.match(response?.warnings[0] ?? "", /96–97/iu);
