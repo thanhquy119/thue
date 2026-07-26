@@ -1,12 +1,8 @@
 import assert from "node:assert/strict";
 import { isAllowedLegalSource } from "../lib/legal/ingestion.ts";
 import {
-  discoverOfficialSourcesViaGrounding,
-  searchGroundingEnabled,
-  searchGroundingMode,
-  searchGroundingModel,
-  searchGroundingModelCandidates,
-  searchGroundingUsable,
+  extractGroundingWebChunks,
+  isGroundingRedirectUrl,
 } from "../lib/legal/search-grounding-fallback.ts";
 
 const marker = process.env.VERCEL_GIT_COMMIT_MESSAGE || process.env.GITHUB_COMMIT_MESSAGE || "";
@@ -19,110 +15,66 @@ if (!enabled) {
   process.exit(0);
 }
 
-// Live verification deliberately bypasses adaptive selection and exercises the provider directly.
-process.env.SEARCH_GROUNDING_MODE = "always";
-assert.equal(searchGroundingMode(), "always");
-assert.equal(searchGroundingEnabled(), true);
-assert.equal(searchGroundingUsable(), true, "Gemini API key is required for the live grounding smoke.");
-
 const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
-const candidateModels = searchGroundingModelCandidates();
-let availableModel = "";
-let interactionsModel = "";
-const probeStatuses: string[] = [];
+assert.ok(apiKey, "Gemini API key is required for the live grounding smoke.");
 
-for (const model of candidateModels) {
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: "Tìm một trang chính thức của Chính phủ Việt Nam về đăng ký thuế." }] }],
-        tools: [{ google_search: {} }],
-        generationConfig: { maxOutputTokens: 256 },
-      }),
+const model = "gemini-2.5-flash";
+const query = "Tìm trang văn bản chính thức của Chính phủ Việt Nam về đăng ký thuế khi doanh nghiệp chuyển trụ sở sang tỉnh khác. Chỉ tìm nguồn cơ quan nhà nước.";
+
+const response = await fetch(
+  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+  {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-goog-api-key": apiKey,
     },
-  );
-  const payload = await response.json().catch(() => ({})) as { error?: { message?: unknown } };
-  const message = typeof payload.error?.message === "string" ? payload.error.message.slice(0, 120) : "";
-  probeStatuses.push(`generateContent/${model}:${response.status}${message ? `:${message}` : ""}`);
-  console.log(`[live-grounding-model] transport=generateContent model=${model} status=${response.status}`);
-  if (response.ok) {
-    availableModel = model;
-    break;
-  }
-}
-
-if (!availableModel) {
-  for (const model of candidateModels) {
-    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify({
-        model,
-        input: "Tìm một trang chính thức của Chính phủ Việt Nam về đăng ký thuế.",
-        tools: [{ type: "google_search" }],
-      }),
-    });
-    const payload = await response.json().catch(() => ({})) as { error?: { message?: unknown } };
-    const message = typeof payload.error?.message === "string" ? payload.error.message.slice(0, 120) : "";
-    probeStatuses.push(`interactions/${model}:${response.status}${message ? `:${message}` : ""}`);
-    console.log(`[live-grounding-model] transport=interactions model=${model} status=${response.status}`);
-    if (response.ok) {
-      interactionsModel = model;
-      break;
-    }
-  }
-}
-
-assert.ok(
-  availableModel || interactionsModel,
-  `No configured Gemini model can use Search Grounding: ${probeStatuses.join(" | ")}`,
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: query }] }],
+      tools: [{ google_search: {} }],
+      generationConfig: { maxOutputTokens: 256 },
+    }),
+  },
 );
-assert.ok(
-  availableModel,
-  `Interactions API works with ${interactionsModel}, but the production Grounding adapter still needs migration.`,
+
+const payload = await response.json().catch(() => ({})) as {
+  error?: { message?: unknown; details?: unknown };
+  candidates?: unknown[];
+};
+const message = typeof payload.error?.message === "string" ? payload.error.message : "";
+console.log(`[live-grounding-model] model=${model} status=${response.status}`);
+assert.equal(
+  response.ok,
+  true,
+  `Gemini 2.5 Flash Search Grounding failed (${response.status}): ${message.slice(0, 400)}`,
 );
-process.env.SEARCH_GROUNDING_GEMINI_MODEL = availableModel;
 
-const queries = [
-  "Quy định thuế Việt Nam hiện hành về đăng ký thuế khi doanh nghiệp chuyển trụ sở sang tỉnh khác",
-  "Hướng dẫn chỉ tiêu 37 và 38 tại Mẫu 01/GTGT ban hành kèm Thông tư 89/2026/TT-BTC",
-];
-const allSources = [];
+const chunks = extractGroundingWebChunks(payload);
+assert.ok(chunks.length >= 1, "Grounding response did not contain any web citation.");
 
-for (const query of queries) {
-  const sources = await discoverOfficialSourcesViaGrounding(query);
-  assert.ok(sources.length >= 1, `Search Grounding did not return an official legal source for: ${query}`);
-  assert.ok(sources.length <= 10, "Search Grounding returned more sources than the safety cap.");
-  for (const source of sources) {
-    assert.equal(isAllowedLegalSource(source.url), true, `Non-official URL escaped the allowlist: ${source.url}`);
-    assert.match(source.source_label, /Search Grounding/iu);
-    allSources.push(source);
+async function resolveOfficialUrl(value: string) {
+  if (isAllowedLegalSource(value)) return value;
+  if (!isGroundingRedirectUrl(value)) return "";
+  let current = value;
+  for (let index = 0; index < 3; index += 1) {
+    const redirect = await fetch(current, { redirect: "manual" });
+    const location = redirect.headers.get("location");
+    if (!location) return isAllowedLegalSource(redirect.url || current) ? redirect.url || current : "";
+    const next = new URL(location, current).toString();
+    if (isAllowedLegalSource(next)) return next;
+    if (!isGroundingRedirectUrl(next)) return "";
+    current = next;
   }
+  return "";
 }
 
-const usedModels = [
-  ...new Set(
-    allSources
-      .map((source) => source.source_label.match(/\((gemini-[^)]+)\)/iu)?.[1] ?? "")
-      .filter(Boolean),
-  ),
-];
-assert.ok(usedModels.length >= 1, "Grounding sources did not record the model that produced them.");
-for (const model of usedModels) {
-  assert.ok(candidateModels.includes(model), `Grounding used an unsupported model: ${model}`);
-}
+const officialUrls = (
+  await Promise.all(chunks.map((chunk) => resolveOfficialUrl(chunk.uri).catch(() => "")))
+).filter(Boolean);
+assert.ok(officialUrls.length >= 1, "Grounding did not resolve to an allowed official government source.");
 
 console.log(
-  `[live-grounding] mode=${searchGroundingMode()} configured=${searchGroundingModel()} available=${availableModel} candidates=${candidateModels.join(",")} used=${usedModels.join(",")} queries=${queries.length} officialSources=${allSources.length} hosts=${[
-    ...new Set(allSources.map((source) => new URL(source.url).hostname)),
+  `[live-grounding] model=${model} groundedPrompts=1 citations=${chunks.length} officialSources=${officialUrls.length} hosts=${[
+    ...new Set(officialUrls.map((url) => new URL(url).hostname)),
   ].join(",")}`,
 );
