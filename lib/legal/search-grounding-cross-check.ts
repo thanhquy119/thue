@@ -1,5 +1,8 @@
 import { analyzeTaxQuestion } from "./question-intelligence.ts";
-import { searchGroundingEnabled } from "./search-grounding-fallback.ts";
+import {
+  searchGroundingEnabled,
+  searchGroundingMode,
+} from "./search-grounding-fallback.ts";
 import { taxSourceRelevance } from "./tax-source-relevance.ts";
 import type { OnlineLegalSource } from "./types.ts";
 
@@ -22,6 +25,8 @@ const HIGH_RISK_INTENTS = new Set([
 ]);
 const HIGH_RISK_TERMS =
   /\b(?:dieu kien|ap dung|hien hanh|con hieu luc|het hieu luc|mien|khong chiu|khong phai nop|bao nhieu|muc phat|thoi han|han nop|thue suat|nguong)\b/;
+const DEEP_EVIDENCE_TERMS =
+  /\b(?:chi tieu\s*\d+|mau so\s*[a-z0-9/.-]+|phu luc\s*[a-z0-9/.-]*|bieu mau|huong dan chi tiet|dieu\s+\d+|khoan\s+\d+|diem\s+[a-z]|noi dung sua doi|thay the van ban nao|bai bo van ban nao|doi chieu quy dinh)\b/;
 const GROUNDING_MATCH_BOOST = 1.15;
 
 function cleanDocumentNumber(value: string) {
@@ -66,8 +71,13 @@ function sourceText(source: OnlineLegalSource) {
 
 export function isHighRiskTaxQuestion(query: string) {
   const plan = analyzeTaxQuestion(query);
-  if (!plan.isQuestion || plan.hasDocumentReference) return false;
+  if (!plan.isQuestion) return false;
   return plan.intents.some((intent) => HIGH_RISK_INTENTS.has(intent)) || HIGH_RISK_TERMS.test(plan.normalized);
+}
+
+export function isDeepEvidenceTaxQuestion(query: string) {
+  const plan = analyzeTaxQuestion(query);
+  return plan.isQuestion && DEEP_EVIDENCE_TERMS.test(plan.normalized);
 }
 
 export function shouldCrossCheckWithGrounding(
@@ -75,7 +85,14 @@ export function shouldCrossCheckWithGrounding(
   directSources: OnlineLegalSource[],
   minimumRelevance = 0.6,
 ) {
-  if (!searchGroundingEnabled() || !isHighRiskTaxQuestion(query)) return false;
+  if (!searchGroundingEnabled()) return false;
+  const plan = analyzeTaxQuestion(query);
+  if (!plan.isQuestion) return false;
+  if (searchGroundingMode() === "always") return true;
+
+  const highRisk = isHighRiskTaxQuestion(query);
+  const deepEvidence = isDeepEvidenceTaxQuestion(query);
+  if (!highRisk && !deepEvidence) return false;
   if (!directSources.length) return true;
 
   const numberedSources = directSources.filter((source) => sourceDocumentNumber(source));
