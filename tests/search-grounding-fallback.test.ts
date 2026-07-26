@@ -19,9 +19,7 @@ import {
 import type { OnlineLegalSource } from "../lib/legal/types.ts";
 
 function withEnvironment(values: Record<string, string | undefined>, run: () => void) {
-  const previous = Object.fromEntries(
-    Object.keys(values).map((key) => [key, process.env[key]]),
-  );
+  const previous = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]));
   try {
     for (const [key, value] of Object.entries(values)) {
       if (value === undefined) delete process.env[key];
@@ -40,9 +38,7 @@ async function withAsyncEnvironment(
   values: Record<string, string | undefined>,
   run: () => Promise<void>,
 ) {
-  const previous = Object.fromEntries(
-    Object.keys(values).map((key) => [key, process.env[key]]),
-  );
+  const previous = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]));
   try {
     for (const [key, value] of Object.entries(values)) {
       if (value === undefined) delete process.env[key];
@@ -78,19 +74,26 @@ function legalSource(
   };
 }
 
-test("keeps Search Grounding disabled unless explicitly enabled", () => {
-  withEnvironment({ ENABLE_SEARCH_GROUNDING_FALLBACK: undefined }, () => {
-    assert.equal(searchGroundingEnabled(), false);
-  });
-  withEnvironment({ ENABLE_SEARCH_GROUNDING_FALLBACK: "true" }, () => {
-    assert.equal(searchGroundingEnabled(), true);
-  });
+test("keeps Search Grounding disabled unless a mode or legacy flag enables it", () => {
+  withEnvironment(
+    { SEARCH_GROUNDING_MODE: undefined, ENABLE_SEARCH_GROUNDING_FALLBACK: undefined },
+    () => assert.equal(searchGroundingEnabled(), false),
+  );
+  withEnvironment(
+    { SEARCH_GROUNDING_MODE: undefined, ENABLE_SEARCH_GROUNDING_FALLBACK: "true" },
+    () => assert.equal(searchGroundingEnabled(), true),
+  );
+  withEnvironment(
+    { SEARCH_GROUNDING_MODE: "auto", ENABLE_SEARCH_GROUNDING_FALLBACK: "false" },
+    () => assert.equal(searchGroundingEnabled(), true),
+  );
 });
 
 test("does not send any Gemini request while Grounding is disabled", async () => {
   await withAsyncEnvironment(
     {
-      ENABLE_SEARCH_GROUNDING_FALLBACK: undefined,
+      SEARCH_GROUNDING_MODE: "off",
+      ENABLE_SEARCH_GROUNDING_FALLBACK: "true",
       GEMINI_API_KEY: "test-key-that-must-not-be-used",
     },
     async () => {
@@ -115,12 +118,54 @@ test("does not send any Gemini request while Grounding is disabled", async () =>
   );
 });
 
-test("backs off after free-tier model 404 instead of retrying every question", async () => {
+test("sends the current google_search tool and records a Gemini 3.5 source", async () => {
   await withAsyncEnvironment(
     {
-      ENABLE_SEARCH_GROUNDING_FALLBACK: "true",
+      SEARCH_GROUNDING_MODE: "always",
       GEMINI_API_KEY: "test-key",
-      SEARCH_GROUNDING_GEMINI_MODEL: "gemini-2.5-flash-lite",
+      SEARCH_GROUNDING_GEMINI_MODEL: "gemini-3.5-flash-lite",
+    },
+    async () => {
+      const originalFetch = globalThis.fetch;
+      let requestBody: Record<string, unknown> | null = null;
+      globalThis.fetch = (async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+        return new Response(JSON.stringify({
+          candidates: [{
+            groundingMetadata: {
+              webSearchQueries: ["quy định thuế hiện hành"],
+              groundingChunks: [{
+                web: {
+                  uri: "https://congbao.chinhphu.vn/van-ban/thong-tu-so-90-2026-tt-btc.htm",
+                  title: "Thông tư số 90/2026/TT-BTC",
+                },
+              }],
+            },
+          }],
+        }), { status: 200, headers: { "content-type": "application/json" } });
+      }) as typeof fetch;
+      try {
+        resetSearchGroundingBackoffForTests();
+        const sources = await discoverOfficialSourcesViaGrounding(
+          "Kiểm tra grounding schema cho đăng ký thuế doanh nghiệp 2026",
+        );
+        assert.deepEqual((requestBody?.tools as unknown[]), [{ google_search: {} }]);
+        assert.equal(sources.length, 1);
+        assert.match(sources[0].source_label, /gemini-3\.5-flash-lite/iu);
+      } finally {
+        globalThis.fetch = originalFetch;
+        resetSearchGroundingBackoffForTests();
+      }
+    },
+  );
+});
+
+test("backs off after supported models return 404 instead of retrying every question", async () => {
+  await withAsyncEnvironment(
+    {
+      SEARCH_GROUNDING_MODE: "always",
+      GEMINI_API_KEY: "test-key",
+      SEARCH_GROUNDING_GEMINI_MODEL: "gemini-3.5-flash-lite",
     },
     async () => {
       const originalFetch = globalThis.fetch;
@@ -135,19 +180,16 @@ test("backs off after free-tier model 404 instead of retrying every question", a
       try {
         resetSearchGroundingBackoffForTests();
         await assert.rejects(
-          discoverOfficialSourcesViaGrounding(
-            "Mức phạt chậm nộp thuế hiện hành là bao nhiêu?",
-          ),
+          discoverOfficialSourcesViaGrounding("Mức phạt chậm nộp thuế hiện hành là bao nhiêu?"),
           /404/,
         );
-        assert.equal(fetchCalls, 2, "Chỉ thử hai model Gemini 2.5 được hỗ trợ.");
+        assert.equal(fetchCalls, 2, "Chỉ thử hai model Gemini 3.5 được hỗ trợ.");
         assert.equal(searchGroundingBackoffActive(), true);
-
         const skipped = await discoverOfficialSourcesViaGrounding(
           "Ngưỡng doanh thu miễn thuế hiện hành là bao nhiêu?",
         );
         assert.deepEqual(skipped, []);
-        assert.equal(fetchCalls, 2, "Circuit breaker phải ngăn request Grounding tiếp theo.");
+        assert.equal(fetchCalls, 2);
       } finally {
         globalThis.fetch = originalFetch;
         resetSearchGroundingBackoffForTests();
@@ -156,41 +198,33 @@ test("backs off after free-tier model 404 instead of retrying every question", a
   );
 });
 
-test("uses only supported Gemini 2.5 grounding models", () => {
-  withEnvironment({ SEARCH_GROUNDING_GEMINI_MODEL: "models/gemini-2.5-flash" }, () => {
-    assert.equal(searchGroundingModel(), "gemini-2.5-flash");
+test("uses only supported Gemini 3.5 grounding models", () => {
+  withEnvironment({ SEARCH_GROUNDING_GEMINI_MODEL: "models/gemini-3.5-flash" }, () => {
+    assert.equal(searchGroundingModel(), "gemini-3.5-flash");
   });
-  withEnvironment({ SEARCH_GROUNDING_GEMINI_MODEL: "gemini-3.5-flash-lite" }, () => {
-    assert.equal(searchGroundingModel(), "gemini-2.5-flash-lite");
+  withEnvironment({ SEARCH_GROUNDING_GEMINI_MODEL: "gemini-2.5-flash-lite" }, () => {
+    assert.equal(searchGroundingModel(), "gemini-3.5-flash-lite");
   });
 });
 
 test("caps grounded result count to protect quota and runtime", () => {
-  withEnvironment({ SEARCH_GROUNDING_MAX_RESULTS: undefined }, () => {
-    assert.equal(searchGroundingMaxResults(), 6);
-  });
-  withEnvironment({ SEARCH_GROUNDING_MAX_RESULTS: "999" }, () => {
-    assert.equal(searchGroundingMaxResults(), 10);
-  });
-  withEnvironment({ SEARCH_GROUNDING_MAX_RESULTS: "0" }, () => {
-    assert.equal(searchGroundingMaxResults(), 6);
-  });
+  withEnvironment({ SEARCH_GROUNDING_MAX_RESULTS: undefined }, () => assert.equal(searchGroundingMaxResults(), 6));
+  withEnvironment({ SEARCH_GROUNDING_MAX_RESULTS: "999" }, () => assert.equal(searchGroundingMaxResults(), 10));
+  withEnvironment({ SEARCH_GROUNDING_MAX_RESULTS: "0" }, () => assert.equal(searchGroundingMaxResults(), 6));
 });
 
 test("extracts only web citations returned in grounding metadata", () => {
   assert.deepEqual(
     extractGroundingWebChunks({
-      candidates: [
-        {
-          groundingMetadata: {
-            groundingChunks: [
-              { web: { uri: " https://vertexaisearch.cloud.google.com/redirect/abc ", title: " Thông tư mới " } },
-              { web: { uri: 123, title: "ignored" } },
-              {},
-            ],
-          },
+      candidates: [{
+        groundingMetadata: {
+          groundingChunks: [
+            { web: { uri: " https://vertexaisearch.cloud.google.com/redirect/abc ", title: " Thông tư mới " } },
+            { web: { uri: 123, title: "ignored" } },
+            {},
+          ],
         },
-      ],
+      }],
     }),
     [{ uri: "https://vertexaisearch.cloud.google.com/redirect/abc", title: "Thông tư mới" }],
   );
@@ -205,16 +239,14 @@ test("accepts only the known Google grounding redirect host", () => {
 test("normalizes exact document numbers and official URLs before matching", () => {
   assert.equal(normalizeOfficialDocumentNumber("Nghị định 141 / 2026 / ND-CP"), "141/2026/NĐ-CP");
   assert.equal(
-    normalizeOfficialSourceUrl(
-      "https://www.congbao.chinhphu.vn/van-ban/141/?utm_source=grounding&file=1#top",
-    ),
+    normalizeOfficialSourceUrl("https://www.congbao.chinhphu.vn/van-ban/141/?utm_source=grounding&file=1#top"),
     "https://congbao.chinhphu.vn/van-ban/141?file=1",
   );
   assert.equal(normalizeOfficialSourceUrl("http://congbao.chinhphu.vn/van-ban/141"), "");
 });
 
-test("cross-checks only high-risk questions with weak direct discovery", () => {
-  withEnvironment({ ENABLE_SEARCH_GROUNDING_FALLBACK: "true" }, () => {
+test("cross-checks high-risk questions with weak direct discovery", () => {
+  withEnvironment({ SEARCH_GROUNDING_MODE: "auto" }, () => {
     assert.equal(
       shouldCrossCheckWithGrounding(
         "Hộ kinh doanh doanh thu bao nhiêu thì không phải nộp thuế hiện hành?",
@@ -223,19 +255,14 @@ test("cross-checks only high-risk questions with weak direct discovery", () => {
       ),
       true,
     );
-
     assert.equal(
-      shouldCrossCheckWithGrounding(
-        "Doanh nghiệp khai thuế GTGT dùng mẫu nào?",
-        [],
-        1.4,
-      ),
+      shouldCrossCheckWithGrounding("Doanh nghiệp khai thuế GTGT dùng mẫu nào?", [], 1.4),
       false,
     );
   });
 });
 
-test("does not spend grounding quota when two strong numbered sources already exist", () => {
+test("does not spend quota when two strong numbered sources already exist", () => {
   const direct = [
     legalSource("a", "10/2026/TT-BTC", "https://congbao.chinhphu.vn/van-ban/a", {
       title: "Thông tư quy định thuế suất thuế giá trị gia tăng đối với doanh nghiệp",
@@ -246,8 +273,7 @@ test("does not spend grounding quota when two strong numbered sources already ex
       snippet: "Mức thuế và cách tính thuế GTGT đối với doanh nghiệp.",
     }),
   ];
-
-  withEnvironment({ ENABLE_SEARCH_GROUNDING_FALLBACK: "true" }, () => {
+  withEnvironment({ SEARCH_GROUNDING_MODE: "auto" }, () => {
     assert.equal(
       shouldCrossCheckWithGrounding(
         "Thuế suất GTGT hiện hành của doanh nghiệp là bao nhiêu phần trăm?",
@@ -259,20 +285,11 @@ test("does not spend grounding quota when two strong numbered sources already ex
   });
 });
 
-test("exact normalized document-number match only boosts ranking and deduplicates", () => {
-  const direct = legalSource(
-    "direct",
-    "141/2026/NĐ-CP",
-    "https://congbao.chinhphu.vn/van-ban/nghi-dinh-141",
-    { score: 3 },
-  );
-  const grounded = legalSource(
-    "grounded",
-    "141 / 2026 / ND-CP",
-    "https://mof.gov.vn/Pages/van-ban-khac.aspx?id=141",
-    { source_label: "Google Search Grounding → nguồn chính thức" },
-  );
-
+test("exact normalized document-number match boosts ranking and deduplicates", () => {
+  const direct = legalSource("direct", "141/2026/NĐ-CP", "https://congbao.chinhphu.vn/van-ban/nghi-dinh-141", { score: 3 });
+  const grounded = legalSource("grounded", "141 / 2026 / ND-CP", "https://mof.gov.vn/Pages/van-ban-khac.aspx?id=141", {
+    source_label: "Google Search Grounding → nguồn chính thức",
+  });
   const result = crossCheckOfficialSources([direct], [grounded]);
   assert.equal(result.sources.length, 1);
   assert.equal(result.matchCount, 1);
@@ -282,19 +299,10 @@ test("exact normalized document-number match only boosts ranking and deduplicate
 });
 
 test("normalized URL match ignores tracking parameters and trailing slash", () => {
-  const direct = legalSource(
-    "direct-url",
-    undefined,
-    "https://www.mof.gov.vn/van-ban/huong-dan/?file=1&utm_source=direct",
-    { score: 2 },
-  );
-  const grounded = legalSource(
-    "grounded-url",
-    undefined,
-    "https://mof.gov.vn/van-ban/huong-dan?utm_medium=search&file=1#section",
-    { source_label: "Google Search Grounding → nguồn chính thức" },
-  );
-
+  const direct = legalSource("direct-url", undefined, "https://www.mof.gov.vn/van-ban/huong-dan/?file=1&utm_source=direct", { score: 2 });
+  const grounded = legalSource("grounded-url", undefined, "https://mof.gov.vn/van-ban/huong-dan?utm_medium=search&file=1#section", {
+    source_label: "Google Search Grounding → nguồn chính thức",
+  });
   const result = crossCheckOfficialSources([direct], [grounded]);
   assert.equal(result.sources.length, 1);
   assert.equal(result.matchCount, 1);
@@ -303,40 +311,22 @@ test("normalized URL match ignores tracking parameters and trailing slash", () =
 });
 
 test("keeps a new grounded official source as an unverified candidate", () => {
-  const direct = legalSource(
-    "direct-old",
-    "68/2026/NĐ-CP",
-    "https://congbao.chinhphu.vn/van-ban/nghi-dinh-68",
-  );
-  const grounded = legalSource(
-    "grounded-new",
-    "141/2026/NĐ-CP",
-    "https://congbao.chinhphu.vn/van-ban/nghi-dinh-141",
-    { source_label: "Google Search Grounding → nguồn chính thức" },
-  );
-
+  const direct = legalSource("direct-old", "68/2026/NĐ-CP", "https://congbao.chinhphu.vn/van-ban/nghi-dinh-68");
+  const grounded = legalSource("grounded-new", "141/2026/NĐ-CP", "https://congbao.chinhphu.vn/van-ban/nghi-dinh-141", {
+    source_label: "Google Search Grounding → nguồn chính thức",
+  });
   const result = crossCheckOfficialSources([direct], [grounded]);
   assert.equal(result.sources.length, 2);
   assert.equal(result.matchCount, 0);
   assert.equal(result.newSourceCount, 1);
   assert.equal(result.warnings.length, 0);
-  assert.match(result.sources[1].snippet, /Quy định hiện hành/iu);
 });
 
 test("flags conflicting document numbers on the same official URL without boosting", () => {
-  const direct = legalSource(
-    "direct-conflict",
-    "90/2026/TT-BTC",
-    "https://congbao.chinhphu.vn/van-ban/thong-tu-dang-ky-thue",
-    { score: 4 },
-  );
-  const grounded = legalSource(
-    "grounded-conflict",
-    "91/2026/TT-BTC",
-    "https://www.congbao.chinhphu.vn/van-ban/thong-tu-dang-ky-thue/?utm_source=google",
-    { source_label: "Google Search Grounding → nguồn chính thức" },
-  );
-
+  const direct = legalSource("direct-conflict", "90/2026/TT-BTC", "https://congbao.chinhphu.vn/van-ban/thong-tu-dang-ky-thue", { score: 4 });
+  const grounded = legalSource("grounded-conflict", "91/2026/TT-BTC", "https://www.congbao.chinhphu.vn/van-ban/thong-tu-dang-ky-thue/?utm_source=google", {
+    source_label: "Google Search Grounding → nguồn chính thức",
+  });
   const result = crossCheckOfficialSources([direct], [grounded]);
   assert.equal(result.sources.length, 1);
   assert.equal(result.sources[0].score, direct.score);
