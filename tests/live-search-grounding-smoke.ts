@@ -25,20 +25,26 @@ assert.equal(searchGroundingEnabled(), true);
 assert.equal(searchGroundingUsable(), true, "Gemini API key is required for the live grounding smoke.");
 
 const candidateModels = searchGroundingModelCandidates();
-const sources = await discoverOfficialSourcesViaGrounding(
+const queries = [
   "Quy định thuế Việt Nam hiện hành về đăng ký thuế khi doanh nghiệp chuyển trụ sở sang tỉnh khác",
-);
+  "Hướng dẫn chỉ tiêu 37 và 38 tại Mẫu 01/GTGT ban hành kèm Thông tư 89/2026/TT-BTC",
+];
+const allSources = [];
 
-assert.ok(sources.length >= 1, "Search Grounding did not return an official legal source.");
-assert.ok(sources.length <= 10, "Search Grounding returned more sources than the safety cap.");
-for (const source of sources) {
-  assert.equal(isAllowedLegalSource(source.url), true, `Non-official URL escaped the allowlist: ${source.url}`);
-  assert.match(source.source_label, /Search Grounding/iu);
+for (const query of queries) {
+  const sources = await discoverOfficialSourcesViaGrounding(query);
+  assert.ok(sources.length >= 1, `Search Grounding did not return an official legal source for: ${query}`);
+  assert.ok(sources.length <= 10, "Search Grounding returned more sources than the safety cap.");
+  for (const source of sources) {
+    assert.equal(isAllowedLegalSource(source.url), true, `Non-official URL escaped the allowlist: ${source.url}`);
+    assert.match(source.source_label, /Search Grounding/iu);
+    allSources.push(source);
+  }
 }
 
 const usedModels = [
   ...new Set(
-    sources
+    allSources
       .map((source) => source.source_label.match(/\((gemini-[^)]+)\)/iu)?.[1] ?? "")
       .filter(Boolean),
   ),
@@ -49,7 +55,7 @@ for (const model of usedModels) {
 }
 
 console.log(
-  `[live-grounding] mode=${searchGroundingMode()} configured=${searchGroundingModel()} candidates=${candidateModels.join(",")} used=${usedModels.join(",")} officialSources=${sources.length} hosts=${[
-    ...new Set(sources.map((source) => new URL(source.url).hostname)),
+  `[live-grounding] mode=${searchGroundingMode()} configured=${searchGroundingModel()} candidates=${candidateModels.join(",")} used=${usedModels.join(",")} queries=${queries.length} officialSources=${allSources.length} hosts=${[
+    ...new Set(allSources.map((source) => new URL(source.url).hostname)),
   ].join(",")}`,
 );
