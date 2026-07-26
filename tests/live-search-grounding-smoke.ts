@@ -28,6 +28,7 @@ assert.equal(searchGroundingUsable(), true, "Gemini API key is required for the 
 const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
 const candidateModels = searchGroundingModelCandidates();
 let availableModel = "";
+let interactionsModel = "";
 const probeStatuses: string[] = [];
 
 for (const model of candidateModels) {
@@ -48,17 +49,46 @@ for (const model of candidateModels) {
   );
   const payload = await response.json().catch(() => ({})) as { error?: { message?: unknown } };
   const message = typeof payload.error?.message === "string" ? payload.error.message.slice(0, 120) : "";
-  probeStatuses.push(`${model}:${response.status}${message ? `:${message}` : ""}`);
-  console.log(`[live-grounding-model] model=${model} status=${response.status}`);
+  probeStatuses.push(`generateContent/${model}:${response.status}${message ? `:${message}` : ""}`);
+  console.log(`[live-grounding-model] transport=generateContent model=${model} status=${response.status}`);
   if (response.ok) {
     availableModel = model;
     break;
   }
 }
 
+if (!availableModel) {
+  for (const model of candidateModels) {
+    const response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
+      body: JSON.stringify({
+        model,
+        input: "Tìm một trang chính thức của Chính phủ Việt Nam về đăng ký thuế.",
+        tools: [{ type: "google_search" }],
+      }),
+    });
+    const payload = await response.json().catch(() => ({})) as { error?: { message?: unknown } };
+    const message = typeof payload.error?.message === "string" ? payload.error.message.slice(0, 120) : "";
+    probeStatuses.push(`interactions/${model}:${response.status}${message ? `:${message}` : ""}`);
+    console.log(`[live-grounding-model] transport=interactions model=${model} status=${response.status}`);
+    if (response.ok) {
+      interactionsModel = model;
+      break;
+    }
+  }
+}
+
+assert.ok(
+  availableModel || interactionsModel,
+  `No configured Gemini model can use Search Grounding: ${probeStatuses.join(" | ")}`,
+);
 assert.ok(
   availableModel,
-  `No configured Gemini model can use Search Grounding: ${probeStatuses.join(" | ")}`,
+  `Interactions API works with ${interactionsModel}, but the production Grounding adapter still needs migration.`,
 );
 process.env.SEARCH_GROUNDING_GEMINI_MODEL = availableModel;
 
