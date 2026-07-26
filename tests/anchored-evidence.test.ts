@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildAnchoredEvidence } from "../lib/legal/anchored-question.ts";
+import { buildAnchoredEvidence } from "../lib/legal/anchored-evidence.ts";
 import type { DocumentDetail, ProvisionDetail } from "../lib/legal/types.ts";
 
 function provision(
@@ -49,9 +49,9 @@ test("retrieves field rows buried deep inside a long appendix", () => {
   const appendix = [
     "Mẫu số 01/GTGT - TỜ KHAI THUẾ GIÁ TRỊ GIA TĂNG (phương pháp khấu trừ)",
     ...filler,
-    "Chỉ tiêu [37] - Điều chỉnh tăng số thuế GTGT còn được khấu trừ của các kỳ trước.",
-    "Chỉ tiêu [38] - Điều chỉnh giảm số thuế GTGT còn được khấu trừ của các kỳ trước.",
-    "Số liệu điều chỉnh phải căn cứ hồ sơ khai bổ sung và kết quả xử lý theo quy định.",
+    "Chỉ tiêu [37] - Điều chỉnh giảm số thuế GTGT còn được khấu trừ của các kỳ trước.",
+    "Chỉ tiêu [38] - Điều chỉnh tăng số thuế GTGT còn được khấu trừ của các kỳ trước.",
+    "Số liệu điều chỉnh phải căn cứ hồ sơ và kết quả xử lý theo quy định.",
   ].join("\n");
   const document = documentWith([
     provision("article-37", "Điều 37", "Quy định về nộp thuế và chứng từ nộp ngân sách nhà nước.", 3700),
@@ -64,8 +64,8 @@ test("retrieves field rows buried deep inside a long appendix", () => {
   );
   const combined = evidence[0]?.excerpts.join("\n") ?? "";
 
-  assert.match(combined, /Chỉ tiêu \[37\].*Điều chỉnh tăng/iu);
-  assert.match(combined, /Chỉ tiêu \[38\].*Điều chỉnh giảm/iu);
+  assert.match(combined, /Chỉ tiêu \[37\].*Điều chỉnh giảm/iu);
+  assert.match(combined, /Chỉ tiêu \[38\].*Điều chỉnh tăng/iu);
   assert.ok(evidence[0]?.excerpts.some((excerpt) => /Phụ lục — đoạn/iu.test(excerpt)));
 });
 
@@ -79,8 +79,8 @@ test("field markers outrank articles that merely share the same numbers", () => 
       [
         "Mẫu số 01/GTGT - Tờ khai thuế GTGT theo phương pháp khấu trừ",
         "| Mã chỉ tiêu | Nội dung |",
-        "| [37] | Điều chỉnh tăng số thuế GTGT còn được khấu trừ của các kỳ trước |",
-        "| [38] | Điều chỉnh giảm số thuế GTGT còn được khấu trừ của các kỳ trước |",
+        "| [37] | Điều chỉnh giảm số thuế GTGT còn được khấu trừ của các kỳ trước |",
+        "| [38] | Điều chỉnh tăng số thuế GTGT còn được khấu trừ của các kỳ trước |",
       ].join("\n"),
       10_000,
     ),
@@ -99,14 +99,14 @@ test("keeps nearby form instructions around an exact field match", () => {
   const lines = [
     "Mẫu số 02/KHBS - Bản giải trình khai bổ sung",
     ...Array.from({ length: 80 }, (_, index) => `Dòng hướng dẫn ${index + 1}.`),
-    "Hồ sơ khai bổ sung làm tăng số thuế còn được khấu trừ thì ghi vào chỉ tiêu [37].",
-    "Hồ sơ khai bổ sung làm giảm số thuế còn được khấu trừ thì ghi vào chỉ tiêu [38].",
+    "Khoản điều chỉnh làm giảm số thuế còn được khấu trừ thì ghi vào chỉ tiêu [37].",
+    "Khoản điều chỉnh làm tăng số thuế còn được khấu trừ thì ghi vào chỉ tiêu [38].",
     "Người nộp thuế lưu tài liệu giải trình và chứng từ liên quan.",
   ];
   const document = documentWith([provision("appendix", "Phụ lục", lines.join("\n"), 10_000)]);
   const combined = buildAnchoredEvidence("Kê khai chỉ tiêu 37 38 theo Thông tư 89/2026", [document])[0]?.excerpts.join("\n") ?? "";
 
-  assert.match(combined, /Hồ sơ khai bổ sung làm tăng/iu);
-  assert.match(combined, /Hồ sơ khai bổ sung làm giảm/iu);
+  assert.match(combined, /làm giảm số thuế/iu);
+  assert.match(combined, /làm tăng số thuế/iu);
   assert.match(combined, /lưu tài liệu giải trình|chứng từ liên quan/iu);
 });
