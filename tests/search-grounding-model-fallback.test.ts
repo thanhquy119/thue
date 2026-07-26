@@ -17,30 +17,31 @@ function withModel(value: string | undefined, run: () => void) {
   }
 }
 
-test("tries configured Flash-Lite before falling back to Gemini 2.5 Flash", () => {
-  withModel("gemini-2.5-flash-lite", () => {
-    assert.equal(searchGroundingModel(), "gemini-2.5-flash-lite");
-    assert.deepEqual(searchGroundingModelCandidates(), [
-      "gemini-2.5-flash-lite",
-      "gemini-2.5-flash",
-    ]);
-  });
-});
-
-test("keeps Gemini 2.5 Flash first when explicitly configured", () => {
-  withModel("models/gemini-2.5-flash", () => {
-    assert.deepEqual(searchGroundingModelCandidates(), [
-      "gemini-2.5-flash",
-      "gemini-2.5-flash-lite",
-    ]);
-  });
-});
-
-test("invalid grounding models fall back to the supported pair", () => {
+test("tries Gemini 3.5 Flash-Lite before falling back to Gemini 3.5 Flash", () => {
   withModel("gemini-3.5-flash-lite", () => {
+    assert.equal(searchGroundingModel(), "gemini-3.5-flash-lite");
     assert.deepEqual(searchGroundingModelCandidates(), [
-      "gemini-2.5-flash-lite",
-      "gemini-2.5-flash",
+      "gemini-3.5-flash-lite",
+      "gemini-3.5-flash",
+    ]);
+  });
+});
+
+test("keeps Gemini 3.5 Flash first when explicitly configured", () => {
+  withModel("models/gemini-3.5-flash", () => {
+    assert.deepEqual(searchGroundingModelCandidates(), [
+      "gemini-3.5-flash",
+      "gemini-3.5-flash-lite",
+    ]);
+  });
+});
+
+test("retired or unsupported grounding models fall back to the supported pair", () => {
+  withModel("gemini-2.5-flash-lite", () => {
+    assert.equal(searchGroundingModel(), "gemini-3.5-flash-lite");
+    assert.deepEqual(searchGroundingModelCandidates(), [
+      "gemini-3.5-flash-lite",
+      "gemini-3.5-flash",
     ]);
   });
 });
