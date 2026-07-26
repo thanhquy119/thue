@@ -31,8 +31,9 @@ type GroundingRequestResult = {
 
 export type SearchGroundingMode = "off" | "auto" | "always";
 
-const DEFAULT_GROUNDING_MODEL = "gemini-2.5-pro";
+const DEFAULT_GROUNDING_MODEL = "gemini-2.5-flash";
 const SUPPORTED_GROUNDING_MODELS = new Set([
+  "gemini-2.5-flash",
   "gemini-2.5-pro",
   "gemini-3.5-flash-lite",
   "gemini-3.5-flash",
@@ -119,6 +120,7 @@ export function searchGroundingModelCandidates() {
     new Set([
       searchGroundingModel(),
       DEFAULT_GROUNDING_MODEL,
+      "gemini-2.5-pro",
       "gemini-3.5-flash-lite",
       "gemini-3.5-flash",
     ]),
