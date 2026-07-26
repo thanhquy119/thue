@@ -1,5 +1,10 @@
 import type { OfficialEvidence } from "./gemini.ts";
 import { lexicalRelevance, normalizeLegalQuery } from "./query.ts";
+import {
+  requestedFormFieldNumbers,
+  reviewedFormGuidanceEvidence,
+  reviewedFormGuidanceForQuery,
+} from "./reviewed-form-guidance.ts";
 import type { DocumentDetail, ProvisionDetail } from "./types.ts";
 
 const MAX_SEGMENT_CHARACTERS = 3_600;
@@ -39,6 +44,8 @@ function evidenceRetrievalQuery(query: string) {
 }
 
 function requestedFieldNumbers(query: string) {
+  const formFields = requestedFormFieldNumbers(query);
+  if (formFields.length) return formFields.slice(0, 12);
   return Array.from(
     new Set(
       (evidenceRetrievalQuery(query).match(/\b\d{1,3}\b/g) ?? [])
@@ -196,7 +203,11 @@ function formatEvidenceSegment(segment: EvidenceSegment) {
 }
 
 export function buildAnchoredEvidence(query: string, documents: DocumentDetail[]): OfficialEvidence[] {
-  return documents.map((document) => ({
+  const reviewedGuidance = reviewedFormGuidanceForQuery(query, documents);
+  const reviewedEvidence = reviewedGuidance
+    ? [reviewedFormGuidanceEvidence(reviewedGuidance, requestedFormFieldNumbers(query))]
+    : [];
+  const documentEvidence = documents.map((document) => ({
     document_number: document.number,
     title: `[Văn bản người dùng chỉ định làm căn cứ chính] ${document.title}`,
     issued_date: document.issued_date,
@@ -204,4 +215,5 @@ export function buildAnchoredEvidence(query: string, documents: DocumentDetail[]
     status: document.status,
     excerpts: rankedEvidenceSegments(query, document).map(formatEvidenceSegment),
   }));
+  return [...reviewedEvidence, ...documentEvidence];
 }
