@@ -1,4 +1,5 @@
 import { normalizeDocumentNumber, type DurableLegalSource } from "./durable-ingestion-types.ts";
+import { preferredRecentDocumentDownload } from "./recent-document-definitions.ts";
 import type { OnlineLegalSource } from "./types.ts";
 
 export const CURRENT_TAX_DOCUMENT_NUMBERS = [
@@ -52,6 +53,7 @@ export function selectExactOfficialSource(number: string, sources: OnlineLegalSo
 }
 
 export function durableSourceFromDiscovery(number: string, source: OnlineLegalSource): DurableLegalSource {
+  const preferred = preferredRecentDocumentDownload(number);
   return {
     number,
     title: inferTitle(source, number),
@@ -60,7 +62,9 @@ export function durableSourceFromDiscovery(number: string, source: OnlineLegalSo
     issuedDate: source.issued_date ?? null,
     effectiveDate: null,
     officialPageUrl: source.url,
-    sourceUrl: source.url,
-    sourceLabel: source.source_label,
+    sourceUrl: preferred?.url ?? source.url,
+    sourceLabel: preferred
+      ? `${preferred.label}; thuộc tính văn bản đối chiếu từ ${source.source_label}`
+      : source.source_label,
   };
 }
