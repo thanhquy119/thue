@@ -169,8 +169,12 @@ async function extractDownloadedSource(
   } else if (mimeType.includes("msword") || lowerName.endsWith(".doc") || extensionFrom(sourceUrl) === "doc") {
     const extractor = new WordExtractor();
     const document = await extractor.extract(buffer);
-    officialText = normalizeText(document.getBody());
+    const bodyText = normalizeText(document.getBody());
+    const textboxText = normalizeText(document.getTextboxes({ includeHeadersAndFooters: false }));
+    officialText = normalizeText([bodyText, textboxText].filter(Boolean).join("\n\n"));
     extractionMethod = "doc";
+    metadata.bodyCharacters = bodyText.length;
+    metadata.textboxCharacters = textboxText.length;
   } else if (
     mimeType.includes("pdf") ||
     lowerName.endsWith(".pdf") ||
