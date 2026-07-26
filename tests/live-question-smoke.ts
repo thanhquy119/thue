@@ -3,7 +3,10 @@ import { answerQuestionFromAnchors } from "../lib/legal/anchored-question.ts";
 import { extractDurableLegalSource } from "../lib/legal/durable-extraction.ts";
 import { validateDurableLegalText } from "../lib/legal/durable-ingestion-types.ts";
 import { parseLegalHierarchy, slugifyDocument } from "../lib/legal/ingestion.ts";
-import { recentVerifiedDocumentResponse } from "../lib/legal/recent-verified-documents.ts";
+import {
+  loadRecentVerifiedDocument,
+  recentVerifiedDocumentResponse,
+} from "../lib/legal/recent-verified-documents.ts";
 import { searchTaxLawRobust } from "../lib/legal/robust-search.ts";
 import type { DocumentDetail, TaxSearchResponse } from "../lib/legal/types.ts";
 
@@ -95,6 +98,28 @@ async function main() {
 
   process.env.LEGAL_MAX_SOURCE_BYTES ||= "100000000";
   console.log("[live-questions] starting official-document question matrix");
+
+  const document89 = await retry("89 curated sources", () => loadRecentVerifiedDocument("89/2026/TT-BTC"));
+  const fieldQuery = "Hướng dẫn chi tiết kê khai chỉ tiêu 37, 38 trên tờ khai khấu trừ theo thông tư 89/2026";
+  const diagnosticMatches = document89.provisions
+    .filter((provision) => {
+      const text = normalized(`${provision.identifier ?? ""} ${provision.heading ?? ""} ${provision.official_text}`);
+      return /chi tieu|to khai|khau tru|\b37\b|\b38\b/u.test(text);
+    })
+    .slice(0, 30)
+    .map((provision) => ({
+      identifier: provision.identifier,
+      heading: provision.heading,
+      orderIndex: provision.order_index,
+      text: provision.official_text.slice(0, 2_000),
+    }));
+  console.log("[live-question-89-evidence]", JSON.stringify({
+    characters: document89.official_text.length,
+    provisionCount: document89.provisions.length,
+    matches: diagnosticMatches,
+  }));
+  const current89Answer = await retry(fieldQuery, () => answerQuestionFromAnchors(fieldQuery, [document89]));
+  console.log("[live-question-89-current-answer]", JSON.stringify({ query: fieldQuery, ...summarize(current89Answer) }));
 
   const source = await retry("87 official DOCX", () => extractDurableLegalSource(SOURCE_87_DOCX));
   assert.equal(source.extractionMethod, "docx");
