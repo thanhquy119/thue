@@ -245,7 +245,7 @@ function relevantSources(groups: OnlineLegalSource[][], query: string, minimumRe
 
 export async function discoverOfficialSources(query: string): Promise<GeminiDiscovery> {
   const plan = analyzeTaxQuestion(query);
-  if (!plan.isQuestion || plan.hasDocumentReference) return discoverViaRss(query);
+  if (!plan.isQuestion) return discoverViaRss(query);
 
   const searches = buildTaxSearchQueries(query, plan);
   const settled = await Promise.allSettled(searches.map((search) => discoverViaRss(search)));
