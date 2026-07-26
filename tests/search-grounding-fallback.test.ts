@@ -118,12 +118,12 @@ test("does not send any Gemini request while Grounding is disabled", async () =>
   );
 });
 
-test("sends the current google_search tool and records the selected source model", async () => {
+test("sends the current google_search tool and records Gemini 2.5 Flash", async () => {
   await withAsyncEnvironment(
     {
       SEARCH_GROUNDING_MODE: "always",
       GEMINI_API_KEY: "test-key",
-      SEARCH_GROUNDING_GEMINI_MODEL: "gemini-2.5-pro",
+      SEARCH_GROUNDING_GEMINI_MODEL: "gemini-2.5-flash",
     },
     async () => {
       const originalFetch = globalThis.fetch;
@@ -151,7 +151,7 @@ test("sends the current google_search tool and records the selected source model
         );
         assert.deepEqual((requestBody?.tools as unknown[]), [{ google_search: {} }]);
         assert.equal(sources.length, 1);
-        assert.match(sources[0].source_label, /gemini-2\.5-pro/iu);
+        assert.match(sources[0].source_label, /gemini-2\.5-flash/iu);
       } finally {
         globalThis.fetch = originalFetch;
         resetSearchGroundingBackoffForTests();
@@ -165,7 +165,7 @@ test("backs off after all supported models return 404 instead of retrying every 
     {
       SEARCH_GROUNDING_MODE: "always",
       GEMINI_API_KEY: "test-key",
-      SEARCH_GROUNDING_GEMINI_MODEL: "gemini-2.5-pro",
+      SEARCH_GROUNDING_GEMINI_MODEL: "gemini-2.5-flash",
     },
     async () => {
       const originalFetch = globalThis.fetch;
@@ -183,13 +183,13 @@ test("backs off after all supported models return 404 instead of retrying every 
           discoverOfficialSourcesViaGrounding("Mức phạt chậm nộp thuế hiện hành là bao nhiêu?"),
           /404/,
         );
-        assert.equal(fetchCalls, 3, "Chỉ thử ba model Grounding được hỗ trợ.");
+        assert.equal(fetchCalls, 4, "Chỉ thử bốn model Grounding được hỗ trợ.");
         assert.equal(searchGroundingBackoffActive(), true);
         const skipped = await discoverOfficialSourcesViaGrounding(
           "Ngưỡng doanh thu miễn thuế hiện hành là bao nhiêu?",
         );
         assert.deepEqual(skipped, []);
-        assert.equal(fetchCalls, 3);
+        assert.equal(fetchCalls, 4);
       } finally {
         globalThis.fetch = originalFetch;
         resetSearchGroundingBackoffForTests();
@@ -202,8 +202,8 @@ test("uses only supported Grounding models", () => {
   withEnvironment({ SEARCH_GROUNDING_GEMINI_MODEL: "models/gemini-3.5-flash" }, () => {
     assert.equal(searchGroundingModel(), "gemini-3.5-flash");
   });
-  withEnvironment({ SEARCH_GROUNDING_GEMINI_MODEL: "gemini-2.5-flash-lite" }, () => {
-    assert.equal(searchGroundingModel(), "gemini-2.5-pro");
+  withEnvironment({ SEARCH_GROUNDING_GEMINI_MODEL: "gemini-2.5-flash-preview-09-2025" }, () => {
+    assert.equal(searchGroundingModel(), "gemini-2.5-flash");
   });
 });
 
