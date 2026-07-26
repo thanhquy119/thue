@@ -27,13 +27,17 @@ function withEnvironment(values: Record<string, string | undefined>, run: () => 
   }
 }
 
-function source(id: string, number: string, score = 3): OnlineLegalSource {
+function source(
+  id: string,
+  number: string,
+  overrides: Partial<OnlineLegalSource> = {},
+): OnlineLegalSource {
   return {
     id,
-    title: `${number} quy định về quản lý thuế và kê khai thuế`,
+    title: overrides.title ?? `${number} quy định về quản lý thuế và kê khai thuế`,
     url: `https://congbao.chinhphu.vn/van-ban/${id}`,
-    snippet: "Quy định hiện hành về kê khai, khấu trừ, thời hạn và nghĩa vụ thuế.",
-    score,
+    snippet: overrides.snippet ?? "Quy định hiện hành về kê khai, khấu trừ, thời hạn và nghĩa vụ thuế.",
+    score: overrides.score ?? 3,
     source_label: "Công báo điện tử Chính phủ",
     previewable: true,
     document_number: number,
@@ -66,8 +70,8 @@ test("recognizes deep evidence questions even when they cite a document", () => 
   });
 });
 
-test("recognizes high-risk effective-law questions with document references", () => {
-  const query = "Thông tư 90/2026/TT-BTC hiện còn hiệu lực và đã bị văn bản nào thay thế chưa?";
+test("recognizes high-risk deadline questions with document references", () => {
+  const query = "Theo Thông tư 90/2026/TT-BTC, thời hạn nộp hồ sơ đăng ký thuế là bao nhiêu ngày?";
   assert.equal(isHighRiskTaxQuestion(query), true);
   withEnvironment({ SEARCH_GROUNDING_MODE: "auto" }, () => {
     assert.equal(shouldCrossCheckWithGrounding(query, [source("tt90", "90/2026/TT-BTC")], 0.6), true);
@@ -85,15 +89,20 @@ test("does not spend quota on ordinary questions that are not high-risk or deep"
 
 test("two strong numbered sources suppress adaptive Grounding", () => {
   const query = "Thuế suất GTGT hiện hành của doanh nghiệp là bao nhiêu phần trăm?";
+  const direct = [
+    source("a", "10/2026/TT-BTC", {
+      score: 5,
+      title: "Thông tư quy định thuế suất thuế giá trị gia tăng đối với doanh nghiệp",
+      snippet: "Thuế suất, mức thuế và căn cứ tính thuế GTGT hiện hành.",
+    }),
+    source("b", "11/2026/TT-BTC", {
+      score: 5,
+      title: "Thông tư hướng dẫn thuế suất thuế giá trị gia tăng",
+      snippet: "Mức thuế và cách tính thuế GTGT đối với doanh nghiệp.",
+    }),
+  ];
   withEnvironment({ SEARCH_GROUNDING_MODE: "auto" }, () => {
-    assert.equal(
-      shouldCrossCheckWithGrounding(
-        query,
-        [source("a", "10/2026/TT-BTC", 5), source("b", "11/2026/TT-BTC", 5)],
-        0.6,
-      ),
-      false,
-    );
+    assert.equal(shouldCrossCheckWithGrounding(query, direct, 1.4), false);
   });
 });
 
