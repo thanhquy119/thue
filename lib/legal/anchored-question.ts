@@ -1,7 +1,7 @@
 import { answerFromOfficialEvidence, GeminiUnavailableError, type OfficialEvidence } from "./gemini";
 import { lexicalRelevance, normalizeLegalQuery } from "./query";
 import type { AnchoredReference } from "./anchored-reference";
-import type { DocumentDetail, Provision, SearchCandidate, TaxSearchResponse } from "./types";
+import type { DocumentDetail, ProvisionDetail, SearchCandidate, TaxSearchResponse } from "./types";
 
 export { extractAnchoredReferences, isAnchoredLegalQuestion } from "./anchored-reference";
 
@@ -126,7 +126,7 @@ function formIntentBoost(query: string, text: string) {
 }
 
 type EvidenceSegment = {
-  provision: Provision;
+  provision: ProvisionDetail;
   text: string;
   chunkIndex: number;
   chunkCount: number;
