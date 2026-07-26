@@ -29,6 +29,8 @@ type GroundingRequestResult = {
   model: string;
 };
 
+export type SearchGroundingMode = "off" | "auto" | "always";
+
 const DEFAULT_GROUNDING_MODEL = "gemini-2.5-flash-lite";
 const SUPPORTED_GROUNDING_MODELS = new Set(["gemini-2.5-flash", "gemini-2.5-flash-lite"]);
 const RETRYABLE_GROUNDING_STATUSES = new Set([404, 429, 500, 502, 503, 504]);
@@ -51,6 +53,10 @@ function enabledValue(value: string | undefined) {
   return /^(?:1|true|yes|on)$/iu.test(value?.trim() ?? "");
 }
 
+function disabledValue(value: string | undefined) {
+  return /^(?:0|false|no|off|disabled)$/iu.test(value?.trim() ?? "");
+}
+
 function positiveInteger(value: string | undefined, fallback: number, maximum: number) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 1
@@ -64,8 +70,29 @@ function providerBackoffMs(status: number) {
   return TRANSIENT_BACKOFF_MS;
 }
 
+function queryFingerprint(query: string) {
+  return createHash("sha256").update(query).digest("hex").slice(0, 12);
+}
+
+function groundingQueryCount(payload: GroundingResponse) {
+  return payload.candidates?.[0]?.groundingMetadata?.webSearchQueries?.length ?? 0;
+}
+
+export function searchGroundingMode(): SearchGroundingMode {
+  const configured = process.env.SEARCH_GROUNDING_MODE?.trim().toLocaleLowerCase("en");
+  if (configured === "always") return "always";
+  if (configured === "auto") return "auto";
+  if (configured && disabledValue(configured)) return "off";
+  if (configured && enabledValue(configured)) return "auto";
+  return enabledValue(process.env.ENABLE_SEARCH_GROUNDING_FALLBACK) ? "auto" : "off";
+}
+
 export function searchGroundingEnabled() {
-  return enabledValue(process.env.ENABLE_SEARCH_GROUNDING_FALLBACK);
+  return searchGroundingMode() !== "off";
+}
+
+export function searchGroundingUsable() {
+  return searchGroundingEnabled() && Boolean(apiKey());
 }
 
 export function searchGroundingBackoffActive(now = Date.now()) {
@@ -180,6 +207,7 @@ function groundingPrompt(query: string) {
     "Tìm các văn bản pháp luật thuế Việt Nam chính thức và mới nhất có liên quan trực tiếp đến câu hỏi bên dưới.",
     "Chỉ tìm nguồn gốc hoặc trang công bố của cơ quan nhà nước trên các miền chinhphu.vn, vbpl.vn, mof.gov.vn, gdt.gov.vn hoặc moj.gov.vn.",
     "Ưu tiên văn bản đang có hiệu lực, văn bản sửa đổi/bổ sung/thay thế mới hơn và bản toàn văn PDF, DOCX hoặc HTML chính thức.",
+    "Với câu hỏi về Điều, Khoản, chỉ tiêu, tờ khai hoặc phụ lục, tìm thêm trang công bố chính thức của văn bản và các tệp đính kèm liên quan trực tiếp.",
     "Không dùng báo chí, blog, diễn đàn, trang tổng hợp luật hoặc nội dung do người dùng đăng.",
     "Không trả lời nghiệp vụ và không suy đoán. Mục đích duy nhất là tìm URL ứng viên để ứng dụng tự tải và xác minh toàn văn.",
     `Câu hỏi: ${query.slice(0, 500)}`,
@@ -241,7 +269,16 @@ async function requestGrounding(query: string): Promise<GroundingRequestResult> 
     }
   }
 
-  groundingBackoffUntil = Date.now() + providerBackoffMs(lastStatus);
+  const backoffMs = providerBackoffMs(lastStatus);
+  groundingBackoffUntil = Date.now() + backoffMs;
+  console.warn("[search-grounding]", JSON.stringify({
+    status: "unavailable",
+    mode: searchGroundingMode(),
+    queryHash: queryFingerprint(query),
+    statusCode: lastStatus || null,
+    backoffMs,
+    message: lastMessage.slice(0, 180),
+  }));
   throw new Error(
     `Search Grounding không dùng được model đã cấu hình${lastStatus ? ` (${lastStatus})` : ""}${
       lastMessage ? `: ${lastMessage.slice(0, 180)}` : "."
@@ -291,7 +328,7 @@ function writeCache(query: string, sources: OnlineLegalSource[]) {
 }
 
 export async function discoverOfficialSourcesViaGrounding(query: string): Promise<OnlineLegalSource[]> {
-  if (!searchGroundingEnabled() || !apiKey() || searchGroundingBackoffActive()) return [];
+  if (!searchGroundingUsable() || searchGroundingBackoffActive()) return [];
   const cleanQuery = query.replace(/\s+/g, " ").trim().slice(0, 500);
   if (cleanQuery.length < 8) return [];
 
@@ -312,5 +349,14 @@ export async function discoverOfficialSourcesViaGrounding(query: string): Promis
   }
 
   writeCache(cleanQuery, sources);
+  console.info("[search-grounding]", JSON.stringify({
+    status: "success",
+    mode: searchGroundingMode(),
+    model,
+    queryHash: queryFingerprint(cleanQuery),
+    webSearchQueries: groundingQueryCount(payload),
+    officialSources: sources.length,
+    hosts: [...new Set(sources.map((source) => new URL(source.url).hostname))],
+  }));
   return sources;
 }
