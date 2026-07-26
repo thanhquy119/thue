@@ -22,15 +22,15 @@ function provision(
 
 function documentWith(provisions: ProvisionDetail[]): DocumentDetail {
   return {
-    id: "89-2026-tt-btc",
-    number: "89/2026/TT-BTC",
-    title: "Quy định chi tiết một số điều của Luật Quản lý thuế",
+    id: "88-2026-tt-btc",
+    number: "88/2026/TT-BTC",
+    title: "Văn bản kiểm thử truy hồi biểu mẫu dài",
     type: "Thông tư",
     issuer: "Bộ Tài chính",
     issued_date: "2026-06-30",
     effective_date: "2026-07-01",
     status: "effective",
-    source_url: "https://example.test/89",
+    source_url: "https://example.test/88",
     source_label: "Nguồn kiểm thử",
     last_verified_at: new Date(0).toISOString(),
     extraction_method: "docx+doc",
@@ -59,7 +59,7 @@ test("retrieves field rows buried deep inside a long appendix", () => {
   ]);
 
   const evidence = buildAnchoredEvidence(
-    "Hướng dẫn kê khai chỉ tiêu 37, 38 trên tờ khai khấu trừ theo Thông tư 89/2026/TT-BTC",
+    "Hướng dẫn kê khai chỉ tiêu 37, 38 trên tờ khai khấu trừ theo Thông tư 88/2026/TT-BTC",
     [document],
   );
   const combined = evidence[0]?.excerpts.join("\n") ?? "";
@@ -87,7 +87,7 @@ test("field markers outrank articles that merely share the same numbers", () => 
   ]);
 
   const excerpts = buildAnchoredEvidence(
-    "Chỉ tiêu 37 và 38 trên tờ khai khấu trừ theo Thông tư 89/2026",
+    "Chỉ tiêu 37 và 38 trên tờ khai khấu trừ theo Thông tư 88/2026",
     [document],
   )[0]?.excerpts ?? [];
 
@@ -104,7 +104,7 @@ test("keeps nearby form instructions around an exact field match", () => {
     "Người nộp thuế lưu tài liệu giải trình và chứng từ liên quan.",
   ];
   const document = documentWith([provision("appendix", "Phụ lục", lines.join("\n"), 10_000)]);
-  const combined = buildAnchoredEvidence("Kê khai chỉ tiêu 37 38 theo Thông tư 89/2026", [document])[0]?.excerpts.join("\n") ?? "";
+  const combined = buildAnchoredEvidence("Kê khai chỉ tiêu 37 38 theo Thông tư 88/2026", [document])[0]?.excerpts.join("\n") ?? "";
 
   assert.match(combined, /làm giảm số thuế/iu);
   assert.match(combined, /làm tăng số thuế/iu);
