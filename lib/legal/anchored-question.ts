@@ -1,8 +1,16 @@
-import { answerFromOfficialEvidence, GeminiUnavailableError, type OfficialEvidence } from "./gemini";
-import { lexicalRelevance, normalizeLegalQuery } from "./query";
+import { buildAnchoredEvidence } from "./anchored-evidence.ts";
+import { answerFromOfficialEvidence, GeminiUnavailableError } from "./gemini";
+import { normalizeLegalQuery } from "./query";
+import {
+  answerFromReviewedFormGuidance,
+  requestedFormFieldNumbers,
+  reviewedFormGuidanceCandidate,
+  reviewedFormGuidanceForQuery,
+} from "./reviewed-form-guidance.ts";
 import type { AnchoredReference } from "./anchored-reference";
 import type { DocumentDetail, SearchCandidate, TaxSearchResponse } from "./types";
 
+export { buildAnchoredEvidence } from "./anchored-evidence.ts";
 export { extractAnchoredReferences, isAnchoredLegalQuestion } from "./anchored-reference";
 
 function normalizedIdentifier(value: string) {
@@ -19,82 +27,21 @@ export function referenceMatchesDocument(reference: AnchoredReference, document:
   );
 }
 
-function analysisIntentBoost(query: string, value: string) {
-  const normalizedQuery = normalizeLegalQuery(query);
-  const normalizedValue = normalizeLegalQuery(value);
-  let score = 0;
-  if (/\b(?:bo sung|sua doi|diem moi|thay the|bai bo|van ban bo sung)\b/.test(normalizedQuery)) {
-    if (/\b(?:bo sung|sua doi|thay the|bai bo|quy dinh chi tiet|huong dan thi hanh)\b/.test(normalizedValue)) {
-      score += 2.4;
-    }
-  }
-  if (/\b(?:phan tich|giai thich|tom tat|danh gia)\b/.test(normalizedQuery)) {
-    if (/\b(?:pham vi dieu chinh|doi tuong ap dung|nguyen tac|trach nhiem|hieu luc thi hanh)\b/.test(normalizedValue)) {
-      score += 0.9;
-    }
-  }
-  return score;
-}
-
-function evidenceForAnchors(query: string, documents: DocumentDetail[]): OfficialEvidence[] {
-  return documents.map((document) => {
-    const ranked = document.provisions
-      .map((provision) => ({
-        provision,
-        score:
-          lexicalRelevance(
-            query,
-            `${provision.identifier ?? ""} ${provision.heading ?? ""} ${provision.official_text}`,
-          ) +
-          analysisIntentBoost(
-            query,
-            `${provision.identifier ?? ""} ${provision.heading ?? ""} ${provision.official_text}`,
-          ),
-      }))
-      .filter(({ provision }) => provision.official_text.trim().length > 60)
-      .sort((left, right) => right.score - left.score || left.provision.order_index - right.provision.order_index)
-      .slice(0, 12)
-      .map(({ provision }) =>
-        `${provision.identifier ?? "Nội dung"}${provision.heading ? ` — ${provision.heading}` : ""}\n${provision.official_text.slice(0, 5_000)}`,
-      );
-
-    return {
-      document_number: document.number,
-      title: `[Văn bản người dùng chỉ định làm căn cứ chính] ${document.title}`,
-      issued_date: document.issued_date,
-      effective_date: document.effective_date,
-      status: document.status,
-      excerpts: ranked,
-    };
-  });
-}
-
-function compactExcerpt(value: string, maxLength = 1_000) {
+function compactExcerpt(value: string, maxLength = 1_200) {
   const text = value.replace(/\s+/g, " ").trim();
   if (text.length <= maxLength) return text;
   return `${text.slice(0, maxLength).trim()}…`;
 }
 
 function extractiveAnchoredAnswer(query: string, documents: DocumentDetail[]) {
-  const selected = documents
-    .flatMap((document) =>
-      document.provisions.map((provision) => ({
-        document,
-        provision,
-        score:
-          lexicalRelevance(
-            query,
-            `${provision.identifier ?? ""} ${provision.heading ?? ""} ${provision.official_text}`,
-          ) +
-          analysisIntentBoost(
-            query,
-            `${provision.identifier ?? ""} ${provision.heading ?? ""} ${provision.official_text}`,
-          ),
+  const selected = buildAnchoredEvidence(query, documents)
+    .flatMap((evidence) =>
+      evidence.excerpts.map((excerpt) => ({
+        documentNumber: evidence.document_number,
+        excerpt,
       })),
     )
-    .filter(({ provision }) => provision.official_text.trim().length > 80)
-    .sort((left, right) => right.score - left.score || left.provision.order_index - right.provision.order_index)
-    .slice(0, 4);
+    .slice(0, 6);
 
   if (!selected.length) {
     return `Đã mở đúng ${documents.map((document) => document.number).join(", ")}, nhưng chưa xác định được Điều/Khoản đủ gần với yêu cầu. Toàn văn căn cứ chính được hiển thị bên dưới để tiếp tục đối chiếu.`;
@@ -102,10 +49,7 @@ function extractiveAnchoredAnswer(query: string, documents: DocumentDetail[]) {
 
   return [
     `Phần dưới đây chỉ được trích từ ${documents.map((document) => document.number).join(", ")} — văn bản người dùng đã chỉ định làm căn cứ. Hệ thống không thay thế bằng các văn bản gần giống.`,
-    ...selected.map(
-      ({ document, provision }) =>
-        `${document.number} — ${provision.identifier ?? "Nội dung liên quan"}${provision.heading ? ` — ${provision.heading}` : ""}\n${compactExcerpt(provision.official_text)}`,
-    ),
+    ...selected.map(({ documentNumber, excerpt }) => `${documentNumber}\n${compactExcerpt(excerpt)}`),
   ].join("\n\n");
 }
 
@@ -128,6 +72,29 @@ export async function answerQuestionFromAnchors(
 ): Promise<TaxSearchResponse> {
   const retrievedAt = new Date().toISOString();
   const primary = documents[0] ?? null;
+  const reviewedGuidance = reviewedFormGuidanceForQuery(query, documents);
+  const requestedFields = requestedFormFieldNumbers(query);
+  if (
+    reviewedGuidance &&
+    requestedFields.length > 0 &&
+    requestedFields.every((field) => reviewedGuidance.fieldNumbers.includes(field))
+  ) {
+    return {
+      query_normalized: normalizeLegalQuery(query),
+      query_kind: "question",
+      direct_answer: answerFromReviewedFormGuidance(reviewedGuidance, requestedFields),
+      document: primary,
+      candidates: primary
+        ? documents.slice(1).map(candidateFromDocument)
+        : [reviewedFormGuidanceCandidate(reviewedGuidance)],
+      warnings: [
+        `Phần hướng dẫn biểu mẫu được đối chiếu từ Mẫu ${reviewedGuidance.formNumber}, Phụ lục I Thông tư ${reviewedGuidance.documentNumber}. Tệp Word cũ không cung cấp đầy đủ lớp chữ của các ô và ghi chú biểu mẫu nên hệ thống dùng bản ghi đã được rà soát trực quan.`,
+      ],
+      confidence: 0.97,
+      retrieved_at: retrievedAt,
+    };
+  }
+
   if (!primary) {
     return {
       query_normalized: normalizeLegalQuery(query),
@@ -147,7 +114,7 @@ export async function answerQuestionFromAnchors(
   let confidence = 0.9;
   try {
     const anchoredQuery = `Văn bản bắt buộc làm căn cứ chính: ${documents.map((document) => document.number).join(", ")}. Không thay thế bằng văn bản khác.\nYêu cầu của người dùng: ${query}`;
-    answer = await answerFromOfficialEvidence(anchoredQuery, evidenceForAnchors(query, documents));
+    answer = await answerFromOfficialEvidence(anchoredQuery, buildAnchoredEvidence(query, documents));
   } catch (error) {
     answer = extractiveAnchoredAnswer(query, documents);
     confidence = 0.76;

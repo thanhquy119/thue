@@ -7,6 +7,7 @@ import {
   loadExactOfficialDocumentSafe,
 } from "./exact-official-document-safe.ts";
 import { extractFromFile, parseLegalHierarchy, slugifyDocument } from "./ingestion.ts";
+import { extractLegacyWordText } from "./legacy-word-extraction.ts";
 import {
   findRecentDocumentByNumber,
   findRecentDocumentForQuery,
@@ -82,7 +83,23 @@ async function extractDownload(
   const buffer = await fetchDownload(download);
   const file = new File([new Uint8Array(buffer)], download.fileName, { type: download.mimeType });
   const extracted = await extractFromFile(file);
-  const officialText = trimMirroredText(extracted.officialText, download);
+  const isLegacyWord =
+    download.mimeType.toLocaleLowerCase("en").includes("msword") ||
+    download.fileName.toLocaleLowerCase("en").endsWith(".doc");
+  let officialText: string;
+  if (isLegacyWord) {
+    const legacy = await extractLegacyWordText(buffer);
+    officialText = trimMirroredText(legacy.text, download);
+    extracted.officialText = officialText;
+    extracted.metadata = {
+      ...extracted.metadata,
+      bodyCharacters: legacy.bodyCharacters,
+      textboxCharacters: legacy.textboxCharacters,
+      legacyWordTextboxesIncluded: true,
+    };
+  } else {
+    officialText = trimMirroredText(extracted.officialText, download);
+  }
 
   if (extracted.requiresOcr) {
     throw new Error("Tệp PDF là bản scan và OCR chưa tạo được lớp chữ đạt yêu cầu.");
@@ -216,7 +233,7 @@ async function loadUncachedRecentDocument(number: string): Promise<DocumentDetai
 
 const loadCachedRecentDocument = unstable_cache(
   loadUncachedRecentDocument,
-  ["thue-ro-recent-verified-documents-v5"],
+  ["thue-ro-recent-verified-documents-v6"],
   { revalidate: 24 * 60 * 60 },
 );
 
