@@ -18,7 +18,7 @@ if (!enabled) {
 const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
 assert.ok(apiKey, "Gemini API key is required for the live grounding smoke.");
 
-const model = "gemini-2.5-flash";
+const model = "gemini-2.5-flash-lite";
 const query = "Tìm trang văn bản chính thức của Chính phủ Việt Nam về đăng ký thuế khi doanh nghiệp chuyển trụ sở sang tỉnh khác. Chỉ tìm nguồn cơ quan nhà nước.";
 
 const response = await fetch(
@@ -46,7 +46,7 @@ console.log(`[live-grounding-model] model=${model} status=${response.status}`);
 assert.equal(
   response.ok,
   true,
-  `Gemini 2.5 Flash Search Grounding failed (${response.status}): ${message.slice(0, 400)}`,
+  `Gemini 2.5 Flash-Lite Search Grounding failed (${response.status}): ${message.slice(0, 400)}`,
 );
 
 const chunks = extractGroundingWebChunks(payload);
