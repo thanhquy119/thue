@@ -74,6 +74,32 @@ async function fetchDownload(download: RecentDocumentDownload) {
   }
 }
 
+async function extractDownload(
+  download: RecentDocumentDownload,
+  minimumTextLength: number,
+  expectedNumber: string | null,
+) {
+  const buffer = await fetchDownload(download);
+  const file = new File([new Uint8Array(buffer)], download.fileName, { type: download.mimeType });
+  const extracted = await extractFromFile(file);
+  const officialText = trimMirroredText(extracted.officialText, download);
+
+  if (extracted.requiresOcr) {
+    throw new Error("Tệp PDF là bản scan và OCR chưa tạo được lớp chữ đạt yêu cầu.");
+  }
+  if (officialText.length < minimumTextLength) {
+    throw new Error("Tệp nguồn chưa chứa đủ nội dung chữ để hiển thị toàn văn.");
+  }
+  if (looksLikeGovernmentPortalShell(officialText)) {
+    throw new Error("Nguồn trả phần giao diện trang thay cho toàn văn pháp luật.");
+  }
+  if (expectedNumber && !hasUsableLegalDocumentText(officialText, expectedNumber)) {
+    throw new Error("Nội dung trích xuất không khớp cấu trúc hoặc số hiệu văn bản cần tìm.");
+  }
+
+  return { extracted, officialText, download };
+}
+
 async function extractVerifiedDocument(definition: RecentDocumentDefinition) {
   if (!definition.downloads.length) {
     throw new Error(
@@ -82,6 +108,7 @@ async function extractVerifiedDocument(definition: RecentDocumentDefinition) {
     );
   }
 
+  let primary: Awaited<ReturnType<typeof extractDownload>> | null = null;
   let lastError: Error | null = null;
   const downloads = [...definition.downloads].sort(
     (left, right) => downloadPriority(left) - downloadPriority(right),
@@ -89,25 +116,8 @@ async function extractVerifiedDocument(definition: RecentDocumentDefinition) {
 
   for (const download of downloads) {
     try {
-      const buffer = await fetchDownload(download);
-      const file = new File([new Uint8Array(buffer)], download.fileName, { type: download.mimeType });
-      const extracted = await extractFromFile(file);
-      const officialText = trimMirroredText(extracted.officialText, download);
-
-      if (extracted.requiresOcr) {
-        throw new Error("Tệp PDF là bản scan và OCR chưa tạo được lớp chữ đạt yêu cầu.");
-      }
-      if (officialText.length < definition.minimumTextLength) {
-        throw new Error("Tệp nguồn chưa chứa đủ nội dung chữ để hiển thị toàn văn.");
-      }
-      if (looksLikeGovernmentPortalShell(officialText)) {
-        throw new Error("Nguồn trả phần giao diện trang thay cho toàn văn pháp luật.");
-      }
-      if (!hasUsableLegalDocumentText(officialText, definition.number)) {
-        throw new Error("Nội dung trích xuất không khớp cấu trúc hoặc số hiệu văn bản cần tìm.");
-      }
-
-      return { extracted, officialText, download };
+      primary = await extractDownload(download, definition.minimumTextLength, definition.number);
+      break;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error("Không tải được tệp toàn văn.");
       console.warn("[recent-verified-source-rejected]", JSON.stringify({
@@ -119,7 +129,35 @@ async function extractVerifiedDocument(definition: RecentDocumentDefinition) {
     }
   }
 
-  throw lastError ?? new Error("Không tải được tệp toàn văn.");
+  if (!primary) throw lastError ?? new Error("Không tải được tệp toàn văn.");
+
+  const attachments: Awaited<ReturnType<typeof extractDownload>>[] = [];
+  for (const attachment of definition.attachments ?? []) {
+    try {
+      attachments.push(await extractDownload(attachment, 200, null));
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "Không tải được tệp phụ lục.";
+      console.warn("[recent-verified-attachment-rejected]", JSON.stringify({
+        number: definition.number,
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        reason,
+      }));
+      throw new Error(`${attachment.label}: ${reason}`);
+    }
+  }
+
+  const officialText = [
+    primary.officialText,
+    ...attachments.map((attachment) => `PHỤ LỤC KÈM THEO\n${attachment.officialText}`),
+  ].join("\n\n").trim();
+
+  return {
+    extracted: primary.extracted,
+    officialText,
+    download: primary.download,
+    attachments,
+  };
 }
 
 function buildDocument(
@@ -127,6 +165,7 @@ function buildDocument(
   extracted: Awaited<ReturnType<typeof extractVerifiedDocument>>["extracted"],
   officialText: string,
   download: RecentDocumentDownload,
+  attachments: Awaited<ReturnType<typeof extractVerifiedDocument>>["attachments"],
 ): DocumentDetail {
   const provisions = parseLegalHierarchy(officialText).map((provision, index) => ({
     id: `${slugifyDocument(definition.number)}-${index}`,
@@ -137,6 +176,15 @@ function buildDocument(
     official_text: provision.officialText,
     order_index: provision.orderIndex,
   }));
+  const methods = Array.from(new Set([
+    extracted.extractionMethod,
+    ...attachments.map((attachment) => attachment.extracted.extractionMethod),
+  ]));
+  const scores = [
+    extracted.qualityScore,
+    ...attachments.map((attachment) => attachment.extracted.qualityScore),
+  ];
+  const sourceLabels = [download.label, ...attachments.map((attachment) => attachment.download.label)];
 
   return {
     id: slugifyDocument(`${definition.number}-bo-tai-chinh`),
@@ -150,10 +198,10 @@ function buildDocument(
     source_url: definition.officialPage,
     source_label: "Cổng Thông tin điện tử Chính phủ",
     last_verified_at: new Date().toISOString(),
-    extraction_method: extracted.extractionMethod,
-    quality_score: extracted.qualityScore,
+    extraction_method: methods.join("+"),
+    quality_score: Math.min(...scores),
     verification_notes:
-      `${download.label}. Số hiệu, cơ quan ban hành, ngày ban hành, ngày hiệu lực và trích yếu được đối chiếu với trang công bố chính thức.`,
+      `${sourceLabels.join("; ")}. Số hiệu, cơ quan ban hành, ngày ban hành, ngày hiệu lực và trích yếu được đối chiếu với trang công bố chính thức.`,
     official_text: officialText,
     provisions,
   };
@@ -162,13 +210,13 @@ function buildDocument(
 async function loadUncachedRecentDocument(number: string): Promise<DocumentDetail> {
   const definition = findRecentDocumentByNumber(number);
   if (!definition) throw new Error("Văn bản chưa có trong danh sách đối chiếu gần đây.");
-  const { extracted, officialText, download } = await extractVerifiedDocument(definition);
-  return buildDocument(definition, extracted, officialText, download);
+  const { extracted, officialText, download, attachments } = await extractVerifiedDocument(definition);
+  return buildDocument(definition, extracted, officialText, download, attachments);
 }
 
 const loadCachedRecentDocument = unstable_cache(
   loadUncachedRecentDocument,
-  ["thue-ro-recent-verified-documents-v4"],
+  ["thue-ro-recent-verified-documents-v5"],
   { revalidate: 24 * 60 * 60 },
 );
 
@@ -197,57 +245,85 @@ export function recentVerifiedCandidate(number: string): SearchCandidate | null 
     issued_date: definition.issuedDate,
     source_url: definition.officialPage,
     source_label: "Cổng Thông tin điện tử Chính phủ",
+    action_url: definition.officialPage,
+    action_label: "Mở nguồn công bố →",
   };
 }
 
 export async function loadRecentVerifiedDocument(number: string) {
+  const definition = findRecentDocumentByNumber(number);
+  if (definition?.preferCuratedSource) {
+    try {
+      return await loadRecentDocument(definition.number);
+    } catch {
+      const durable = await durableDocumentResponse(number);
+      if (durable?.document) return durable.document;
+      throw new Error("Không tải được nguồn chữ đã đối chiếu và chưa có revision bền vững đạt yêu cầu.");
+    }
+  }
+
   const durable = await durableDocumentResponse(number);
   if (durable?.document) return durable.document;
+  if (definition) return loadRecentDocument(definition.number);
+  return loadExactOfficialDocumentSafe(number);
+}
 
-  const definition = findRecentDocumentByNumber(number);
-  if (!definition) return loadExactOfficialDocumentSafe(number);
-  return loadRecentDocument(definition.number);
+function curatedResponse(
+  definition: RecentDocumentDefinition,
+  document: DocumentDetail,
+  durable: TaxSearchResponse | null,
+): TaxSearchResponse {
+  const mirrored = document.verification_notes?.includes("công bố lại") ?? false;
+  const fallbackWarning = durable && !durable.document
+    ? "Bản nhập nền gần nhất chưa hoàn chỉnh; hệ thống đã tự chuyển sang nguồn DOCX/DOC/HTML có lớp chữ, đồng thời giữ liên kết công bố chính thức để đối chiếu."
+    : null;
+  return {
+    query_normalized: normalizeIdentifier(definition.number),
+    query_kind: "document",
+    direct_answer: `Đã tìm thấy ${definition.number}.`,
+    document,
+    candidates: [],
+    warnings: Array.from(new Set([
+      fallbackWarning,
+      mirrored ? "Lớp chữ được đọc từ bản công bố lại và đã đối chiếu các thuộc tính với trang công bố chính thức." : null,
+    ].filter((value): value is string => Boolean(value)))),
+    confidence: mirrored ? 0.94 : 0.99,
+    retrieved_at: new Date().toISOString(),
+  };
 }
 
 export async function recentVerifiedDocumentResponse(query: string): Promise<TaxSearchResponse | null> {
   const resolvedNumber = resolveCurrentTaxDocumentNumber(query);
   const lookupQuery = resolvedNumber ?? query;
-  const durable = await durableDocumentResponse(lookupQuery);
-  if (durable) return durable;
-
   const definition = resolvedNumber
     ? findRecentDocumentByNumber(resolvedNumber)
     : findRecentDocumentForQuery(query);
-  if (!definition) return exactOfficialDocumentResponseSafe(lookupQuery);
+  const durable = await durableDocumentResponse(lookupQuery);
 
-  try {
-    const document = await loadRecentDocument(definition.number);
-    const mirrored = document.verification_notes?.includes("công bố lại") ?? false;
-    return {
-      query_normalized: normalizeIdentifier(definition.number),
-      query_kind: "document",
-      direct_answer: `Đã tìm thấy ${definition.number}.`,
-      document,
-      candidates: [],
-      warnings: mirrored
-        ? ["Lớp chữ được đọc từ bản công bố lại và đã đối chiếu các thuộc tính với trang công bố chính thức."]
-        : [],
-      confidence: mirrored ? 0.94 : 0.99,
-      retrieved_at: new Date().toISOString(),
-    };
-  } catch (error) {
-    const candidate = recentVerifiedCandidate(definition.number);
-    return {
-      query_normalized: normalizeIdentifier(definition.number),
-      query_kind: "document",
-      direct_answer:
-        `Đã tìm thấy đúng ${definition.number} do Bộ Tài chính ban hành. ` +
-        "Toàn văn chưa được hiển thị vì nguồn hiện chưa có lớp chữ đạt yêu cầu; hệ thống giữ liên kết công bố chính thức để em mở và đối chiếu.",
-      document: null,
-      candidates: candidate ? [candidate] : [],
-      warnings: [error instanceof Error ? error.message : "Không tải được tệp toàn văn."],
-      confidence: 0.92,
-      retrieved_at: new Date().toISOString(),
-    };
+  if (durable?.document && !definition?.preferCuratedSource) return durable;
+
+  if (definition) {
+    try {
+      const document = await loadRecentDocument(definition.number);
+      return curatedResponse(definition, document, durable);
+    } catch (error) {
+      if (durable) return durable;
+      const candidate = recentVerifiedCandidate(definition.number);
+      return {
+        query_normalized: normalizeIdentifier(definition.number),
+        query_kind: "document",
+        direct_answer:
+          `Đã tìm thấy đúng ${definition.number} do Bộ Tài chính ban hành. ` +
+          "Toàn văn chưa được hiển thị vì nguồn hiện chưa có lớp chữ đạt yêu cầu; hệ thống giữ liên kết công bố chính thức để em mở và đối chiếu.",
+        document: null,
+        candidates: candidate ? [candidate] : [],
+        warnings: [error instanceof Error ? error.message : "Không tải được tệp toàn văn."],
+        confidence: 0.92,
+        retrieved_at: new Date().toISOString(),
+      };
+    }
   }
+
+  if (durable) return durable;
+  return exactOfficialDocumentResponseSafe(lookupQuery);
 }

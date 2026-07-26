@@ -18,6 +18,8 @@ export type RecentDocumentDefinition = {
   officialPage: string;
   minimumTextLength: number;
   downloads: RecentDocumentDownload[];
+  attachments?: RecentDocumentDownload[];
+  preferCuratedSource?: boolean;
   fullTextUnavailableReason?: string;
 };
 
@@ -45,6 +47,36 @@ const DOCUMENTS: RecentDocumentDefinition[] = [
         label: "Bản HTML toàn văn công bố lại đã đối chiếu với bản scan chính thức",
         textStartMarker: "QUỐC HỘI",
         textEndMarker: "Xem thêm: Bài viết mới tại:",
+      },
+    ],
+  },
+  {
+    number: "89/2026/TT-BTC",
+    title:
+      "Quy định chi tiết một số điều của Luật Quản lý thuế và Nghị định số 252/2026/NĐ-CP của Chính phủ",
+    issuedDate: "2026-06-30",
+    effectiveDate: "2026-07-01",
+    officialPage: "https://vanban.chinhphu.vn/?classid=1&docid=218974&orggroupid=4&pageid=27160",
+    minimumTextLength: 25_000,
+    preferCuratedSource: true,
+    downloads: [
+      {
+        url: "https://baocaotaichinh.vn/tintuc/download?file=294987317thong-tu-so-89_2026_tt-btc.docx",
+        fileName: "Thong tu so 89_2026_TT-BTC.docx",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        referer:
+          "https://baocaotaichinh.vn/thu-vien/thong-tu-so-89-2026-ttbtc-cua-bo-tai-chinh-quy-dinh-chi-tiet-mot-soi-dieu-cua-luat-quan-ly-thue-va-nghi-dinh-252-2026-ndcp-cua-chinh-phu-quy-dinh-chi-tiet-mot-so-dieu-va-bien-phap-de-to-chuc-huong-dan-thi-hanh-luat-quan-ly-thue-1178433928-65201",
+        label: "Bản DOCX nội dung chính công bố lại đã đối chiếu với Cổng Chính phủ",
+      },
+    ],
+    attachments: [
+      {
+        url: "https://baocaotaichinh.vn/tintuc/download?file=746836455phu-luc_thong-tu-so-89_2026_tt-btc.doc",
+        fileName: "Phu luc_Thong tu so 89_2026_TT-BTC.doc",
+        mimeType: "application/msword",
+        referer:
+          "https://baocaotaichinh.vn/thu-vien/thong-tu-so-89-2026-ttbtc-cua-bo-tai-chinh-quy-dinh-chi-tiet-mot-soi-dieu-cua-luat-quan-ly-thue-va-nghi-dinh-252-2026-ndcp-cua-chinh-phu-quy-dinh-chi-tiet-mot-so-dieu-va-bien-phap-de-to-chuc-huong-dan-thi-hanh-luat-quan-ly-thue-1178433928-65201",
+        label: "Tệp phụ lục DOC công bố kèm theo",
       },
     ],
   },
@@ -122,12 +154,17 @@ export function recentDocumentDefinitions() {
   return DOCUMENTS.map((document) => ({
     ...document,
     downloads: document.downloads.map((download) => ({ ...download })),
+    attachments: document.attachments?.map((download) => ({ ...download })),
   }));
 }
 
 export function findRecentDocumentByNumber(number: string) {
   const expected = normalize(number);
   return DOCUMENTS.find((document) => normalize(document.number) === expected) ?? null;
+}
+
+export function preferredRecentDocumentDownload(number: string) {
+  return findRecentDocumentByNumber(number)?.downloads[0] ?? null;
 }
 
 export function findRecentDocumentForQuery(query: string) {
