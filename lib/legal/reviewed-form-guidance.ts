@@ -1,9 +1,13 @@
 import type { OfficialEvidence } from "./gemini.ts";
 import { normalizeLegalQuery } from "./query.ts";
-import type { DocumentDetail } from "./types.ts";
+import type { DocumentDetail, SearchCandidate } from "./types.ts";
 
 export type ReviewedFormGuidance = {
   documentNumber: string;
+  documentType: string;
+  issuer: string;
+  issuedDate: string;
+  effectiveDate: string;
   formNumber: string;
   formTitle: string;
   formAliases: string[];
@@ -24,6 +28,10 @@ export type ReviewedFormGuidance = {
 const GUIDANCE: ReviewedFormGuidance[] = [
   {
     documentNumber: "89/2026/TT-BTC",
+    documentType: "Thông tư",
+    issuer: "Bộ Tài chính",
+    issuedDate: "2026-06-30",
+    effectiveDate: "2026-07-01",
     formNumber: "01/GTGT",
     formTitle: "Tờ khai thuế giá trị gia tăng áp dụng đối với người nộp thuế tính thuế theo phương pháp khấu trừ có hoạt động sản xuất kinh doanh",
     formAliases: [
@@ -119,9 +127,15 @@ function hasFormIntent(query: string) {
 
 function documentMatches(guidance: ReviewedFormGuidance, documents: DocumentDetail[], query: string) {
   const expected = normalizeIdentifier(guidance.documentNumber);
+  const [number, year] = guidance.documentNumber.split("/");
+  const normalizedQuery = normalizeLegalQuery(query);
+  const queryMentionsNumberAndYear = Boolean(
+    number && year && new RegExp(`(?:^|[^0-9])${number}\\s*[/-]\\s*${year}(?:[^0-9]|$)`, "u").test(normalizedQuery),
+  );
   return (
     documents.some((document) => normalizeIdentifier(document.number) === expected) ||
-    normalizeIdentifier(query).includes(expected)
+    normalizeIdentifier(query).includes(expected) ||
+    queryMentionsNumberAndYear
   );
 }
 
@@ -148,6 +162,21 @@ export function reviewedFormGuidanceForQuery(query: string, documents: DocumentD
   );
 }
 
+export function reviewedFormGuidanceCandidate(guidance: ReviewedFormGuidance): SearchCandidate {
+  return {
+    id: `reviewed-form-${normalizeIdentifier(guidance.documentNumber)}-${normalizeIdentifier(guidance.formNumber)}`,
+    number: guidance.documentNumber,
+    title: `${guidance.documentType} ${guidance.documentNumber} — Mẫu ${guidance.formNumber}: ${guidance.formTitle}`,
+    type: guidance.documentType,
+    issuer: guidance.issuer,
+    issued_date: guidance.issuedDate,
+    source_url: guidance.officialPage,
+    source_label: "Trang công bố chính thức",
+    action_url: guidance.officialPage,
+    action_label: "Mở nguồn công bố →",
+  };
+}
+
 export function reviewedFormGuidanceEvidence(
   guidance: ReviewedFormGuidance,
   requestedFields: number[],
@@ -158,8 +187,8 @@ export function reviewedFormGuidanceEvidence(
   return {
     document_number: guidance.documentNumber,
     title: `[Hướng dẫn biểu mẫu đã đối chiếu] Mẫu ${guidance.formNumber} — ${guidance.formTitle}`,
-    issued_date: "2026-06-30",
-    effective_date: "2026-07-01",
+    issued_date: guidance.issuedDate,
+    effective_date: guidance.effectiveDate,
     status: "effective",
     excerpts: [
       `Nguồn và mức độ kiểm chứng: ${guidance.sourceLabel}. Trang công bố chính thức: ${guidance.officialPage}. Bản biểu mẫu dùng để đối chiếu trực quan: ${guidance.reviewedFormCopy}. Ngày rà soát: ${guidance.reviewedAt}.`,
