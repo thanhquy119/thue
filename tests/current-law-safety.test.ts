@@ -54,6 +54,12 @@ test("an old year inside a document number does not silently turn the question h
   assert.equal(currentLawDecision("Theo Luật 10/2012/QH13 thì kê khai thuế như thế nào?", document("unknown")).allowed, false);
 });
 
+test("a tax period written as year 2025 is historical without confusing document numbers", () => {
+  assert.equal(legalTimeIntent("Kê khai thuế năm 2025 như thế nào?", 2026), "historical");
+  assert.equal(legalTimeIntent("Quyết toán năm 2025 cần mẫu nào?", 2026), "historical");
+  assert.equal(legalTimeIntent("Theo Thông tư 10/2025/TT-BTC kê khai thế nào?", 2026), "current");
+});
+
 test("explicit historical, relationship and future questions keep their intended time scope", () => {
   assert.equal(legalTimeIntent("Tại thời điểm năm 2012 kê khai thuế như thế nào?", 2026), "historical");
   assert.equal(legalTimeIntent("Luật 10/2012/QH13 còn hiệu lực không?", 2026), "relationship");
