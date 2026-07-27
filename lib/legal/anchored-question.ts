@@ -4,19 +4,19 @@ import {
   currentLawDocuments,
   requiresCurrentEffectiveLaw,
 } from "./current-law-safety.ts";
-import { answerFromOfficialEvidence, GeminiUnavailableError } from "./gemini";
-import { normalizeLegalQuery } from "./query";
+import { answerFromOfficialEvidence, GeminiUnavailableError } from "./gemini.ts";
+import { normalizeLegalQuery } from "./query.ts";
 import {
   answerFromReviewedFormGuidance,
   requestedFormFieldNumbers,
   reviewedFormGuidanceCandidate,
   reviewedFormGuidanceForQuery,
 } from "./reviewed-form-guidance.ts";
-import type { AnchoredReference } from "./anchored-reference";
-import type { DocumentDetail, SearchCandidate, TaxSearchResponse } from "./types";
+import type { AnchoredReference } from "./anchored-reference.ts";
+import type { DocumentDetail, SearchCandidate, TaxSearchResponse } from "./types.ts";
 
 export { buildAnchoredEvidence } from "./anchored-evidence.ts";
-export { extractAnchoredReferences, isAnchoredLegalQuestion } from "./anchored-reference";
+export { extractAnchoredReferences, isAnchoredLegalQuestion } from "./anchored-reference.ts";
 
 function normalizedIdentifier(value: string) {
   return normalizeLegalQuery(value).replace(/\s+/g, "");
