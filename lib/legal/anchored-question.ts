@@ -1,17 +1,22 @@
 import { buildAnchoredEvidence } from "./anchored-evidence.ts";
-import { answerFromOfficialEvidence, GeminiUnavailableError } from "./gemini";
-import { normalizeLegalQuery } from "./query";
+import {
+  blockedCurrentLawResponse,
+  currentLawDocuments,
+  requiresCurrentEffectiveLaw,
+} from "./current-law-safety.ts";
+import { answerFromOfficialEvidence, GeminiUnavailableError } from "./gemini.ts";
+import { normalizeLegalQuery } from "./query.ts";
 import {
   answerFromReviewedFormGuidance,
   requestedFormFieldNumbers,
   reviewedFormGuidanceCandidate,
   reviewedFormGuidanceForQuery,
 } from "./reviewed-form-guidance.ts";
-import type { AnchoredReference } from "./anchored-reference";
-import type { DocumentDetail, SearchCandidate, TaxSearchResponse } from "./types";
+import type { AnchoredReference } from "./anchored-reference.ts";
+import type { DocumentDetail, SearchCandidate, TaxSearchResponse } from "./types.ts";
 
 export { buildAnchoredEvidence } from "./anchored-evidence.ts";
-export { extractAnchoredReferences, isAnchoredLegalQuestion } from "./anchored-reference";
+export { extractAnchoredReferences, isAnchoredLegalQuestion } from "./anchored-reference.ts";
 
 function normalizedIdentifier(value: string) {
   return normalizeLegalQuery(value).replace(/\s+/g, "");
@@ -71,8 +76,32 @@ export async function answerQuestionFromAnchors(
   documents: DocumentDetail[],
 ): Promise<TaxSearchResponse> {
   const retrievedAt = new Date().toISOString();
-  const primary = documents[0] ?? null;
-  const reviewedGuidance = reviewedFormGuidanceForQuery(query, documents);
+  const currentSelection = currentLawDocuments(query, documents);
+  const usableDocuments = requiresCurrentEffectiveLaw(query)
+    ? currentSelection.eligible
+    : documents;
+  const primary = usableDocuments[0] ?? null;
+
+  if (requiresCurrentEffectiveLaw(query) && documents.length > 0 && !primary) {
+    const rejected = documents[0];
+    return blockedCurrentLawResponse(
+      query,
+      {
+        query_normalized: normalizeLegalQuery(query),
+        query_kind: "question",
+        direct_answer: "",
+        document: rejected,
+        candidates: [],
+        warnings: [],
+        confidence: 0.3,
+        retrieved_at: retrievedAt,
+      },
+      rejected,
+      ["Câu hỏi nghiệp vụ hiện hành chỉ dùng văn bản đã xác minh đang có hiệu lực hoặc còn hiệu lực một phần."],
+    );
+  }
+
+  const reviewedGuidance = reviewedFormGuidanceForQuery(query, usableDocuments);
   const requestedFields = requestedFormFieldNumbers(query);
   if (
     reviewedGuidance &&
@@ -85,7 +114,7 @@ export async function answerQuestionFromAnchors(
       direct_answer: answerFromReviewedFormGuidance(reviewedGuidance, requestedFields),
       document: primary,
       candidates: primary
-        ? documents.slice(1).map(candidateFromDocument)
+        ? usableDocuments.slice(1).map(candidateFromDocument)
         : [reviewedFormGuidanceCandidate(reviewedGuidance)],
       warnings: [
         `Phần hướng dẫn biểu mẫu được đối chiếu từ Mẫu ${reviewedGuidance.formNumber}, Phụ lục I Thông tư ${reviewedGuidance.documentNumber}. Tệp Word cũ không cung cấp đầy đủ lớp chữ của các ô và ghi chú biểu mẫu nên hệ thống dùng bản ghi đã được rà soát trực quan.`,
@@ -110,13 +139,24 @@ export async function answerQuestionFromAnchors(
   }
 
   const warnings: string[] = [];
+  if (currentSelection.excluded.length > 0 && requiresCurrentEffectiveLaw(query)) {
+    warnings.push(
+      `Đã loại ${currentSelection.excluded.length} văn bản chưa đủ điều kiện hiệu lực khỏi căn cứ trả lời nghiệp vụ hiện hành.`,
+    );
+  }
+  for (const document of usableDocuments) {
+    if (document.status === "partially_effective") {
+      warnings.push(`${document.number} chỉ còn hiệu lực một phần; cần đối chiếu đúng Điều/Khoản còn hiệu lực.`);
+    }
+  }
+
   let answer: string;
   let confidence = 0.9;
   try {
-    const anchoredQuery = `Văn bản bắt buộc làm căn cứ chính: ${documents.map((document) => document.number).join(", ")}. Không thay thế bằng văn bản khác.\nYêu cầu của người dùng: ${query}`;
-    answer = await answerFromOfficialEvidence(anchoredQuery, buildAnchoredEvidence(query, documents));
+    const anchoredQuery = `Văn bản bắt buộc làm căn cứ chính: ${usableDocuments.map((document) => document.number).join(", ")}. Không thay thế bằng văn bản khác.\nYêu cầu của người dùng: ${query}`;
+    answer = await answerFromOfficialEvidence(anchoredQuery, buildAnchoredEvidence(query, usableDocuments));
   } catch (error) {
-    answer = extractiveAnchoredAnswer(query, documents);
+    answer = extractiveAnchoredAnswer(query, usableDocuments);
     confidence = 0.76;
     if (error instanceof GeminiUnavailableError) {
       warnings.push(
@@ -130,8 +170,8 @@ export async function answerQuestionFromAnchors(
     query_kind: "question",
     direct_answer: answer,
     document: primary,
-    candidates: documents.slice(1).map(candidateFromDocument),
-    warnings,
+    candidates: usableDocuments.slice(1).map(candidateFromDocument),
+    warnings: Array.from(new Set(warnings)),
     confidence,
     retrieved_at: retrievedAt,
   };
