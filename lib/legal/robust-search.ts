@@ -1,4 +1,10 @@
 import { answerQuestionFromAnchors } from "./anchored-question";
+import {
+  blockedCurrentLawResponse,
+  currentLawDecision,
+  legalTimeIntent,
+  requiresCurrentEffectiveLaw,
+} from "./current-law-safety.ts";
 import { durableDocumentResponse } from "./durable-document-lookup";
 import { discoverOfficialSources } from "./gemini";
 import {
@@ -119,16 +125,8 @@ function guardQuestionResult(originalQuery: string, result: TaxSearchResponse): 
   };
 }
 
-function asksHistoricalPeriod(query: string) {
-  const currentYear = new Date().getFullYear();
-  const years = normalizeLegalQuery(query).match(/\b20\d{2}\b/g) ?? [];
-  return years.some((year) => Number(year) < currentYear);
-}
-
 function asksAboutLegalRelationship(query: string) {
-  return /\b(?:sua doi|bo sung|thay the|bai bo|het hieu luc|van ban nao thay)\b/.test(
-    normalizeLegalQuery(query),
-  );
+  return legalTimeIntent(query) === "relationship";
 }
 
 function uniqueCandidates(candidates: SearchCandidate[]) {
@@ -165,13 +163,55 @@ function updateUnavailableResponse(
   };
 }
 
+function recoveryQuery(userQuery: string) {
+  return `${userQuery}\nNgữ cảnh tra cứu pháp lý: Chỉ dùng văn bản đang có hiệu lực hoặc còn hiệu lực một phần tại thời điểm hiện tại. Loại văn bản chưa xác minh hiệu lực, chưa có hiệu lực, hết hiệu lực hoặc đã bị bãi bỏ.`;
+}
+
+async function recoverCurrentQuestionResult(
+  userQuery: string,
+  result: TaxSearchResponse,
+): Promise<TaxSearchResponse> {
+  const document = result.document;
+  if (!document || result.query_kind !== "question" || !requiresCurrentEffectiveLaw(userQuery)) return result;
+
+  const decision = currentLawDecision(userQuery, document);
+  if (decision.allowed) return result;
+
+  try {
+    const retried = await searchTaxLaw(recoveryQuery(userQuery));
+    const replacement = retried.document;
+    if (replacement && currentLawDecision(userQuery, replacement).allowed) {
+      return {
+        ...retried,
+        query_normalized: normalizeLegalQuery(userQuery),
+        warnings: Array.from(
+          new Set([
+            ...retried.warnings,
+            `${document.number} đã bị loại khỏi căn cứ vì trạng thái hiệu lực không phù hợp; hệ thống đã chuyển sang văn bản đang có hiệu lực.`,
+          ]),
+        ).slice(0, 5),
+        confidence: Math.min(retried.confidence, 0.88),
+      };
+    }
+  } catch {
+    // Fall through to the fail-closed response below.
+  }
+
+  return blockedCurrentLawResponse(
+    userQuery,
+    result,
+    document,
+    ["Không tìm được văn bản thay thế đang có hiệu lực sau lượt tra cứu phục hồi."],
+  );
+}
+
 async function guardCurrentLawUpdate(
   userQuery: string,
   result: TaxSearchResponse,
 ): Promise<TaxSearchResponse> {
   const document = result.document;
   if (!document || result.query_kind !== "question") return result;
-  if (asksHistoricalPeriod(userQuery) || asksAboutLegalRelationship(userQuery)) return result;
+  if (legalTimeIntent(userQuery) !== "current" || asksAboutLegalRelationship(userQuery)) return result;
 
   try {
     const discovery = await discoverOfficialSources(
@@ -276,6 +316,15 @@ export async function searchTaxLawRobust(
   const durable = await durableDocumentResponse(userQuery);
   if (durable) {
     if (hint.asksQuestion && durable.document) {
+      const recovered = await recoverCurrentQuestionResult(userQuery, durable);
+      if (!recovered.document) return ensureBinaryConclusion(userQuery, recovered);
+
+      if (recovered !== durable) {
+        const guarded = guardQuestionResult(userQuery, recovered);
+        const current = await guardCurrentLawUpdate(userQuery, guarded);
+        return ensureBinaryConclusion(userQuery, current);
+      }
+
       const anchored = guardQuestionResult(
         userQuery,
         await answerQuestionFromAnchors(userQuery, [durable.document]),
@@ -287,7 +336,8 @@ export async function searchTaxLawRobust(
   }
 
   if (hint.asksQuestion) {
-    const result = guardQuestionResult(userQuery, await searchTaxLaw(query));
+    const recovered = await recoverCurrentQuestionResult(userQuery, await searchTaxLaw(query));
+    const result = guardQuestionResult(userQuery, recovered);
     const current = await guardCurrentLawUpdate(userQuery, result);
     return ensureBinaryConclusion(userQuery, current);
   }
