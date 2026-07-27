@@ -15,6 +15,8 @@ const RELATIONSHIP_PATTERN =
   /\b(?:con hieu luc|het hieu luc|hieu luc den|hieu luc tu|sua doi|bo sung|thay the|bai bo|van ban nao thay|quan he phap ly)\b/u;
 const HISTORICAL_PATTERN =
   /\b(?:tai thoi diem|vao thoi diem|trong giai doan|truoc ngay|truoc khi|truoc day|quy dinh cu|lich su|da ap dung|luc do|khi do|hoi nam|vao nam|trong nam)\b/u;
+const TEMPORAL_YEAR_PATTERN =
+  /\b(?:nam|ky tinh thue nam|ky khai nam|quyet toan nam|thoi diem nam)\s+(20\d{2})\b/gu;
 const FUTURE_PATTERN =
   /\b(?:sap toi|tuong lai|khi co hieu luc|sau ngay|ke tu ngay|ap dung tu)\b/u;
 
@@ -26,10 +28,20 @@ function explicitYears(query: string) {
   return normalizeLegalQuery(userFacingQuery(query)).match(/\b20\d{2}\b/gu) ?? [];
 }
 
+function temporalYears(normalized: string) {
+  return [...normalized.matchAll(TEMPORAL_YEAR_PATTERN)]
+    .map((match) => Number(match[1]))
+    .filter(Number.isFinite);
+}
+
 export function legalTimeIntent(query: string, currentYear = new Date().getFullYear()): LegalTimeIntent {
   const normalized = normalizeLegalQuery(userFacingQuery(query));
   if (RELATIONSHIP_PATTERN.test(normalized)) return "relationship";
   if (HISTORICAL_PATTERN.test(normalized)) return "historical";
+
+  const scopedYears = temporalYears(normalized);
+  if (scopedYears.some((year) => year < currentYear)) return "historical";
+  if (scopedYears.some((year) => year > currentYear)) return "future";
 
   const years = explicitYears(query).map(Number).filter(Number.isFinite);
   if (FUTURE_PATTERN.test(normalized) || years.some((year) => year > currentYear)) return "future";
