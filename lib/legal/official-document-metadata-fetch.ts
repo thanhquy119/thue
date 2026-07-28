@@ -1,10 +1,10 @@
 import { unstable_cache } from "next/cache";
-import type { DurableLegalSource } from "./durable-ingestion-types.ts";
 import {
   extractOfficialMetadataFromText,
   mergeOfficialDocumentMetadata,
   type OfficialDocumentMetadata,
 } from "./official-document-metadata.ts";
+import { officialSourceCandidates } from "./official-document-source-merge.ts";
 import type { DocumentDetail } from "./types.ts";
 
 const CACHE_SECONDS = 7 * 24 * 60 * 60;
@@ -140,31 +140,6 @@ function metadataCandidate(
   };
 }
 
-function sourceCandidate(document: DocumentDetail, source: DurableLegalSource): DocumentDetail {
-  const effectiveDate = source.effectiveDate ?? document.effective_date;
-  return {
-    ...document,
-    title: source.title || document.title,
-    type: source.type || document.type,
-    issuer: source.issuer || document.issuer,
-    issued_date: source.issuedDate ?? document.issued_date,
-    effective_date: effectiveDate,
-    status: statusFromDate(effectiveDate),
-    source_url: source.officialPageUrl || source.sourceUrl || document.source_url,
-    source_label: source.sourceLabel || document.source_label,
-  };
-}
-
-export function mergeDocumentWithOfficialSources(
-  document: DocumentDetail,
-  sources: DurableLegalSource[],
-) {
-  return mergeOfficialDocumentMetadata(
-    document,
-    sources.map((source) => sourceCandidate(document, source)),
-  );
-}
-
 function completeMetadata(document: DocumentDetail) {
   return Boolean(
     document.effective_date &&
@@ -187,7 +162,7 @@ export async function enrichDocumentWithOfficialMetadata(document: DocumentDetai
 
   const initialCandidates: DocumentDetail[] = [];
   if (directMetadata) initialCandidates.push(metadataCandidate(locallyEnriched, directMetadata));
-  initialCandidates.push(...officialSources.map((source) => sourceCandidate(locallyEnriched, source)));
+  initialCandidates.push(...officialSourceCandidates(locallyEnriched, officialSources));
 
   let enriched = mergeOfficialDocumentMetadata(locallyEnriched, initialCandidates);
   if (completeMetadata(enriched)) return enriched;
