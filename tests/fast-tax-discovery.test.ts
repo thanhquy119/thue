@@ -6,6 +6,7 @@ import {
   recentFastTaxDiscoveryNumbers,
 } from "../lib/legal/fast-tax-discovery-core.ts";
 import type { DurableLegalSource } from "../lib/legal/durable-ingestion-types.ts";
+import { parseLatestGovernmentTaxDocuments } from "../lib/legal/latest-government-tax-feed.ts";
 import {
   applyPublishedNotificationPresentation,
   publishedNotificationKind,
@@ -124,6 +125,26 @@ test("notification scan orders the most recently seen candidates first", () => {
     recentFastTaxDiscoveryNumbers(second.index, 2),
     ["301/2026/NĐ-CP", "300/2026/NĐ-CP"],
   );
+});
+
+test("direct Government listing keeps tax documents and ignores unrelated documents", () => {
+  const html = `
+    <div>
+      <span>299/2026/NĐ-CP</span>
+      <span>Ngày ban hành: 28/07/2026</span>
+      <a href="/?classid=1&docid=299999">Quy định mới về quản lý thuế và hóa đơn điện tử</a>
+    </div>
+    ${"x".repeat(2_000)}
+    <div>
+      <span>298/2026/NĐ-CP</span>
+      <span>Ngày ban hành: 27/07/2026</span>
+      <a href="/?classid=1&docid=298888">Quy định cơ cấu tổ chức ngành văn hóa</a>
+    </div>
+  `;
+  const documents = parseLatestGovernmentTaxDocuments(html);
+  assert.deepEqual(documents.map((document) => document.number), ["299/2026/NĐ-CP"]);
+  assert.equal(documents[0]?.issuedDate, "2026-07-28");
+  assert.equal(documents[0]?.issuer, "Chính phủ");
 });
 
 test("a document published soon after issuance keeps the new-document title", () => {
