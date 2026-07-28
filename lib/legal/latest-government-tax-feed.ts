@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
 import type { DurableLegalSource } from "./durable-ingestion-types.ts";
+import {
+  extractOfficialMetadataFromText,
+  parseOfficialDate,
+} from "./official-document-metadata.ts";
 
 const LATEST_GOVERNMENT_DOCUMENTS_URL =
   "https://vanban.chinhphu.vn/he-thong-van-ban?classid=1&mode=1&orggroupid=2";
@@ -35,10 +39,9 @@ function stripTags(value: string) {
     .trim();
 }
 
-function inferIssuedDate(value: string) {
-  const match = value.match(/\b(\d{1,2})[/-](\d{1,2})[/-](20\d{2})\b/u);
-  if (!match) return null;
-  return `${match[3]}-${String(Number(match[2])).padStart(2, "0")}-${String(Number(match[1])).padStart(2, "0")}`;
+function inferFirstDate(value: string) {
+  const match = value.match(/\b\d{1,2}[/.\-]\d{1,2}[/.\-]20\d{2}\b/u);
+  return match ? parseOfficialDate(match[0]) : null;
 }
 
 function inferType(number: string) {
@@ -76,8 +79,8 @@ export function parseLatestGovernmentTaxDocuments(
       continue;
     }
 
-    const start = Math.max(0, (match.index ?? 0) - 350);
-    const end = Math.min(html.length, (match.index ?? 0) + match[0].length + 1_200);
+    const start = Math.max(0, (match.index ?? 0) - 500);
+    const end = Math.min(html.length, (match.index ?? 0) + match[0].length + 1_500);
     const surrounding = stripTags(html.slice(start, end));
     const anchor = stripTags(match[2]);
     const combined = `${anchor} ${surrounding}`;
@@ -86,20 +89,21 @@ export function parseLatestGovernmentTaxDocuments(
 
     seen.add(number.toLocaleLowerCase("vi"));
     const type = inferType(number);
-    const title = anchor && !anchor.includes(number)
+    const officialMetadata = extractOfficialMetadataFromText(combined, number);
+    const title = officialMetadata.title ?? (anchor && !anchor.includes(number)
       ? anchor
       : surrounding
-          .replace(new RegExp(`^.*?${number.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\s*`, "iu"), "")
-          .split(/(?:Ngày ban hành|Tài liệu đính kèm)/iu, 1)[0]
-          ?.trim() || `Văn bản số ${number}`;
+          .replace(new RegExp(`^.*?${number.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*`, "iu"), "")
+          .split(/(?:Ngày ban hành|Ngày có hiệu lực|Ngày hiệu lực|Tài liệu đính kèm)/iu, 1)[0]
+          ?.trim() || `Văn bản số ${number}`);
 
     documents.push({
       number,
       title,
       type,
       issuer: inferIssuer(number),
-      issuedDate: inferIssuedDate(combined),
-      effectiveDate: null,
+      issuedDate: officialMetadata.issuedDate ?? inferFirstDate(combined),
+      effectiveDate: officialMetadata.effectiveDate,
       officialPageUrl,
       sourceUrl: officialPageUrl,
       sourceLabel: "Danh sách văn bản mới nhất của Chính phủ",
