@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadReadingStates, putReadingState, type ReadingStateRecord } from "./client-storage";
-import type { TaxSearchResponse } from "@/lib/legal/types";
+import type { EffectiveStatus, TaxSearchResponse } from "@/lib/legal/types";
 import { splitLegalBlocks, type LegalBlock } from "@/lib/legal/format";
 
 type InstallPrompt = Event & {
@@ -23,6 +23,23 @@ function formatDate(value: string | null) {
     month: "2-digit",
     year: "numeric",
   }).format(new Date(`${value}T00:00:00`));
+}
+
+function statusLabel(status: EffectiveStatus) {
+  switch (status) {
+    case "effective":
+      return "Đang hiệu lực";
+    case "partially_effective":
+      return "Còn hiệu lực một phần";
+    case "upcoming":
+      return "Sắp hiệu lực";
+    case "expired":
+      return "Hết hiệu lực";
+    case "repealed":
+      return "Đã bị bãi bỏ";
+    default:
+      return "Chưa xác định hiệu lực";
+  }
 }
 
 function normalizeCacheKey(value: string) {
@@ -66,6 +83,8 @@ export default function Home() {
   const readingStatesRef = useRef<ReadingStateRecord[]>([]);
   const speakAtRef = useRef<(provisionIndex: number, blockIndex: number, cancelFirst?: boolean) => void>(() => {});
   const speechSessionRef = useRef(0);
+  const searchRequestRef = useRef(0);
+  const searchAbortRef = useRef<AbortController | null>(null);
 
   const detail = result?.document ?? null;
   const candidates = result?.candidates ?? [];
@@ -83,6 +102,8 @@ export default function Home() {
     if (!("serviceWorker" in navigator) || process.env.NODE_ENV !== "production") return;
     void navigator.serviceWorker.register("/sw.js").catch(() => undefined);
   }, []);
+
+  useEffect(() => () => searchAbortRef.current?.abort(), []);
 
   useEffect(() => {
     const beforeInstall = (event: Event) => {
@@ -250,6 +271,11 @@ export default function Home() {
     const cleanValue = value.trim();
     if (cleanValue.length < 2) return;
 
+    const requestId = searchRequestRef.current + 1;
+    searchRequestRef.current = requestId;
+    searchAbortRef.current?.abort();
+    searchAbortRef.current = null;
+
     speechSessionRef.current += 1;
     window.speechSynthesis?.cancel();
     setAudioVisible(false);
@@ -259,30 +285,74 @@ export default function Home() {
     setResult(null);
 
     const cacheKey = `thue-ro-search-v2:${normalizeCacheKey(cleanValue)}`;
+    let controller: AbortController | null = null;
+    let timeoutId: number | null = null;
+    let timedOut = false;
+
     try {
       const cached = window.sessionStorage.getItem(cacheKey);
       if (cached) {
-        const payload = JSON.parse(cached) as TaxSearchResponse;
-        setResult(payload);
-        window.setTimeout(() => document.getElementById("search-result")?.scrollIntoView({ behavior: "smooth" }), 30);
-        return;
+        try {
+          const payload = JSON.parse(cached) as TaxSearchResponse;
+          if (requestId !== searchRequestRef.current) return;
+          setResult(payload);
+          window.setTimeout(() => document.getElementById("search-result")?.scrollIntoView({ behavior: "smooth" }), 30);
+          return;
+        } catch {
+          window.sessionStorage.removeItem(cacheKey);
+        }
       }
+
+      controller = new AbortController();
+      searchAbortRef.current = controller;
+      timeoutId = window.setTimeout(() => {
+        timedOut = true;
+        controller?.abort();
+      }, 55_000);
 
       const response = await fetch("/api/search", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ query: cleanValue }),
+        signal: controller.signal,
       });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Không thể tra cứu lúc này.");
+      const rawBody = await response.text();
+      let payload: unknown;
+      try {
+        payload = rawBody ? JSON.parse(rawBody) : {};
+      } catch {
+        throw new Error("Máy chủ trả phản hồi không hợp lệ. Vui lòng thử lại.");
+      }
+      if (!response.ok) {
+        const message = payload && typeof payload === "object" && "error" in payload && typeof payload.error === "string"
+          ? payload.error
+          : "Không thể tra cứu lúc này.";
+        throw new Error(message);
+      }
+      if (requestId !== searchRequestRef.current) return;
+
       const searchPayload = payload as TaxSearchResponse;
       setResult(searchPayload);
-      window.sessionStorage.setItem(cacheKey, JSON.stringify(searchPayload));
+      try {
+        window.sessionStorage.setItem(cacheKey, JSON.stringify(searchPayload));
+      } catch {
+        // Kết quả vẫn hiển thị bình thường nếu bộ nhớ phiên đã đầy hoặc bị chặn.
+      }
       window.setTimeout(() => document.getElementById("search-result")?.scrollIntoView({ behavior: "smooth" }), 30);
     } catch (error) {
-      setSearchError(error instanceof Error ? error.message : "Không thể tra cứu lúc này.");
+      if (requestId !== searchRequestRef.current) return;
+      if (controller?.signal.aborted && !timedOut) return;
+      setSearchError(
+        timedOut
+          ? "Tra cứu quá thời gian. Vui lòng thử lại với câu hỏi ngắn hơn hoặc số hiệu văn bản cụ thể."
+          : error instanceof Error
+            ? error.message
+            : "Không thể tra cứu lúc này.",
+      );
     } finally {
-      setSearching(false);
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      if (searchAbortRef.current === controller) searchAbortRef.current = null;
+      if (requestId === searchRequestRef.current) setSearching(false);
     }
   }
 
@@ -375,7 +445,7 @@ export default function Home() {
                 <button className={`saveButton ${currentRecord?.bookmarked ? "saved" : ""}`} type="button" onClick={toggleBookmark}>
                   {currentRecord?.bookmarked ? "✓ Đã lưu" : "＋ Lưu"}
                 </button>
-                <div className="detailBadges"><span>{result.document.type}</span><span>{result.document.status === "effective" ? "Đang hiệu lực" : result.document.status === "upcoming" ? "Sắp hiệu lực" : "Chưa xác định hiệu lực"}</span></div>
+                <div className="detailBadges"><span>{result.document.type}</span><span>{statusLabel(result.document.status)}</span></div>
                 <p className="documentKicker">{result.document.number}</p>
                 <h2>{result.document.title}</h2>
                 <dl className="facts">
