@@ -8,10 +8,14 @@ import {
   extractExactLegalNumber,
   responseFromDurableRecord,
 } from "./durable-document-lookup-core.ts";
+import { enrichDocumentWithOfficialMetadata } from "./official-document-metadata-fetch.ts";
 
-function prepareDurableResponse(response: ReturnType<typeof responseFromDurableRecord>) {
+async function prepareDurableResponse(
+  response: ReturnType<typeof responseFromDurableRecord>,
+) {
   if (!response?.document) return response;
-  return { ...response, document: prepareDocumentForPresentation(response.document) };
+  const enriched = await enrichDocumentWithOfficialMetadata(response.document);
+  return { ...response, document: prepareDocumentForPresentation(enriched) };
 }
 
 export async function durableDocumentResponse(query: string) {
