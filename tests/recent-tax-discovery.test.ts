@@ -48,3 +48,17 @@ test("maps official discovery metadata into a durable source", () => {
   assert.equal(mapped.issuedDate, "2026-07-01");
   assert.match(mapped.title, /Quy định thử nghiệm về thuế/i);
 });
+
+test("does not replace an official workflow source with a commercial curated download", () => {
+  const officialUrl = "https://vanban.chinhphu.vn/?classid=1&docid=218839&pageid=27160&typegroupid=6";
+  const mapped = durableSourceFromDiscovery("90/2026/TT-BTC", source("90/2026/TT-BTC", 5, officialUrl));
+  assert.equal(mapped.sourceUrl, officialUrl);
+  assert.equal(mapped.officialPageUrl, officialUrl);
+  assert.equal(mapped.sourceLabel, "Công báo điện tử Chính phủ");
+});
+
+test("keeps a curated download when that download is itself an allowed official source", () => {
+  const mapped = durableSourceFromDiscovery("108/2025/QH15", source("108/2025/QH15", 5));
+  assert.match(mapped.sourceUrl, /^https:\/\/g7\.cdnchinhphu\.vn\//u);
+  assert.match(mapped.sourceLabel, /DOCX chính thức/u);
+});
