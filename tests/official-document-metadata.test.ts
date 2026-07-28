@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { parseLatestGovernmentTaxDocuments } from "../lib/legal/latest-government-tax-feed.ts";
-import { mergeDocumentWithOfficialSources } from "../lib/legal/official-document-metadata-fetch.ts";
+import { mergeDocumentWithOfficialSources } from "../lib/legal/official-document-source-merge.ts";
 import {
   extractOfficialMetadataFromText,
   inferEffectiveDateFromLegalText,
