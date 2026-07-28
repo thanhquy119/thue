@@ -140,3 +140,22 @@ test("service worker receives pushes, stores seven-day history and opens the sel
   assert.match(source, /addEventListener\("notificationclick"/u);
   assert.match(source, /THUE_OPEN_DOCUMENT/u);
 });
+
+test("service worker pre-caches the current Next app shell and updates static assets", () => {
+  const source = readFileSync(new URL("../public/sw.js", import.meta.url), "utf8");
+  assert.match(source, /const CACHE_NAME = "thue-v11"/u);
+  assert.match(source, /cacheCurrentAppShell/u);
+  assert.match(source, /\/_next\\\/static\\\//u);
+  assert.match(source, /cache\.put\(event\.request, response\.clone\(\)\)/u);
+  assert.match(source, /navigationPreload/u);
+  assert.match(source, /key\.startsWith\(CACHE_PREFIX\)/u);
+});
+
+test("Next headers force service-worker revalidation and basic browser hardening", () => {
+  const source = readFileSync(new URL("../next.config.ts", import.meta.url), "utf8");
+  assert.match(source, /source: "\/sw\.js"/u);
+  assert.match(source, /no-cache, no-store, must-revalidate/u);
+  assert.match(source, /Service-Worker-Allowed/u);
+  assert.match(source, /X-Content-Type-Options/u);
+  assert.match(source, /Permissions-Policy/u);
+});
