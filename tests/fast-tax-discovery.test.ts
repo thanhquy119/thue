@@ -79,12 +79,12 @@ test("later scans return only document numbers not seen in the bootstrap", () =>
     [source("300/2026/NĐ-CP"), source("301/2026/NĐ-CP")],
     "2026-07-28T03:15:00.000Z",
   );
+  const existing = Object.values(next.index.candidates).find(
+    (candidate) => candidate.number === "300/2026/NĐ-CP",
+  );
   assert.equal(next.bootstrapped, false);
   assert.deepEqual(next.newNumbers, ["301/2026/NĐ-CP"]);
-  assert.equal(
-    next.index.candidates["300/2026/NĐ-CP"].firstSeenAt,
-    "2026-07-28T03:00:00.000Z",
-  );
+  assert.equal(existing?.firstSeenAt, "2026-07-28T03:00:00.000Z");
 });
 
 test("daily fast-start claims are idempotent and respect the quota", () => {
