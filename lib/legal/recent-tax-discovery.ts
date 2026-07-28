@@ -43,7 +43,7 @@ export async function discoverTaxDocumentByNumber(number: string) {
   return exact ? durableSourceFromDiscovery(number, exact) : null;
 }
 
-async function discoverBroadTaxDocuments() {
+export async function discoverBroadTaxDocuments() {
   const year = new Date().getUTCFullYear();
   const settled = await Promise.allSettled(
     CURRENT_TAX_DISCOVERY_QUERIES.map((query) => discoverOfficialSources(`${query} ${year}`)),
