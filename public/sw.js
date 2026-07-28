@@ -1,5 +1,6 @@
-const CACHE_NAME = "thue-v10";
-const APP_SHELL = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
+const CACHE_NAME = "thue-v11";
+const CACHE_PREFIX = "thue-v";
+const STATIC_SHELL = ["/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 const HISTORY_DATABASE = "thue-notification-history";
 const HISTORY_DATABASE_VERSION = 1;
 const HISTORY_STORE = "notifications";
@@ -78,8 +79,38 @@ async function saveNotificationHistory(payload) {
   return item.id;
 }
 
+function cacheableResponse(response) {
+  return Boolean(response && response.ok && (response.type === "basic" || response.type === "default"));
+}
+
+function shellAssetPaths(html) {
+  const paths = [];
+  for (const match of html.matchAll(/(?:src|href)=["']([^"']*\/_next\/static\/[^"']+)["']/giu)) {
+    try {
+      const url = new URL(match[1], self.location.origin);
+      if (url.origin === self.location.origin) paths.push(url.pathname + url.search);
+    } catch {
+      // Ignore malformed asset references instead of failing installation.
+    }
+  }
+  return Array.from(new Set(paths));
+}
+
+async function cacheCurrentAppShell(cache) {
+  const response = await fetch("/", { cache: "no-store" });
+  if (!cacheableResponse(response)) throw new Error("Không tải được app shell hiện tại.");
+  const html = await response.clone().text();
+  await cache.put("/", response);
+  await Promise.allSettled(shellAssetPaths(html).map((path) => cache.add(path)));
+}
+
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(async (cache) => {
+      await cache.addAll(STATIC_SHELL);
+      await cacheCurrentAppShell(cache);
+    }),
+  );
   self.skipWaiting();
 });
 
@@ -87,12 +118,17 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     Promise.all([
       caches.keys().then((keys) =>
-        Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))),
+        Promise.all(
+          keys
+            .filter((key) => key.startsWith(CACHE_PREFIX) && key !== CACHE_NAME)
+            .map((key) => caches.delete(key)),
+        ),
       ),
+      self.registration.navigationPreload?.enable?.().catch(() => undefined),
       pruneNotificationHistory().catch(() => undefined),
+      self.clients.claim(),
     ]),
   );
-  self.clients.claim();
 });
 
 self.addEventListener("fetch", (event) => {
@@ -102,19 +138,30 @@ self.addEventListener("fetch", (event) => {
 
   if (event.request.mode === "navigate") {
     event.respondWith(
-      fetch(event.request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put("/", copy));
+      (async () => {
+        const cache = await caches.open(CACHE_NAME);
+        try {
+          const response = (await event.preloadResponse) || await fetch(event.request);
+          if (cacheableResponse(response)) await cache.put("/", response.clone());
           return response;
-        })
-        .catch(() => caches.match("/")),
+        } catch {
+          return (await cache.match("/")) || Response.error();
+        }
+      })(),
     );
     return;
   }
 
-  if (!APP_SHELL.includes(url.pathname) && !url.pathname.startsWith("/_next/static/")) return;
-  event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request)));
+  if (!STATIC_SHELL.includes(url.pathname) && !url.pathname.startsWith("/_next/static/")) return;
+  const networkResponse = fetch(event.request).then(async (response) => {
+    if (cacheableResponse(response)) {
+      const cache = await caches.open(CACHE_NAME);
+      await cache.put(event.request, response.clone());
+    }
+    return response;
+  });
+  event.respondWith(caches.match(event.request).then((cached) => cached || networkResponse));
+  event.waitUntil(networkResponse.then(() => undefined).catch(() => undefined));
 });
 
 self.addEventListener("push", (event) => {

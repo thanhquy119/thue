@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { start } from "workflow/api";
-import { discoverTaxDocumentByNumber } from "@/lib/legal/recent-tax-discovery";
 import { durableStoreConfigured, durableStoreAccess } from "@/lib/legal/durable-document-store";
+import { isAllowedLegalSource } from "@/lib/legal/ingestion";
+import { discoverTaxDocumentByNumber } from "@/lib/legal/recent-tax-discovery";
 import { legalDocumentIngestionWorkflow } from "@/workflows/legal-document-ingestion";
 
 export const runtime = "nodejs";
@@ -80,6 +81,15 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: `Không tìm thấy nguồn chính thức khớp chính xác ${number}.` },
       { status: 404 },
+    );
+  }
+  if (!isAllowedLegalSource(source.sourceUrl)) {
+    return NextResponse.json(
+      {
+        error: "URL tải không thuộc allowlist nguồn pháp luật chính thức; Workflow chưa được khởi động.",
+        code: "SOURCE_NOT_ALLOWED",
+      },
+      { status: 400, headers: { "cache-control": "no-store" } },
     );
   }
 

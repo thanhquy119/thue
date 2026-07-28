@@ -12,6 +12,7 @@ import {
   readDurableRevision,
   readDurableStoreUsage,
 } from "@/lib/legal/durable-document-store";
+import { isAllowedLegalSource } from "@/lib/legal/ingestion";
 import { discoverRecentTaxDocuments } from "@/lib/legal/recent-tax-discovery";
 import type { DurableLegalSource } from "@/lib/legal/durable-ingestion-types";
 import { dispatchPublishedDocumentNotifications } from "@/lib/notifications/push-service";
@@ -121,7 +122,15 @@ export async function GET(request: Request) {
 
   const selected: DurableLegalSource[] = [];
   const skipped: Array<{ number: string; reason: string }> = [];
+  const sourceWarnings: string[] = [];
   for (const document of discovery.documents) {
+    if (!isAllowedLegalSource(document.sourceUrl)) {
+      skipped.push({ number: document.number, reason: "source_not_in_official_allowlist" });
+      sourceWarnings.push(
+        `${document.number}: bỏ qua lượt nhập vì URL tải không thuộc allowlist nguồn pháp luật chính thức.`,
+      );
+      continue;
+    }
     const current = await readDurableIngestionState(document.number).catch(() => null);
     const decision = cronIngestionDecision(current, force);
     if (decision.shouldStart) selected.push(document);
@@ -135,7 +144,7 @@ export async function GET(request: Request) {
     for (const document of wouldStart) started.push(await startDocument(document));
   }
 
-  const warnings = [...discovery.warnings];
+  const warnings = [...discovery.warnings, ...sourceWarnings];
   if (runLimit.clamped) {
     warnings.push(
       `LEGAL_CRON_MAX_RUNS yêu cầu ${runLimit.requested}, nhưng hệ thống giới hạn ${runLimit.hardCap} Workflow/lượt để bảo vệ quota OCR miễn phí.`,
