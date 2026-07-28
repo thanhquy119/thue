@@ -10,7 +10,7 @@ const LATEST_GOVERNMENT_DOCUMENTS_URL =
 const DOCUMENT_NUMBER =
   /\b\d{1,4}(?:\.\d+)?\s*\/\s*20\d{2}\s*\/\s*(?:NĐ-CP|ND-CP|TT-BTC|NQ-CP|QĐ-TTg|QH\d*|UBTVQH\d*)\b/iu;
 const TAX_TOPIC =
-  /\b(?:thuế|hóa đơn|lệ phí|phí|hải quan|quản lý thuế|đăng ký thuế|mã số thuế|giao dịch liên kết|chống rửa tiền|trao đổi thông tin theo yêu cầu về thuế)\b/iu;
+  /(?:thuế|hóa đơn|lệ phí|phí|hải quan|quản lý thuế|đăng ký thuế|mã số thuế|giao dịch liên kết|chống rửa tiền|trao đổi thông tin theo yêu cầu về thuế)/iu;
 
 function decodeHtml(value: string) {
   const named: Record<string, string> = {
