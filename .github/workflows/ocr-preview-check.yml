@@ -26,6 +26,9 @@ jobs:
         run: npm install --no-package-lock --no-audit --no-fund
       - name: Unit tests
         run: npm test 2>&1 | tee ci-tests.log
+      - name: Lint
+        if: always()
+        run: npm run lint 2>&1 | tee ci-lint.log
       - name: Typecheck
         if: always()
         run: npm run typecheck 2>&1 | tee ci-typecheck.log
