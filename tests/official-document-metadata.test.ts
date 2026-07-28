@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { parseLatestGovernmentTaxDocuments } from "../lib/legal/latest-government-tax-feed.ts";
 import {
   extractOfficialMetadataFromText,
   inferEffectiveDateFromLegalText,
@@ -45,6 +46,19 @@ test("extracts issued date, effective date and abstract from an official page", 
   assert.equal(metadata.issuedDate, "2026-06-30");
   assert.equal(metadata.effectiveDate, "2026-07-01");
   assert.match(metadata.title ?? "", /Luật Thuế thu nhập cá nhân/iu);
+});
+
+test("the direct Government listing keeps both issuance and effectivity metadata", () => {
+  const documents = parseLatestGovernmentTaxDocuments(`
+    <div>
+      <span>253/2026/NĐ-CP</span>
+      <span>Ngày ban hành: 30/06/2026</span>
+      <span>Ngày có hiệu lực: 01/07/2026</span>
+      <a href="/?classid=1&docid=218684">Quy định chi tiết một số điều về thuế thu nhập cá nhân</a>
+    </div>
+  `);
+  assert.equal(documents[0]?.issuedDate, "2026-06-30");
+  assert.equal(documents[0]?.effectiveDate, "2026-07-01");
 });
 
 test("infers effectivity from the document own enforcement clause", () => {
