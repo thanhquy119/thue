@@ -2,7 +2,9 @@ import { unstable_cache } from "next/cache";
 import {
   extractOfficialMetadataFromText,
   mergeOfficialDocumentMetadata,
+  type OfficialDocumentMetadata,
 } from "./official-document-metadata.ts";
+import { officialSourceCandidates } from "./official-document-source-merge.ts";
 import type { DocumentDetail } from "./types.ts";
 
 const CACHE_SECONDS = 7 * 24 * 60 * 60;
@@ -61,7 +63,7 @@ async function loadOfficialMetadataUncached(number: string, sourceUrl: string) {
       cache: "no-store",
       signal: controller.signal,
       headers: {
-        "user-agent": "Thuế Rõ official metadata verifier/1.0",
+        "user-agent": "Thuế Rõ official metadata verifier/2.0",
         "accept-language": "vi-VN,vi;q=0.9",
       },
     });
@@ -78,7 +80,18 @@ async function loadOfficialMetadataUncached(number: string, sourceUrl: string) {
 
 const loadOfficialMetadataCached = unstable_cache(
   loadOfficialMetadataUncached,
-  ["thue-ro-official-document-metadata-v1"],
+  ["thue-ro-official-document-metadata-v2"],
+  { revalidate: CACHE_SECONDS, tags: ["official-legal-metadata"] },
+);
+
+async function discoverOfficialSourcesUncached(number: string) {
+  const { discoverExactGazetteSources } = await import("./exact-official-document-resolver.ts");
+  return discoverExactGazetteSources(number);
+}
+
+const discoverOfficialSourcesCached = unstable_cache(
+  discoverOfficialSourcesUncached,
+  ["thue-ro-official-document-source-resolution-v1"],
   { revalidate: CACHE_SECONDS, tags: ["official-legal-metadata"] },
 );
 
@@ -95,31 +108,82 @@ async function loadOfficialMetadata(number: string, sourceUrl: string) {
   }
 }
 
+async function discoverOfficialSources(number: string) {
+  try {
+    return await discoverOfficialSourcesCached(number);
+  } catch (error) {
+    if (!incrementalCacheUnavailable(error)) throw error;
+    return discoverOfficialSourcesUncached(number);
+  }
+}
+
+function statusFromDate(effectiveDate: string | null) {
+  if (!effectiveDate) return "unknown" as const;
+  return effectiveDate > new Date().toISOString().slice(0, 10) ? "upcoming" as const : "effective" as const;
+}
+
+function metadataCandidate(
+  document: DocumentDetail,
+  metadata: OfficialDocumentMetadata,
+  sourceUrl = document.source_url,
+  sourceLabel = document.source_label,
+): DocumentDetail {
+  const effectiveDate = metadata.effectiveDate ?? document.effective_date;
+  return {
+    ...document,
+    title: metadata.title ?? document.title,
+    issued_date: metadata.issuedDate ?? document.issued_date,
+    effective_date: effectiveDate,
+    status: statusFromDate(effectiveDate),
+    source_url: sourceUrl,
+    source_label: sourceLabel,
+  };
+}
+
+function completeMetadata(document: DocumentDetail) {
+  return Boolean(
+    document.effective_date &&
+      document.issued_date &&
+      document.title.length >= 25 &&
+      document.status !== "unknown",
+  );
+}
+
 export async function enrichDocumentWithOfficialMetadata(document: DocumentDetail) {
   const locallyEnriched = mergeOfficialDocumentMetadata(document, [document]);
-  const sourceUrl = locallyEnriched.source_url;
-  if (!allowedOfficialUrl(sourceUrl)) return locallyEnriched;
-  if (
-    locallyEnriched.effective_date &&
-    locallyEnriched.issued_date &&
-    locallyEnriched.title.length >= 25 &&
-    locallyEnriched.status !== "unknown"
-  ) {
-    return locallyEnriched;
-  }
+  if (completeMetadata(locallyEnriched)) return locallyEnriched;
 
-  const metadata = await loadOfficialMetadata(locallyEnriched.number, sourceUrl).catch(() => null);
-  if (!metadata) return locallyEnriched;
-  const candidate: DocumentDetail = {
-    ...locallyEnriched,
-    title: metadata.title ?? locallyEnriched.title,
-    issued_date: metadata.issuedDate ?? locallyEnriched.issued_date,
-    effective_date: metadata.effectiveDate ?? locallyEnriched.effective_date,
-    status: metadata.effectiveDate
-      ? metadata.effectiveDate > new Date().toISOString().slice(0, 10)
-        ? "upcoming"
-        : "effective"
-      : locallyEnriched.status,
-  };
-  return mergeOfficialDocumentMetadata(locallyEnriched, [candidate]);
+  const [directMetadata, officialSources] = await Promise.all([
+    allowedOfficialUrl(locallyEnriched.source_url)
+      ? loadOfficialMetadata(locallyEnriched.number, locallyEnriched.source_url).catch(() => null)
+      : Promise.resolve(null),
+    discoverOfficialSources(locallyEnriched.number).catch(() => []),
+  ]);
+
+  const initialCandidates: DocumentDetail[] = [];
+  if (directMetadata) initialCandidates.push(metadataCandidate(locallyEnriched, directMetadata));
+  initialCandidates.push(...officialSourceCandidates(locallyEnriched, officialSources));
+
+  let enriched = mergeOfficialDocumentMetadata(locallyEnriched, initialCandidates);
+  if (completeMetadata(enriched)) return enriched;
+
+  const canonicalPages = Array.from(
+    new Set(
+      officialSources
+        .map((source) => source.officialPageUrl)
+        .filter((url) => allowedOfficialUrl(url) && url !== locallyEnriched.source_url),
+    ),
+  ).slice(0, 3);
+  const pageMetadata = await Promise.all(
+    canonicalPages.map(async (url) => ({
+      url,
+      metadata: await loadOfficialMetadata(enriched.number, url).catch(() => null),
+    })),
+  );
+  const pageCandidates = pageMetadata
+    .filter((item): item is { url: string; metadata: OfficialDocumentMetadata } => item.metadata !== null)
+    .map((item) => metadataCandidate(enriched, item.metadata, item.url, "Nguồn thuộc tính chính thức"));
+
+  enriched = mergeOfficialDocumentMetadata(enriched, pageCandidates);
+  return enriched;
 }

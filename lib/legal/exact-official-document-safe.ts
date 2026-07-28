@@ -20,6 +20,8 @@ import {
 } from "./exact-official-document-resolver.ts";
 import { exactQueuedResponse } from "./exact-ingestion-queue.ts";
 import { parseLegalHierarchy, slugifyDocument } from "./ingestion.ts";
+import { enrichDocumentWithOfficialMetadata } from "./official-document-metadata-fetch.ts";
+import { mergeOfficialDocumentMetadata } from "./official-document-metadata.ts";
 import {
   discoverPolicyAttachmentSources,
   discoverPolicyFullTextUrls,
@@ -298,12 +300,15 @@ async function loadSafeUncached(number: string) {
     .filter((value): value is DocumentDetail => value !== null)
     .filter(isCompleteExactDocument)
     .sort((left, right) => documentCompletenessScore(right) - documentCompletenessScore(left));
-  return candidates[0] ?? null;
+  const content = candidates[0] ?? null;
+  if (!content) return null;
+  const merged = mergeOfficialDocumentMetadata(content, candidates);
+  return enrichDocumentWithOfficialMetadata(merged);
 }
 
 const loadSafeCached = unstable_cache(
   loadSafeUncached,
-  ["thue-ro-exact-official-document-safe-v11"],
+  ["thue-ro-exact-official-document-safe-v12"],
   { revalidate: CACHE_SECONDS, tags: ["official-legal-documents"] },
 );
 
