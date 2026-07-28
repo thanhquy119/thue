@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 
 const CACHE_VERSION_KEY = "thue-ro-cache-version";
-const CURRENT_CACHE_VERSION = "2026-07-28-official-effectivity-metadata-v1";
+const CURRENT_CACHE_VERSION = "2026-07-28-global-official-metadata-v2";
 
 export default function CacheVersion() {
   useEffect(() => {
