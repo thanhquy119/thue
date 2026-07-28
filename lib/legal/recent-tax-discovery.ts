@@ -1,6 +1,7 @@
 import { discoverOfficialSources } from "./discovery.ts";
 import { discoverExactOfficialSources } from "./exact-official-document-resolver.ts";
 import { normalizeDocumentNumber, type DurableLegalSource } from "./durable-ingestion-types.ts";
+import { discoverLatestGovernmentTaxDocuments } from "./latest-government-tax-feed.ts";
 import {
   CURRENT_TAX_DISCOVERY_QUERIES,
   CURRENT_TAX_DOCUMENT_NUMBERS,
@@ -43,11 +44,14 @@ export async function discoverTaxDocumentByNumber(number: string) {
   return exact ? durableSourceFromDiscovery(number, exact) : null;
 }
 
-async function discoverBroadTaxDocuments() {
+export async function discoverBroadTaxDocuments() {
   const year = new Date().getUTCFullYear();
-  const settled = await Promise.allSettled(
-    CURRENT_TAX_DISCOVERY_QUERIES.map((query) => discoverOfficialSources(`${query} ${year}`)),
-  );
+  const [latestDocuments, settled] = await Promise.all([
+    discoverLatestGovernmentTaxDocuments().catch(() => []),
+    Promise.allSettled(
+      CURRENT_TAX_DISCOVERY_QUERIES.map((query) => discoverOfficialSources(`${query} ${year}`)),
+    ),
+  ]);
   const cutoff = recentCutoff();
   const sources = settled
     .filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof discoverOfficialSources>>> => result.status === "fulfilled")
@@ -58,14 +62,23 @@ async function discoverBroadTaxDocuments() {
       if (!source.issued_date) return number.includes(`/${year}/`);
       return source.issued_date >= cutoff;
     });
-  const byNumber = new Map<string, OnlineLegalSource>();
+  const byNumber = new Map<string, DurableLegalSource>();
+  for (const document of latestDocuments) {
+    byNumber.set(normalizeDocumentNumber(document.number), document);
+  }
+  const bestTopicalSource = new Map<string, OnlineLegalSource>();
   for (const source of sources) {
     const number = source.document_number?.trim() ?? "";
     const key = normalizeDocumentNumber(number);
-    const previous = byNumber.get(key);
-    if (!previous || source.score > previous.score) byNumber.set(key, source);
+    const previous = bestTopicalSource.get(key);
+    if (!previous || source.score > previous.score) bestTopicalSource.set(key, source);
   }
-  return [...byNumber.values()].map((source) => durableSourceFromDiscovery(source.document_number as string, source));
+  for (const source of bestTopicalSource.values()) {
+    const number = source.document_number as string;
+    const key = normalizeDocumentNumber(number);
+    if (!byNumber.has(key)) byNumber.set(key, durableSourceFromDiscovery(number, source));
+  }
+  return [...byNumber.values()];
 }
 
 export async function discoverRecentTaxDocuments(

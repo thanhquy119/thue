@@ -20,12 +20,19 @@ export const CURRENT_TAX_DOCUMENT_NUMBERS = [
 ] as const;
 
 export const CURRENT_TAX_DISCOVERY_QUERIES = [
+  "thuế Chính phủ",
   "thuế Bộ Tài chính",
+  "nghị định thuế",
+  "thông tư thuế",
   "quản lý thuế",
   "đăng ký thuế",
   "hóa đơn điện tử thuế",
   "thuế thu nhập cá nhân",
+  "thuế thu nhập doanh nghiệp",
   "thuế giá trị gia tăng",
+  "thuế tiêu thụ đặc biệt",
+  "thuế xuất khẩu nhập khẩu",
+  "lệ phí môn bài",
 ] as const;
 
 function inferTitle(source: OnlineLegalSource, number: string) {

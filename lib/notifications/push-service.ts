@@ -6,6 +6,7 @@ import {
   type PublishedDocumentNotification,
   type StoredPushSubscription,
 } from "./push-core.ts";
+import { applyPublishedNotificationPresentation } from "./push-freshness.ts";
 import {
   createVapidConfig,
   deletePushSubscriptionById,
@@ -162,7 +163,12 @@ export async function dispatchPublishedDocumentNotifications(input: PublishedDoc
   const alreadyDelivered = eligibleSubscriptions.filter((stored) => delivered.has(stored.id)).length;
   const pending = eligibleSubscriptions.filter((stored) => !delivered.has(stored.id));
   const batch = pending.slice(0, deliveryLimit());
-  const payload = JSON.stringify(publishedDocumentPayload(input));
+  const payload = JSON.stringify(
+    applyPublishedNotificationPresentation(
+      publishedDocumentPayload(input),
+      input,
+    ),
+  );
   const summary = {
     eligible: true,
     alreadyDispatched: false,
