@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { parseLatestGovernmentTaxDocuments } from "../lib/legal/latest-government-tax-feed.ts";
+import { mergeDocumentWithOfficialSources } from "../lib/legal/official-document-metadata-fetch.ts";
 import {
   extractOfficialMetadataFromText,
   inferEffectiveDateFromLegalText,
   mergeOfficialDocumentMetadata,
   parseOfficialDate,
 } from "../lib/legal/official-document-metadata.ts";
+import type { DurableLegalSource } from "../lib/legal/durable-ingestion-types.ts";
 import type { DocumentDetail } from "../lib/legal/types.ts";
 
 function document(patch: Partial<DocumentDetail> = {}): DocumentDetail {
@@ -96,6 +99,50 @@ test("merges reliable official metadata into the most complete stored revision",
   assert.equal(merged.status, "effective");
   assert.match(merged.title, /Luật Thuế thu nhập cá nhân/iu);
   assert.equal(merged.official_text, content.official_text);
+});
+
+test("resolves metadata by document number when the stored revision points directly to a file", () => {
+  const content = document({
+    id: "178-2026",
+    number: "178/2026/NĐ-CP",
+    title: "Nghị định 178/2026/NĐ-CP",
+    issued_date: null,
+    effective_date: null,
+    status: "unknown",
+    source_url: "https://datafiles.chinhphu.vn/cpp/files/vbpq/2026/5/178-ndcp.signed.pdf",
+    source_label: "Tệp PDF chính thức",
+    official_text: "Điều 1. Phạm vi điều chỉnh. Điều 2. Đối tượng áp dụng.",
+  });
+  const sources: DurableLegalSource[] = [{
+    number: "178/2026/NĐ-CP",
+    title:
+      "Nghị định số 178/2026/NĐ-CP quy định việc quản lý, sử dụng và khai thác tài sản kết cấu hạ tầng do Nhà nước đầu tư, quản lý",
+    type: "Nghị định",
+    issuer: "Chính phủ",
+    issuedDate: "2026-05-20",
+    effectiveDate: "2026-07-06",
+    officialPageUrl: "https://vanban.chinhphu.vn/?classid=1&docid=218194&orggroupid=2&pageid=27160",
+    sourceUrl: "https://datafiles.chinhphu.vn/cpp/files/vbpq/2026/5/178-ndcp.signed.pdf",
+    sourceLabel: "Cổng Thông tin điện tử Chính phủ",
+  }];
+
+  const merged = mergeDocumentWithOfficialSources(content, sources);
+  assert.equal(merged.issued_date, "2026-05-20");
+  assert.equal(merged.effective_date, "2026-07-06");
+  assert.equal(merged.status, "effective");
+  assert.match(merged.title, /tài sản kết cấu hạ tầng/iu);
+  assert.match(merged.source_url, /docid=218194/u);
+  assert.equal(merged.official_text, content.official_text);
+});
+
+test("natural exact-document lookups merge content and official metadata before caching", () => {
+  const source = readFileSync(
+    new URL("../lib/legal/exact-official-document-safe.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /mergeOfficialDocumentMetadata\(content, candidates\)/u);
+  assert.match(source, /enrichDocumentWithOfficialMetadata\(merged\)/u);
+  assert.match(source, /thue-ro-exact-official-document-safe-v12/u);
 });
 
 test("does not overwrite a verified repealed status merely because an effective date exists", () => {
