@@ -8,7 +8,7 @@ const browserSecurityHeaders = [
   { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
   {
     key: "Permissions-Policy",
-    value: "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+    value: "camera=(self), geolocation=(), microphone=(), payment=(), usb=()",
   },
 ];
 
