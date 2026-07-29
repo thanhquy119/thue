@@ -11,6 +11,7 @@ import {
   transferUploadChunkPath,
   validTransferKey,
 } from "../lib/transfer/core.ts";
+import { pairingKeyFromQr } from "../lib/transfer/qr-pairing.ts";
 
 test("normalizes and validates a persistent transfer key", () => {
   const raw = "AB12-CD34-EF56-GH78-IJ90-KL12";
@@ -82,6 +83,37 @@ test("QR pairing stays client-side and automatically clears the secret fragment"
   assert.match(source, /history\.replaceState/u);
   assert.doesNotMatch(source, /\/transfer\?pair=/u);
   assert.match(source, /Kết nối thiết bị khác/u);
+});
+
+test("installed PWA can scan and connect without navigating through Safari", () => {
+  const scanner = readFileSync(new URL("../app/transfer/qr-camera-scanner.tsx", import.meta.url), "utf8");
+  const enhancer = readFileSync(new URL("../app/transfer/qr-scanner-enhancer.tsx", import.meta.url), "utf8");
+  const layout = readFileSync(new URL("../app/transfer/layout.tsx", import.meta.url), "utf8");
+  const config = readFileSync(new URL("../next.config.ts", import.meta.url), "utf8");
+  assert.match(scanner, /navigator\.mediaDevices\.getUserMedia/u);
+  assert.match(scanner, /facingMode: \{ ideal: "environment" \}/u);
+  assert.match(scanner, /playsInline/u);
+  assert.match(scanner, /jsqr@1\.4\.0/u);
+  assert.match(scanner, /capture="environment"/u);
+  assert.match(scanner, /Chụp hoặc chọn ảnh QR/u);
+  assert.match(scanner, /Khung hình và ảnh QR chỉ được xử lý ngay trên thiết bị/u);
+  assert.match(enhancer, /Quét QR trong ứng dụng/u);
+  assert.match(enhancer, /window\.localStorage\.setItem\(STORAGE_KEY, key\)/u);
+  assert.match(enhancer, /window\.location\.replace\("\/transfer"\)/u);
+  assert.match(layout, /QrScannerEnhancer/u);
+  assert.match(config, /camera=\(self\)/u);
+  assert.doesNotMatch(config, /camera=\(\)/u);
+});
+
+test("QR parser accepts only transfer links from the same origin", () => {
+  const key = "AB12CD34EF56GH78IJ90KL12";
+  const origin = "https://thue-ro.vercel.app";
+  assert.equal(pairingKeyFromQr(`${origin}/transfer#pair=${key}`, origin), key);
+  assert.equal(pairingKeyFromQr(`${origin}/transfer/#pair=${key}`, origin), key);
+  assert.equal(pairingKeyFromQr(key, origin), key);
+  assert.equal(pairingKeyFromQr(`https://example.com/transfer#pair=${key}`, origin), null);
+  assert.equal(pairingKeyFromQr(`${origin}/other#pair=${key}`, origin), null);
+  assert.equal(pairingKeyFromQr(`${origin}/transfer#pair=SHORT`, origin), null);
 });
 
 test("transferred documents reuse the main application reader structure", () => {
