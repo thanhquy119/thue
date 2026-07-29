@@ -1,0 +1,25 @@
+.qrScannerPhotoButton {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 12px;
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 780;
+  cursor: pointer;
+}
+
+.qrScannerPhotoButton input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
