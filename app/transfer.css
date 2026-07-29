@@ -208,6 +208,132 @@
 .transferDocumentDetail .legalBlock.heading { text-align: center; padding-left: 10px; }
 .transferDocumentDetail .legalBlock.speaking { color: var(--ink); }
 
+.qrScannerLauncherWrap {
+  position: fixed;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 90;
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+.qrScannerLauncher {
+  min-height: 52px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  background: var(--acid);
+  color: var(--ink);
+  padding: 0 18px;
+  box-shadow: 0 16px 34px rgba(0, 0, 0, .18);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 820;
+  cursor: pointer;
+}
+.qrScannerLauncher span { font-size: 22px; line-height: 1; }
+.qrScannerLauncher:disabled { opacity: .65; cursor: wait; }
+.qrScannerLauncherWrap > p {
+  max-width: min(320px, calc(100vw - 36px));
+  margin: 0;
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 700;
+}
+.qrScannerOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom));
+  background: rgba(10, 12, 12, .76);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity .18s ease, visibility .18s ease;
+}
+.qrScannerOverlay.visible { opacity: 1; visibility: visible; pointer-events: auto; }
+.qrScannerDialog {
+  width: min(520px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  border-radius: 24px;
+  background: #fff;
+  padding: 22px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .34);
+}
+.qrScannerHeading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+.qrScannerHeading h2 { margin: 3px 0 0; letter-spacing: -.04em; }
+.qrScannerHeading > button {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--soft);
+  color: var(--ink);
+  font-size: 25px;
+  cursor: pointer;
+}
+.qrScannerViewport {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  overflow: hidden;
+  border-radius: 18px;
+  background: #101313;
+}
+.qrScannerViewport video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+.qrScannerFrame {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(68%, 280px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border: 3px solid var(--acid);
+  border-radius: 18px;
+  box-shadow: 0 0 0 999px rgba(0, 0, 0, .28);
+}
+.qrScannerStatus, .qrScannerPrivacy { text-align: center; }
+.qrScannerStatus { margin: 14px 0 0; font-weight: 780; }
+.qrScannerPrivacy { margin: 8px auto 0; max-width: 420px; color: var(--muted); font-size: 12px; }
+.qrScannerError {
+  margin-top: 14px;
+  border-radius: 14px;
+  background: #fff1ef;
+  padding: 13px;
+  color: #8b251d;
+  text-align: center;
+}
+.qrScannerError p { margin: 0 0 10px; }
+.qrScannerError button {
+  border: 0;
+  border-radius: 999px;
+  background: var(--ink);
+  color: #fff;
+  padding: 9px 14px;
+  font-weight: 760;
+  cursor: pointer;
+}
+
 @media (max-width: 760px) {
   .footerTransferButton { width: 100%; justify-content: center; }
   .transferHero { width: calc(100% - 28px); padding: 58px 0 38px; }
@@ -220,4 +346,8 @@
   .pairQrPanel { gap: 24px; }
   .pairQrCode { justify-self: center; }
   .transferResultShell { margin-top: 42px; }
+  .qrScannerLauncherWrap { left: 14px; right: 14px; justify-items: stretch; }
+  .qrScannerLauncher { width: 100%; justify-content: center; }
+  .qrScannerDialog { padding: 18px; border-radius: 20px; }
+  .qrScannerViewport { aspect-ratio: 4 / 5; }
 }
