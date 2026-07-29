@@ -62,6 +62,15 @@ test("transfer page remembers pairing, uploads bounded chunks and supports speec
   assert.match(source, /PDF, Word, TXT/u);
 });
 
+test("transfer upload initializes directly in R2 instead of probing suspended Blob", () => {
+  const route = readFileSync(new URL("../app/api/transfer/upload/route.ts", import.meta.url), "utf8");
+  const initialize = route.slice(route.indexOf("async function initializeUpload"), route.indexOf("async function completeUpload"));
+  assert.doesNotMatch(initialize, /readSession/u);
+  assert.match(initialize, /allowOverwrite: true/u);
+  assert.match(route, /Vercel Blob.*403/u);
+  assert.match(route, /console\.error\("\[transfer-upload\]"/u);
+});
+
 test("transfer APIs and store use the R2-compatible storage layer", () => {
   const route = readFileSync(new URL("../app/api/transfer/upload/route.ts", import.meta.url), "utf8");
   const store = readFileSync(new URL("../lib/transfer/store.ts", import.meta.url), "utf8");
@@ -85,7 +94,28 @@ test("QR pairing stays client-side and automatically clears the secret fragment"
   assert.match(source, /Kết nối thiết bị khác/u);
 });
 
-test("installed PWA can scan and connect without navigating through Safari", () => {
+test("device-aware pairing shows desktop QR, opens mobile scanner and hides legacy controls", () => {
+  const enhancer = readFileSync(new URL("../app/transfer/qr-scanner-enhancer.tsx", import.meta.url), "utf8");
+  const session = readFileSync(new URL("../app/api/transfer/session/route.ts", import.meta.url), "utf8");
+  const styles = readFileSync(new URL("../app/transfer/qr-scanner.css", import.meta.url), "utf8");
+  assert.match(enhancer, /detectDeviceKind/u);
+  assert.match(enhancer, /\.pairPanel > div:first-child button/u);
+  assert.match(enhancer, /scannerRef\.current\?\.open\(\)/u);
+  assert.match(enhancer, /role: kind === "desktop" \? "host" : "join"/u);
+  assert.match(enhancer, /heading\.textContent = "Gửi file sang điện thoại\."/u);
+  assert.match(enhancer, /kind === "mobile" && !key/u);
+  assert.match(enhancer, /transferPeerConnected/u);
+  assert.match(session, /device_id/u);
+  assert.match(session, /deviceMarkerPrefix/u);
+  assert.match(session, /deviceCount >= 2/u);
+  assert.match(session, /await list\(/u);
+  assert.match(session, /await put\(/u);
+  assert.match(styles, /\.transferShell \.connectionBar/u);
+  assert.match(styles, /\.transferDeviceDesktop \.pairPanel/u);
+  assert.match(styles, /\.transferPeerConnected \.pairQrPanel/u);
+});
+
+test("installed PWA scans and connects without navigating through Safari", () => {
   const scanner = readFileSync(new URL("../app/transfer/qr-camera-scanner.tsx", import.meta.url), "utf8");
   const enhancer = readFileSync(new URL("../app/transfer/qr-scanner-enhancer.tsx", import.meta.url), "utf8");
   const layout = readFileSync(new URL("../app/transfer/layout.tsx", import.meta.url), "utf8");
@@ -95,7 +125,6 @@ test("installed PWA can scan and connect without navigating through Safari", () 
   assert.match(scanner, /playsInline/u);
   assert.match(scanner, /jsqr@1\.4\.0/u);
   assert.match(scanner, /capture="environment"/u);
-  assert.match(scanner, /Chụp hoặc chọn ảnh QR/u);
   assert.match(scanner, /Khung hình và ảnh QR chỉ được xử lý ngay trên thiết bị/u);
   assert.match(enhancer, /Quét QR trong ứng dụng/u);
   assert.match(enhancer, /window\.localStorage\.setItem\(STORAGE_KEY, key\)/u);
