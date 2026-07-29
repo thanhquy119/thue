@@ -142,11 +142,11 @@ export async function listTransferredFiles(key: string) {
 
 export async function readTransferredFile(key: string, fileId: string) {
   const mailboxId = transferMailboxId(key);
-  let meta = await readJson<TransferFileRecord>(transferMetaPath(mailboxId, fileId));
-  if (!meta) return null;
-  meta = await refreshLegacyOfficeExtraction(mailboxId, meta).catch((error) => {
+  const initialMeta = await readJson<TransferFileRecord>(transferMetaPath(mailboxId, fileId));
+  if (!initialMeta) return null;
+  const meta = await refreshLegacyOfficeExtraction(mailboxId, initialMeta).catch((error) => {
     console.error("[transfer-reextract]", error);
-    return meta;
+    return initialMeta;
   });
   const text = meta.textPathname ? await readJson<{ text: string }>(meta.textPathname) : null;
   return { meta, text: text?.text ?? "" };
