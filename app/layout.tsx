@@ -8,6 +8,7 @@ import "./preamble.css";
 import "./document-typography.css";
 import "./notifications.css";
 import "./transfer.css";
+import "./copy-cleanup.css";
 import CacheVersion from "./cache-version";
 import SavedDocuments from "./saved-documents";
 import DocumentTools from "./document-tools";
