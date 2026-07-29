@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 
 const CACHE_VERSION_KEY = "thue-ro-cache-version";
-const CURRENT_CACHE_VERSION = "2026-07-29-device-transfer-v1";
+const CURRENT_CACHE_VERSION = "2026-07-29-qr-transfer-reader-v2";
 
 export default function CacheVersion() {
   useEffect(() => {
