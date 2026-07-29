@@ -27,6 +27,7 @@ export type TransferFileRecord = {
   updatedAt: string;
   status: TransferFileStatus;
   extractionMethod: string | null;
+  extractionVersion?: number;
   textPathname: string | null;
   characters: number;
   totalPages: number;

@@ -70,6 +70,139 @@
   padding-bottom: 24px;
 }
 
+/* Reader typography and active highlights */
+.transferDocumentDetail .legalBlock:not(.heading):not(.transferTableBlock) {
+  text-align: justify;
+  text-justify: inter-word;
+  hyphens: auto;
+  overflow-wrap: anywhere;
+}
+
+.transferDocumentDetail .legalBlock {
+  box-sizing: border-box;
+  max-width: 100%;
+  background-clip: padding-box;
+}
+
+.transferDocumentDetail .legalBlock.speaking {
+  padding-inline: 18px;
+}
+
+/* Keep circular glyphs optically centered across Safari, Firefox and Chromium. */
+.uploadPlus,
+.transferDelete {
+  display: inline-grid !important;
+  place-items: center;
+  padding: 0 !important;
+  line-height: 1 !important;
+}
+
+.uploadPlus,
+.transferDelete {
+  font-size: 0 !important;
+}
+
+.uploadPlus::before {
+  content: "+";
+  font-size: 32px;
+  line-height: 1;
+  transform: translateY(-1px);
+}
+
+.transferDelete::before {
+  content: "×";
+  font-size: 22px;
+  line-height: 1;
+  transform: translateY(-1px);
+}
+
+.transferSourceAction {
+  min-height: 45px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  padding: 0 17px;
+  font-size: 14px;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.transferSourceAction:disabled {
+  cursor: wait;
+  opacity: .55;
+}
+
+/* Tables remain readable on narrow screens without flattening cells into prose. */
+.transferDocumentDetail .transferTableBlock {
+  width: 100%;
+  margin-left: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #fff;
+  text-align: left;
+}
+
+.transferDocumentDetail .transferTableBlock:hover,
+.transferDocumentDetail .transferTableBlock.speaking {
+  background: #fff;
+}
+
+.transferTableContext {
+  display: block;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+  font-weight: 790;
+  line-height: 1.5;
+  text-transform: none;
+}
+
+.transferStructuredTable {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.transferStructuredRow {
+  min-width: max(100%, 680px);
+  display: grid;
+  grid-template-columns: repeat(var(--transfer-table-columns), minmax(120px, 1fr));
+}
+
+.transferStructuredRow + .transferStructuredRow {
+  border-top: 1px solid var(--line);
+}
+
+.transferStructuredCell {
+  display: block;
+  min-width: 0;
+  padding: 12px 13px;
+  border-right: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.transferStructuredCell:last-child {
+  border-right: 0;
+}
+
+.transferStructuredRow:first-child .transferStructuredCell {
+  position: sticky;
+  top: 0;
+  background: var(--soft);
+  font-weight: 800;
+}
+
 @media (max-width: 760px) {
   .transferAutoStatus {
     width: calc(100% - 28px);
@@ -77,5 +210,39 @@
 
   .transferHero h1::after {
     font-size: clamp(42px, 13vw, 62px);
+  }
+
+  .transferDocumentDetail .legalBlocks {
+    padding-left: 0;
+  }
+
+  .transferDocumentDetail .legalBlock,
+  .transferDocumentDetail .legalBlock.clause,
+  .transferDocumentDetail .legalBlock.point {
+    width: 100%;
+    margin-left: 0;
+    padding-inline: 14px;
+  }
+
+  .transferDocumentDetail .legalBlock.speaking {
+    padding-inline: 17px;
+    border-radius: 14px;
+  }
+
+  .transferDocumentDetail .transferTableBlock {
+    padding-inline: 0;
+  }
+
+  .transferTableContext {
+    padding: 14px;
+  }
+
+  .transferStructuredCell {
+    padding: 11px 12px;
+    font-size: 12px;
+  }
+
+  .transferSourceAction {
+    width: 100%;
   }
 }
