@@ -1,7 +1,10 @@
-import { geminiModel, hasGeminiConfig } from "../legal/gemini";
-
-const MAX_PAGES = 6;
+const OCR_CONCURRENCY = 4;
 const RENDER_WIDTH = 1_600;
+const OCR_TIMEOUT_MS = 45_000;
+const DEFAULT_OCR_MODEL = "gemini-3.5-flash-lite";
+
+// Giới hạn cũ từng dùng `const MAX_PAGES = 6` và
+// `Math.min(totalPages, MAX_PAGES)`. PDF scan bây giờ phải xử lý đủ mọi trang.
 
 type GeminiPayload = {
   candidates?: Array<{ content?: { parts?: Array<{ text?: unknown; thought?: unknown }> } }>;
@@ -24,11 +27,15 @@ function apiKey() {
   return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
 }
 
-async function ocrImage(image: Buffer, page: number) {
-  if (!hasGeminiConfig()) throw new Error("Gemini chưa được cấu hình cho OCR PDF scan.");
-  const model = process.env.OCR_GEMINI_MODEL?.trim() || geminiModel();
+function ocrModel() {
+  return process.env.OCR_GEMINI_MODEL?.trim() || DEFAULT_OCR_MODEL;
+}
+
+async function ocrImage(image: Buffer, page: number, totalPages: number) {
+  if (!apiKey()) throw new Error("Gemini chưa được cấu hình cho OCR PDF scan.");
+  const model = ocrModel();
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 45_000);
+  const timeout = setTimeout(() => controller.abort(), OCR_TIMEOUT_MS);
   try {
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
@@ -50,7 +57,7 @@ async function ocrImage(image: Buffer, page: number) {
             role: "user",
             parts: [
               { inline_data: { mime_type: "image/png", data: image.toString("base64") } },
-              { text: `OCR trang ${page}. Chỉ trả về phần chữ, không Markdown và không giải thích.` },
+              { text: `OCR trang ${page}/${totalPages}. Chỉ trả về phần chữ, không Markdown và không giải thích.` },
             ],
           }],
           generationConfig: { temperature: 0, maxOutputTokens: 8_192 },
@@ -60,7 +67,7 @@ async function ocrImage(image: Buffer, page: number) {
     const payload = (await response.json().catch(() => ({}))) as GeminiPayload;
     if (!response.ok) {
       const message = typeof payload.error?.message === "string" ? payload.error.message : `Gemini trả lỗi ${response.status}.`;
-      throw new Error(message);
+      throw new Error(`OCR trang ${page}/${totalPages} thất bại: ${message}`);
     }
     const text = normalizeText(
       (payload.candidates?.[0]?.content?.parts ?? [])
@@ -68,8 +75,13 @@ async function ocrImage(image: Buffer, page: number) {
         .map((part) => part.text as string)
         .join("\n"),
     );
-    if (!text) throw new Error(`Không OCR được trang ${page}.`);
+    if (!text) throw new Error(`Không OCR được trang ${page}/${totalPages}.`);
     return text;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(`OCR trang ${page}/${totalPages} quá thời gian.`);
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -88,7 +100,7 @@ export async function ocrTransferredPdf(buffer: Buffer) {
     totalPages = info.total;
     const screenshots = await parser.getScreenshot({
       desiredWidth: RENDER_WIDTH,
-      first: Math.min(totalPages, MAX_PAGES),
+      first: totalPages,
       imageDataUrl: false,
       imageBuffer: true,
     });
@@ -97,15 +109,30 @@ export async function ocrTransferredPdf(buffer: Buffer) {
     await parser.destroy().catch(() => undefined);
   }
   if (!pages.length) throw new Error("Không render được PDF scan để OCR.");
-
-  const texts: string[] = [];
-  for (let index = 0; index < pages.length; index += 1) {
-    texts.push(await ocrImage(Buffer.from(pages[index].data), index + 1));
+  if (pages.length !== totalPages) {
+    throw new Error(`Không render đủ trang PDF để OCR (${pages.length}/${totalPages}).`);
   }
+
+  const texts = new Array<string>(pages.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < pages.length) {
+      const index = cursor;
+      cursor += 1;
+      const image = Buffer.from(pages[index].data);
+      pages[index] = { data: new Uint8Array() };
+      texts[index] = await ocrImage(image, index + 1, totalPages);
+    }
+  };
+  await Promise.all(Array.from(
+    { length: Math.min(OCR_CONCURRENCY, pages.length) },
+    () => worker(),
+  ));
+
   return {
     text: normalizeText(texts.join("\n\n")),
     totalPages,
-    processedPages: pages.length,
-    truncated: totalPages > pages.length,
+    processedPages: totalPages,
+    truncated: false,
   };
 }

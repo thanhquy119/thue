@@ -1,0 +1,126 @@
+/* Bố cục phần mở đầu của văn bản hành chính trong trình đọc file chuyển. */
+.transferDocumentDetail .readerText > .legalProvision:first-child .legalBlocks {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) !important;
+  column-gap: clamp(44px, 7vw, 96px) !important;
+  align-items: start;
+}
+
+.transferDocumentDetail .readerText > .legalProvision:first-child .preamble-authority,
+.transferDocumentDetail .readerText > .legalProvision:first-child .preamble-national,
+.transferDocumentDetail .readerText > .legalProvision:first-child .preamble-motto,
+.transferDocumentDetail .readerText > .legalProvision:first-child .preamble-number,
+.transferDocumentDetail .readerText > .legalProvision:first-child .preamble-dateline,
+.transferDocumentDetail .readerText > .legalProvision:first-child .preamble-type,
+.transferDocumentDetail .readerText > .legalProvision:first-child .preamble-title {
+  display: block !important;
+  width: 100% !important;
+  max-width: none !important;
+  box-sizing: border-box;
+}
+
+.transferDocumentDetail .readerText > .legalProvision:first-child .preamble-authority {
+  grid-column: 1 !important;
+  grid-row: 1 / span 2 !important;
+  margin: 0 !important;
+  padding: 4px 12px 8px !important;
+  text-align: center !important;
+}
+
+.transferDocumentDetail .readerText > .legalProvision:first-child .preamble-national {
+  grid-column: 2 !important;
+  grid-row: 1 !important;
+  margin: 0 !important;
+  padding: 4px 12px 0 !important;
+  text-align: center !important;
+}
+
+.transferDocumentDetail .readerText > .legalProvision:first-child .preamble-motto {
+  grid-column: 2 !important;
+  grid-row: 2 !important;
+  margin: 0 !important;
+  padding: 2px 12px 8px !important;
+  text-align: center !important;
+}
+
+.transferDocumentDetail .readerText > .legalProvision:first-child .preamble-authority::after,
+.transferDocumentDetail .readerText > .legalProvision:first-child .preamble-motto::after {
+  position: static !important;
+  display: block !important;
+  width: 72px !important;
+  margin: 8px auto 0 !important;
+  transform: none !important;
+}
+
+.transferDocumentDetail .readerText > .legalProvision:first-child .preamble-number {
+  grid-column: 1 !important;
+  grid-row: 3 !important;
+  margin: 24px 0 0 !important;
+  padding: 5px 12px !important;
+  text-align: left !important;
+}
+
+.transferDocumentDetail .readerText > .legalProvision:first-child .preamble-dateline {
+  grid-column: 2 !important;
+  grid-row: 3 !important;
+  margin: 24px 0 0 !important;
+  padding: 5px 12px !important;
+  text-align: right !important;
+}
+
+.transferDocumentDetail .readerText > .legalProvision:first-child .preamble-type,
+.transferDocumentDetail .readerText > .legalProvision:first-child .preamble-title {
+  grid-column: 1 / -1 !important;
+  text-align: center !important;
+}
+
+/* Căn đều nội dung thường và cả tiêu đề pháp lý dài; dòng cuối vẫn căn trái. */
+.transferDocumentDetail .readerText .legalBlock.paragraph,
+.transferDocumentDetail .readerText .legalBlock.clause,
+.transferDocumentDetail .readerText .legalBlock.point,
+.transferDocumentDetail .readerText .legalBlock.heading {
+  text-align: justify !important;
+  text-align-last: left !important;
+  text-justify: inter-word;
+  hyphens: auto;
+  overflow-wrap: break-word;
+}
+
+.transferDocumentDetail .readerText .transferTableBlock {
+  text-align: left !important;
+  text-align-last: auto !important;
+}
+
+.uploadCard small {
+  display: none !important;
+}
+
+@media (max-width: 760px) {
+  .transferDocumentDetail .readerText > .legalProvision:first-child .legalBlocks {
+    grid-template-columns: minmax(0, 1fr) !important;
+    column-gap: 0 !important;
+  }
+
+  .transferDocumentDetail .readerText > .legalProvision:first-child .preamble-authority,
+  .transferDocumentDetail .readerText > .legalProvision:first-child .preamble-national,
+  .transferDocumentDetail .readerText > .legalProvision:first-child .preamble-motto,
+  .transferDocumentDetail .readerText > .legalProvision:first-child .preamble-number,
+  .transferDocumentDetail .readerText > .legalProvision:first-child .preamble-dateline,
+  .transferDocumentDetail .readerText > .legalProvision:first-child .preamble-type,
+  .transferDocumentDetail .readerText > .legalProvision:first-child .preamble-title {
+    grid-column: 1 !important;
+    grid-row: auto !important;
+    text-align: center !important;
+  }
+
+  .transferDocumentDetail .readerText > .legalProvision:first-child .preamble-national {
+    margin-top: 18px !important;
+  }
+
+  .transferDocumentDetail .readerText > .legalProvision:first-child .preamble-number {
+    margin-top: 22px !important;
+  }
+
+  .transferDocumentDetail .readerText > .legalProvision:first-child .preamble-dateline {
+    margin-top: 0 !important;
+  }
+}

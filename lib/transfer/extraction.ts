@@ -94,15 +94,16 @@ async function extractPdf(buffer: Buffer): Promise<TransferExtraction> {
 
   const { ocrTransferredPdf } = await import("./pdf-ocr.ts");
   const ocr = await ocrTransferredPdf(buffer);
+  if (ocr.processedPages !== ocr.totalPages || ocr.truncated) {
+    throw new Error(`PDF chưa được OCR đầy đủ (${ocr.processedPages}/${ocr.totalPages} trang).`);
+  }
   return {
     text: ocr.text,
     method: "pdf_ocr",
     totalPages: ocr.totalPages,
     processedPages: ocr.processedPages,
-    partial: ocr.truncated,
-    warnings: ocr.truncated
-      ? [`PDF scan có ${ocr.totalPages} trang; phiên bản đầu đã OCR ${ocr.processedPages} trang đầu để bảo vệ thời gian và chi phí xử lý.`]
-      : ["PDF không có lớp chữ nên hệ thống đã OCR từ ảnh trang."],
+    partial: false,
+    warnings: [],
   };
 }
 

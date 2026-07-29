@@ -1,0 +1,73 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { ocrTransferredPdf } from "../lib/transfer/pdf-ocr.ts";
+
+function blankPdf(pageCount: number) {
+  const pageIds = Array.from({ length: pageCount }, (_, index) => index + 4);
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageCount} >>`,
+    "<< /Length 0 >>\nstream\n\nendstream",
+    ...pageIds.map(() => "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << >> /Contents 3 0 R >>"),
+  ];
+
+  let value = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(value, "ascii"));
+    value += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xref = Buffer.byteLength(value, "ascii");
+  value += `xref\n0 ${objects.length + 1}\n`;
+  value += "0000000000 65535 f \n";
+  value += offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("");
+  value += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(value, "ascii");
+}
+
+test("runtime OCR processes every page beyond the former six-page limit", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.GEMINI_API_KEY;
+  const seenPages: number[] = [];
+  let active = 0;
+  let maxActive = 0;
+
+  process.env.GEMINI_API_KEY = "test-key";
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    try {
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        contents?: Array<{ parts?: Array<{ text?: string }> }>;
+      };
+      const instruction = body.contents?.[0]?.parts?.find((part) => part.text)?.text ?? "";
+      const page = Number(instruction.match(/OCR trang (\d+)\//u)?.[1] ?? 0);
+      seenPages.push(page);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: `Nội dung OCR trang ${page}` }] } }],
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    } finally {
+      active -= 1;
+    }
+  }) as typeof fetch;
+
+  try {
+    const result = await ocrTransferredPdf(blankPdf(8));
+    assert.equal(result.totalPages, 8);
+    assert.equal(result.processedPages, 8);
+    assert.equal(result.truncated, false);
+    assert.deepEqual([...seenPages].sort((left, right) => left - right), [1, 2, 3, 4, 5, 6, 7, 8]);
+    assert.ok(maxActive > 1);
+    assert.ok(maxActive <= 4);
+    assert.match(result.text, /Nội dung OCR trang 1/u);
+    assert.match(result.text, /Nội dung OCR trang 8/u);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey == null) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = originalKey;
+  }
+});
