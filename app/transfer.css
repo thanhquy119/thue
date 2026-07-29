@@ -1,0 +1,115 @@
+.footerTransferButton, .transferBack {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  background: var(--ink);
+  color: #fff;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 780;
+  line-height: 1.2;
+  text-decoration: none;
+}
+.transferBack { background: #fff; color: var(--ink); }
+.transferShell { min-height: 100vh; padding-bottom: 100px; }
+.transferHero {
+  width: min(980px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 86px 0 55px;
+  text-align: center;
+}
+.transferHero h1 { margin: 0; font-size: clamp(44px, 7vw, 82px); line-height: 1; letter-spacing: -0.065em; }
+.transferHero > p:last-child { max-width: 720px; margin: 26px auto 0; color: var(--muted); }
+.pairPanel, .transferWorkspace {
+  width: min(1080px, calc(100% - 48px));
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+.pairPanel > div, .uploadCard, .transferList, .transferReader {
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: #fff;
+  padding: 34px;
+}
+.pairPanel h2, .transferList h2 { margin: 0 0 8px; letter-spacing: -0.035em; }
+.pairPanel p { color: var(--muted); }
+.pairPanel form { display: grid; gap: 10px; }
+.pairPanel input {
+  width: 100%;
+  min-height: 50px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0 14px;
+  text-transform: uppercase;
+}
+.pairPanel button, .connectionBar button, .transferListHeading button, .transferReader header button {
+  border: 0;
+  border-radius: 999px;
+  background: var(--ink);
+  color: #fff;
+  padding: 10px 16px;
+  font-weight: 760;
+  cursor: pointer;
+}
+.connectionBar {
+  width: min(1080px, calc(100% - 48px));
+  margin: 0 auto 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--soft);
+  padding: 18px 22px;
+}
+.connectionBar span, .connectionBar strong { display: block; }
+.connectionBar span { color: var(--green); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .09em; }
+.connectionBar strong { margin-top: 3px; font-size: 15px; letter-spacing: .08em; word-break: break-all; }
+.uploadCard {
+  min-height: 270px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-style: dashed;
+  cursor: pointer;
+  text-align: center;
+}
+.uploadCard input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.uploadPlus { width: 54px; height: 54px; display: grid; place-items: center; border-radius: 50%; background: var(--acid); font-size: 32px; line-height: 1; }
+.uploadCard small { color: var(--muted); }
+.uploadCard em { margin-top: 8px; color: var(--green); font-style: normal; font-weight: 760; }
+.transferList { padding: 24px; }
+.transferListHeading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.transferListHeading button { background: var(--soft); color: var(--ink); }
+.transferEmpty { color: var(--muted); }
+.transferFile { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; border-top: 1px solid var(--line); padding: 12px 0; }
+.transferFileOpen { border: 0; background: transparent; padding: 4px; text-align: left; cursor: pointer; }
+.transferFileOpen:disabled { cursor: wait; opacity: .65; }
+.transferFileOpen strong, .transferFileOpen span { display: block; }
+.transferFileOpen strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.transferFileOpen span { margin-top: 2px; color: var(--muted); font-size: 12px; }
+.transferDelete { align-self: center; width: 34px; height: 34px; border: 0; border-radius: 50%; background: var(--soft); cursor: pointer; font-size: 22px; }
+.transferMessage { width: min(1080px, calc(100% - 48px)); margin: 18px auto; border-radius: 13px; background: var(--soft); padding: 13px 16px; color: var(--green); font-weight: 680; }
+.transferReader { width: min(1080px, calc(100% - 48px)); margin: 28px auto 0; }
+.transferReader header { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; border-bottom: 1px solid var(--line); padding-bottom: 24px; }
+.transferReader h2 { margin: 0; font-size: clamp(28px, 4vw, 45px); line-height: 1.1; letter-spacing: -0.045em; }
+.transferReaderText { margin-top: 28px; }
+.transferReaderText button { width: 100%; display: block; border: 0; border-radius: 10px; background: transparent; padding: 9px 10px; text-align: left; line-height: 1.78; cursor: pointer; }
+.transferReaderText button:hover, .transferReaderText button:focus { background: var(--soft); }
+@media (max-width: 760px) {
+  .footerTransferButton { width: 100%; justify-content: center; }
+  .transferHero { width: calc(100% - 28px); padding: 58px 0 38px; }
+  .transferHero h1 { font-size: clamp(42px, 13vw, 62px); }
+  .pairPanel, .transferWorkspace { width: calc(100% - 28px); grid-template-columns: 1fr; }
+  .pairPanel > div, .uploadCard, .transferList, .transferReader { padding: 24px; }
+  .connectionBar, .transferMessage, .transferReader { width: calc(100% - 28px); }
+  .connectionBar { align-items: flex-start; flex-direction: column; }
+  .transferReader header { flex-direction: column; }
+}
