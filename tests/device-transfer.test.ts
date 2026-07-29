@@ -62,8 +62,8 @@ test("transferred documents reuse the main application reader structure", () => 
   assert.match(source, /className="readerBlock"/u);
   assert.match(source, /className="readerText"/u);
   assert.match(source, /className="legalProvision"/u);
-  assert.match(source, /className={`legalBlock \$\{block\.kind\}/u);
-  assert.match(source, /className={`audioDock/u);
+  assert.ok(source.includes("className={`legalBlock ${block.kind}"));
+  assert.ok(source.includes("className={`audioDock ${audioVisible"));
   assert.doesNotMatch(source, /Mã kết nối được lưu trên từng trình duyệt/u);
 });
 
