@@ -1,3 +1,4 @@
+export const TRANSFER_EXTRACTION_VERSION = 2;
 export const TRANSFER_TABLE_CELL_MARKER = "\uE000";
 export const TRANSFER_TABLE_ROW_MARKER = "\uE001";
 export const TRANSFER_TABLE_START_MARKER = "\uE002";
