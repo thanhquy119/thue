@@ -1,6 +1,7 @@
 "use client";
 
 import { upload } from "@vercel/blob/client";
+import { QRCodeSVG } from "qrcode.react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { splitLegalBlocks } from "@/lib/legal/format";
 import type { TransferFileRecord } from "@/lib/transfer/core";
@@ -22,6 +23,43 @@ function formatSize(bytes: number) {
   return `${(bytes / 1_000_000).toFixed(1)} MB`;
 }
 
+function formatTransferredAt(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Chưa xác định";
+  return new Intl.DateTimeFormat("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function fileFormat(file: TransferFileRecord) {
+  const extension = file.name.toLocaleLowerCase("en").match(/\.([a-z0-9]{1,8})$/u)?.[1];
+  return extension?.toLocaleUpperCase("en") || "TÀI LIỆU";
+}
+
+function extractionLabel(method: string | null) {
+  switch (method) {
+    case "docx":
+      return "Trích từ Word";
+    case "doc":
+      return "Trích từ Word cũ";
+    case "pdf_text":
+      return "Lớp chữ PDF";
+    case "pdf_ocr":
+    case "ocr":
+      return "OCR PDF scan";
+    case "html":
+      return "Trích từ HTML";
+    case "plain_text":
+      return "Văn bản thuần";
+    default:
+      return "Đã chuyển đổi";
+  }
+}
+
 function statusText(file: TransferFileRecord) {
   if (file.status === "processing") return "Đang chuyển thành nội dung nghe…";
   if (file.status === "ocr_partial") return `Đã OCR ${file.processedPages}/${file.totalPages} trang`;
@@ -34,16 +72,27 @@ export default function TransferPage() {
   const [key, setKey] = useState("");
   const [draftKey, setDraftKey] = useState("");
   const [mailboxId, setMailboxId] = useState("");
+  const [origin, setOrigin] = useState("");
+  const [showQr, setShowQr] = useState(false);
   const [files, setFiles] = useState<TransferFileRecord[]>([]);
   const [selected, setSelected] = useState<{ meta: TransferFileRecord; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [voiceUri, setVoiceUri] = useState("");
+  const [speed, setSpeed] = useState(1);
   const [speaking, setSpeaking] = useState(false);
+  const [audioVisible, setAudioVisible] = useState(false);
+  const [speechIndex, setSpeechIndex] = useState(0);
   const speechIndexRef = useRef(0);
   const speechSessionRef = useRef(0);
 
   const blocks = useMemo(() => selected ? splitLegalBlocks(selected.text) : [], [selected]);
+  const pairUrl = useMemo(
+    () => key && origin ? `${origin}/transfer#pair=${encodeURIComponent(key)}` : "",
+    [key, origin],
+  );
 
   const connect = useCallback(async (rawKey: string) => {
     const normalized = rawKey.replace(/[^a-z0-9]/giu, "").toUpperCase();
@@ -79,6 +128,15 @@ export default function TransferPage() {
   }, [key]);
 
   useEffect(() => {
+    setOrigin(window.location.origin);
+    const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const pairingKey = fragment.get("pair");
+    if (pairingKey) {
+      window.history.replaceState({}, "", window.location.pathname);
+      setShowQr(false);
+      void connect(pairingKey);
+      return;
+    }
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) void connect(saved);
   }, [connect]);
@@ -90,8 +148,27 @@ export default function TransferPage() {
     return () => window.clearInterval(timer);
   }, [key, refreshFiles]);
 
+  useEffect(() => {
+    if (!("speechSynthesis" in window)) return;
+    const loadVoices = () => {
+      const vietnamese = window.speechSynthesis
+        .getVoices()
+        .filter((voice) => voice.lang.toLocaleLowerCase("en").startsWith("vi"));
+      setVoices(vietnamese);
+      const saved = window.localStorage.getItem("thue-ro-voice");
+      const nextVoice = vietnamese.find((voice) => voice.voiceURI === saved) ?? vietnamese[0];
+      if (nextVoice) setVoiceUri(nextVoice.voiceURI);
+    };
+    loadVoices();
+    window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
+    return () => window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
+  }, []);
+
+  useEffect(() => () => window.speechSynthesis?.cancel(), []);
+
   async function chooseFile(file: TransferFileRecord) {
     setMessage("");
+    stopSpeech(true);
     const response = await fetch(`/api/transfer/files/${encodeURIComponent(file.id)}`, {
       headers: { "x-transfer-key": key },
       cache: "no-store",
@@ -101,6 +178,9 @@ export default function TransferPage() {
       setMessage(payload.error || "Không mở được file.");
       return;
     }
+    speechIndexRef.current = 0;
+    setSpeechIndex(0);
+    setAudioVisible(false);
     setSelected(payload);
     window.setTimeout(() => document.getElementById("transfer-reader")?.scrollIntoView({ behavior: "smooth" }), 30);
   }
@@ -140,10 +220,11 @@ export default function TransferPage() {
     }
   }
 
-  function stopSpeech() {
+  function stopSpeech(hideDock = false) {
     speechSessionRef.current += 1;
     window.speechSynthesis?.cancel();
     setSpeaking(false);
+    if (hideDock) setAudioVisible(false);
   }
 
   function speakFrom(index = 0) {
@@ -157,11 +238,15 @@ export default function TransferPage() {
         return;
       }
       speechIndexRef.current = position;
+      setSpeechIndex(position);
       const utterance = new SpeechSynthesisUtterance(block.text);
       utterance.lang = "vi-VN";
-      utterance.rate = 1;
+      utterance.rate = speed;
+      const selectedVoice = voices.find((voice) => voice.voiceURI === voiceUri) ?? voices[0];
+      if (selectedVoice) utterance.voice = selectedVoice;
       utterance.onstart = () => {
         if (session !== speechSessionRef.current) return;
+        setAudioVisible(true);
         setSpeaking(true);
         document.getElementById(`transfer-block-${position}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
       };
@@ -169,7 +254,7 @@ export default function TransferPage() {
       utterance.onerror = () => setSpeaking(false);
       window.speechSynthesis.speak(utterance);
     };
-    speakNext(index);
+    speakNext(Math.max(0, Math.min(index, blocks.length - 1)));
   }
 
   async function removeFile(file: TransferFileRecord) {
@@ -178,18 +263,32 @@ export default function TransferPage() {
       method: "DELETE",
       headers: { "x-transfer-key": key },
     });
-    if (selected?.meta.id === file.id) setSelected(null);
+    if (selected?.meta.id === file.id) {
+      stopSpeech(true);
+      setSelected(null);
+    }
     await refreshFiles();
   }
 
   function disconnect() {
-    stopSpeech();
+    stopSpeech(true);
     localStorage.removeItem(STORAGE_KEY);
     setKey("");
     setMailboxId("");
     setFiles([]);
     setSelected(null);
     setDraftKey("");
+    setShowQr(false);
+  }
+
+  async function copyPairLink() {
+    if (!pairUrl) return;
+    try {
+      await navigator.clipboard.writeText(pairUrl);
+      setMessage("Đã sao chép liên kết kết nối.");
+    } catch {
+      setMessage("Không thể sao chép tự động. Có thể dùng mã kết nối bên dưới.");
+    }
   }
 
   return (
@@ -202,20 +301,29 @@ export default function TransferPage() {
       <section className="transferHero">
         <p className="eyebrow">Kết nối thiết bị một lần</p>
         <h1>Gửi file sang điện thoại.<br />Mở ra là nghe được.</h1>
-        <p>Mã kết nối được lưu trên từng trình duyệt. Laptop và điện thoại dùng cùng một mã sẽ tự thấy chung danh sách file ở những lần sau.</p>
       </section>
 
       {!key ? (
         <section className="pairPanel">
           <div>
-            <h2>Trên điện thoại</h2>
-            <p>Tạo mã mới, sau đó nhập cùng mã này trên laptop.</p>
-            <button type="button" onClick={() => { const next = generateKey(); setDraftKey(next); void connect(next); }} disabled={busy}>Tạo mã kết nối</button>
+            <h2>Tạo kết nối mới</h2>
+            <p>Tạo hộp file và hiện mã QR để thiết bị còn lại quét.</p>
+            <button
+              type="button"
+              onClick={() => {
+                const next = generateKey();
+                setShowQr(true);
+                void connect(next);
+              }}
+              disabled={busy}
+            >
+              Tạo mã QR kết nối
+            </button>
           </div>
           <div>
-            <h2>Trên laptop</h2>
-            <p>Nhập mã đã hiện trên điện thoại. Mã sẽ được nhớ cho lần sau.</p>
-            <form onSubmit={(event) => { event.preventDefault(); void connect(draftKey); }}>
+            <h2>Nhập mã dự phòng</h2>
+            <p>Dùng khi thiết bị không quét được QR.</p>
+            <form onSubmit={(event) => { event.preventDefault(); setShowQr(false); void connect(draftKey); }}>
               <input value={draftKey} onChange={(event) => setDraftKey(event.target.value)} placeholder="Nhập mã kết nối" autoCapitalize="characters" />
               <button type="submit" disabled={busy}>Kết nối</button>
             </form>
@@ -225,8 +333,30 @@ export default function TransferPage() {
         <>
           <section className="connectionBar">
             <div><span>Đã kết nối</span><strong>{displayKey(key)}</strong></div>
-            <button type="button" onClick={disconnect}>Đổi mã</button>
+            <div className="connectionActions">
+              <button type="button" onClick={() => setShowQr((current) => !current)}>{showQr ? "Ẩn QR" : "Kết nối thiết bị khác"}</button>
+              <button className="secondaryAction" type="button" onClick={disconnect}>Đổi mã</button>
+            </div>
           </section>
+
+          {showQr && pairUrl ? (
+            <section className="pairQrPanel" aria-labelledby="pair-qr-title">
+              <div className="pairQrCopy">
+                <p className="sectionLabel">Kết nối nhanh</p>
+                <h2 id="pair-qr-title">Quét mã này bằng thiết bị còn lại</h2>
+                <p>Mở Camera, quét QR rồi chạm vào liên kết. Thiết bị mới sẽ tự kết nối và ghi nhớ hộp file này.</p>
+                <button type="button" onClick={() => void copyPairLink()}>Sao chép liên kết</button>
+              </div>
+              <div className="pairQrCode">
+                <QRCodeSVG
+                  value={pairUrl}
+                  size={224}
+                  level="M"
+                  title="Mã QR kết nối hộp file Thuế"
+                />
+              </div>
+            </section>
+          ) : null}
 
           <section className="transferWorkspace">
             <label className="uploadCard">
@@ -261,19 +391,88 @@ export default function TransferPage() {
       {message ? <p className="transferMessage" role="status">{message}</p> : null}
 
       {selected ? (
-        <section className="transferReader" id="transfer-reader">
-          <header>
-            <div><p className="sectionLabel">Nội dung đã chuyển đổi</p><h2>{selected.meta.name}</h2></div>
-            <button type="button" onClick={speaking ? stopSpeech : () => speakFrom(speechIndexRef.current)}>{speaking ? "Dừng nghe" : "Nghe từ đây"}</button>
-          </header>
-          {selected.meta.warnings.length ? <div className="answerWarnings">{selected.meta.warnings.map((warning) => <p key={warning}>{warning}</p>)}</div> : null}
-          <div className="transferReaderText">
-            {blocks.map((block, index) => (
-              <button id={`transfer-block-${index}`} type="button" key={`${index}-${block.text.slice(0, 20)}`} onClick={() => speakFrom(index)}>{block.text}</button>
-            ))}
-          </div>
+        <section className="resultShell transferResultShell" id="transfer-reader">
+          <article className="documentDetail transferDocumentDetail">
+            <header className="detailHeader">
+              <div className="detailBadges">
+                <span>{fileFormat(selected.meta)}</span>
+                <span>{statusText(selected.meta)}</span>
+              </div>
+              <p className="documentKicker">Tài liệu cá nhân</p>
+              <h2>{selected.meta.name}</h2>
+              <dl className="facts">
+                <div><dt>Định dạng</dt><dd>{fileFormat(selected.meta)}</dd></div>
+                <div><dt>Dung lượng</dt><dd>{formatSize(selected.meta.size)}</dd></div>
+                <div><dt>Ngày chuyển</dt><dd>{formatTransferredAt(selected.meta.createdAt)}</dd></div>
+              </dl>
+              <div className="headerActions">
+                <button className="listenButton" type="button" onClick={() => speakFrom(speechIndexRef.current)} disabled={!blocks.length}>
+                  <span>▶</span>{audioVisible ? "Nghe tiếp" : "Nghe từ đầu"}
+                </button>
+                <span className="transferMethod">{extractionLabel(selected.meta.extractionMethod)}</span>
+              </div>
+              {selected.meta.warnings.length ? (
+                <div className="answerWarnings transferWarnings">
+                  {selected.meta.warnings.map((warning) => <p key={warning}>{warning}</p>)}
+                </div>
+              ) : null}
+            </header>
+
+            <section className="readerBlock">
+              <div className="readerHeading">
+                <div><p className="sectionLabel">Nội dung đã chuyển đổi</p><h3>Toàn bộ nội dung tài liệu</h3></div>
+              </div>
+              <div className="readerText">
+                <section className="legalProvision">
+                  <h4><span>01.</span>Nội dung tài liệu</h4>
+                  <div className="legalBlocks">
+                    {blocks.map((block, index) => (
+                      <button
+                        id={`transfer-block-${index}`}
+                        className={`legalBlock ${block.kind} ${audioVisible && speechIndex === index ? "speaking" : ""}`}
+                        type="button"
+                        key={`${index}-${block.text.slice(0, 20)}`}
+                        onClick={() => speakFrom(index)}
+                      >
+                        {block.text}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              </div>
+            </section>
+          </article>
         </section>
       ) : null}
+
+      <div className={`audioDock ${audioVisible ? "visible" : ""}`} aria-label="Trình đọc tài liệu đã chuyển">
+        <div className="audioTitle">
+          <span className="equalizer" aria-hidden="true"><i /><i /><i /></span>
+          <div><strong>{selected?.meta.name}</strong><span>Đoạn {blocks.length ? speechIndex + 1 : 0}/{blocks.length}</span></div>
+        </div>
+        <div className="audioTransport">
+          <button type="button" onClick={() => speakFrom(Math.max(0, speechIndex - 1))}>← Đoạn</button>
+          <button className="stopButton" type="button" onClick={speaking ? () => stopSpeech() : () => speakFrom(speechIndex)}>{speaking ? "Dừng" : "Tiếp tục"}</button>
+          <button type="button" onClick={() => speakFrom(Math.min(Math.max(0, blocks.length - 1), speechIndex + 1))}>Đoạn →</button>
+        </div>
+        <div className="audioSettings">
+          {voices.length ? (
+            <label>
+              <span>Giọng</span>
+              <select
+                value={voiceUri}
+                onChange={(event) => {
+                  setVoiceUri(event.target.value);
+                  window.localStorage.setItem("thue-ro-voice", event.target.value);
+                }}
+              >
+                {voices.map((voice) => <option key={voice.voiceURI} value={voice.voiceURI}>{voice.name}</option>)}
+              </select>
+            </label>
+          ) : null}
+          <label><span>Tốc độ</span><select value={speed} onChange={(event) => setSpeed(Number(event.target.value))}>{[0.75, 1, 1.25, 1.5].map((value) => <option key={value} value={value}>{value}×</option>)}</select></label>
+        </div>
+      </div>
     </main>
   );
 }
