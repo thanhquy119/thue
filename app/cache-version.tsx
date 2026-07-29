@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 
 const CACHE_VERSION_KEY = "thue-ro-cache-version";
-const CURRENT_CACHE_VERSION = "2026-07-29-transfer-safe-ocr-v8";
+const CURRENT_CACHE_VERSION = "2026-07-29-transfer-reader-excel-v9";
 
 export default function CacheVersion() {
   useEffect(() => {
