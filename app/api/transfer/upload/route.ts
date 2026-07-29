@@ -24,7 +24,7 @@ type ClientPayload = {
   contentType?: unknown;
 };
 
-function parseClientPayload(value: string | null) {
+function parseClientPayload(value: string | null | undefined) {
   const parsed = value ? JSON.parse(value) as ClientPayload : {};
   const key = typeof parsed.key === "string" ? parsed.key : "";
   const mailboxId = typeof parsed.mailboxId === "string" ? parsed.mailboxId : "";
