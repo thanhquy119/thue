@@ -6,6 +6,7 @@ import { pairingKeyFromQr } from "@/lib/transfer/qr-pairing";
 const JS_QR_SOURCE = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js";
 const SCAN_INTERVAL_MS = 160;
 const MAX_SCAN_WIDTH = 720;
+const MAX_IMAGE_WIDTH = 1600;
 
 type JsQrResult = { data: string } | null;
 type JsQrDecoder = (
@@ -37,11 +38,19 @@ function loadDecoder() {
   decoderPromise = new Promise<JsQrDecoder>((resolve, reject) => {
     const existing = document.querySelector<HTMLScriptElement>(`script[src="${JS_QR_SOURCE}"]`);
     const script = existing ?? document.createElement("script");
-    const finish = () => window.jsQR
-      ? resolve(window.jsQR)
-      : reject(new Error("Không tải được bộ đọc mã QR."));
+    const timeout = window.setTimeout(() => reject(new Error("Bộ đọc QR tải quá lâu. Hãy kiểm tra mạng rồi thử lại.")), 12_000);
+    const finish = () => {
+      window.clearTimeout(timeout);
+      if (window.jsQR) resolve(window.jsQR);
+      else reject(new Error("Không tải được bộ đọc mã QR."));
+    };
+    const fail = () => {
+      window.clearTimeout(timeout);
+      if (!existing) script.remove();
+      reject(new Error("Không tải được bộ đọc mã QR."));
+    };
     script.addEventListener("load", finish, { once: true });
-    script.addEventListener("error", () => reject(new Error("Không tải được bộ đọc mã QR.")), { once: true });
+    script.addEventListener("error", fail, { once: true });
     if (!existing) {
       script.src = JS_QR_SOURCE;
       script.async = true;
@@ -53,6 +62,15 @@ function loadDecoder() {
     throw error;
   });
   return decoderPromise;
+}
+
+function loadImage(url: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Không đọc được ảnh đã chọn."));
+    image.src = url;
+  });
 }
 
 const QrCameraScanner = forwardRef<QrCameraScannerHandle, Props>(function QrCameraScanner({ onDetected }, ref) {
@@ -73,6 +91,14 @@ const QrCameraScanner = forwardRef<QrCameraScannerHandle, Props>(function QrCame
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
   }, []);
+
+  const completeDetection = useCallback((key: string) => {
+    navigator.vibrate?.(70);
+    stop();
+    setVisible(false);
+    setError("");
+    onDetected(key);
+  }, [onDetected, stop]);
 
   const close = useCallback(() => {
     stop();
@@ -128,10 +154,7 @@ const QrCameraScanner = forwardRef<QrCameraScannerHandle, Props>(function QrCame
             if (result?.data) {
               const key = pairingKeyFromQr(result.data, window.location.origin);
               if (key) {
-                navigator.vibrate?.(70);
-                stop();
-                setVisible(false);
-                onDetected(key);
+                completeDetection(key);
                 return;
               }
               setStatus("QR này không phải mã kết nối của Thuế Rõ");
@@ -149,7 +172,37 @@ const QrCameraScanner = forwardRef<QrCameraScannerHandle, Props>(function QrCame
       setError(message);
       setStatus("");
     }
-  }, [onDetected, stop]);
+  }, [completeDetection, stop]);
+
+  const decodeImageFile = useCallback(async (file: File) => {
+    stop();
+    setError("");
+    setStatus("Đang đọc ảnh QR…");
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const [decoder, image] = await Promise.all([loadDecoder(), loadImage(objectUrl)]);
+      const canvas = canvasRef.current;
+      if (!canvas || !image.naturalWidth || !image.naturalHeight) throw new Error("Ảnh QR không hợp lệ.");
+      const scale = Math.min(1, MAX_IMAGE_WIDTH / image.naturalWidth);
+      const width = Math.max(1, Math.round(image.naturalWidth * scale));
+      const height = Math.max(1, Math.round(image.naturalHeight * scale));
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (!context) throw new Error("Không xử lý được ảnh QR.");
+      context.drawImage(image, 0, 0, width, height);
+      const pixels = context.getImageData(0, 0, width, height);
+      const result = decoder(pixels.data, width, height, { inversionAttempts: "attemptBoth" });
+      const key = result?.data ? pairingKeyFromQr(result.data, window.location.origin) : null;
+      if (!key) throw new Error("Không tìm thấy mã kết nối Thuế Rõ trong ảnh này.");
+      completeDetection(key);
+    } catch (caught) {
+      setStatus("");
+      setError(caught instanceof Error ? caught.message : "Không đọc được ảnh QR.");
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }, [completeDetection, stop]);
 
   useImperativeHandle(ref, () => ({ open: () => void begin() }), [begin]);
   useEffect(() => stop, [stop]);
@@ -176,7 +229,20 @@ const QrCameraScanner = forwardRef<QrCameraScannerHandle, Props>(function QrCame
             <button type="button" onClick={() => void begin()}>Thử mở lại camera</button>
           </div>
         ) : null}
-        <p className="qrScannerPrivacy">Khung hình chỉ được xử lý ngay trên thiết bị và không được tải lên máy chủ.</p>
+        <label className="qrScannerPhotoButton">
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              if (file) void decodeImageFile(file);
+              event.currentTarget.value = "";
+            }}
+          />
+          Chụp hoặc chọn ảnh QR
+        </label>
+        <p className="qrScannerPrivacy">Khung hình và ảnh QR chỉ được xử lý ngay trên thiết bị, không tải lên máy chủ.</p>
       </section>
     </div>
   );
