@@ -94,7 +94,9 @@ test("installed PWA can scan and connect without navigating through Safari", () 
   assert.match(scanner, /facingMode: \{ ideal: "environment" \}/u);
   assert.match(scanner, /playsInline/u);
   assert.match(scanner, /jsqr@1\.4\.0/u);
-  assert.match(scanner, /Khung hình chỉ được xử lý ngay trên thiết bị/u);
+  assert.match(scanner, /capture="environment"/u);
+  assert.match(scanner, /Chụp hoặc chọn ảnh QR/u);
+  assert.match(scanner, /Khung hình và ảnh QR chỉ được xử lý ngay trên thiết bị/u);
   assert.match(enhancer, /Quét QR trong ứng dụng/u);
   assert.match(enhancer, /window\.localStorage\.setItem\(STORAGE_KEY, key\)/u);
   assert.match(enhancer, /window\.location\.replace\("\/transfer"\)/u);
