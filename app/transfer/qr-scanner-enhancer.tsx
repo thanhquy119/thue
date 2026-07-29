@@ -12,7 +12,7 @@ export default function QrScannerEnhancer() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    const update = () => setLauncherVisible(Boolean(document.querySelector(".pairPanel")));
+    const update = () => setLauncherVisible(Boolean(document.querySelector(".pairPanel, .connectionBar")));
     update();
     const observer = new MutationObserver(update);
     observer.observe(document.body, { childList: true, subtree: true });
