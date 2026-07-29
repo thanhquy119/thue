@@ -1,6 +1,7 @@
 "use client";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { pairingKeyFromQr } from "@/lib/transfer/qr-pairing";
 
 const JS_QR_SOURCE = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js";
 const SCAN_INTERVAL_MS = 160;
@@ -52,28 +53,6 @@ function loadDecoder() {
     throw error;
   });
   return decoderPromise;
-}
-
-function normalizeKey(value: string) {
-  return value.replace(/[^a-z0-9]/giu, "").toLocaleUpperCase("en");
-}
-
-export function pairingKeyFromQr(value: string, expectedOrigin: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  if (!/^https?:\/\//iu.test(trimmed) && !trimmed.includes("#pair=")) {
-    const direct = normalizeKey(trimmed);
-    return direct.length >= 20 && direct.length <= 80 ? direct : null;
-  }
-  try {
-    const url = new URL(trimmed, expectedOrigin);
-    if (url.origin !== expectedOrigin || !/^\/transfer\/?$/u.test(url.pathname)) return null;
-    const fragment = new URLSearchParams(url.hash.replace(/^#/, ""));
-    const key = normalizeKey(fragment.get("pair") ?? "");
-    return key.length >= 20 && key.length <= 80 ? key : null;
-  } catch {
-    return null;
-  }
 }
 
 const QrCameraScanner = forwardRef<QrCameraScannerHandle, Props>(function QrCameraScanner({ onDetected }, ref) {
@@ -173,10 +152,7 @@ const QrCameraScanner = forwardRef<QrCameraScannerHandle, Props>(function QrCame
   }, [onDetected, stop]);
 
   useImperativeHandle(ref, () => ({ open: () => void begin() }), [begin]);
-  useEffect(() => {
-    void loadDecoder().catch(() => undefined);
-    return stop;
-  }, [stop]);
+  useEffect(() => stop, [stop]);
 
   return (
     <div className={`qrScannerOverlay ${visible ? "visible" : ""}`} aria-hidden={!visible}>
