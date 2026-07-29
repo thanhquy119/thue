@@ -11,6 +11,10 @@ import {
   transferUploadChunkPath,
   validTransferKey,
 } from "../lib/transfer/core.ts";
+import {
+  normalizeTransferredText,
+  TRANSFER_EXTRACTION_VERSION,
+} from "../lib/transfer/extraction.ts";
 import { pairingKeyFromQr } from "../lib/transfer/qr-pairing.ts";
 
 test("normalizes and validates a persistent transfer key", () => {
@@ -84,6 +88,40 @@ test("transfer APIs and store use the R2-compatible storage layer", () => {
   assert.doesNotMatch(health, /from "@vercel\/blob"/u);
 });
 
+test("Word and HTML extraction retain invisible table boundaries", () => {
+  const value = normalizeTransferredText([
+    "I. THÔNG TIN ĐẦU VÀO",
+    "STT\tTrường thông tin\tKiểu dữ liệu\tĐộ dài",
+    "1\tMã hồ sơ\tString\t13",
+    "Đoạn văn tiếp theo",
+  ].join("\n"));
+  assert.equal(TRANSFER_EXTRACTION_VERSION, 2);
+  assert.match(value, /\uE002STT\uE000Trường thông tin/u);
+  assert.match(value, /Độ dài\uE001/u);
+  assert.match(value, /1\uE000Mã hồ sơ\uE000String\uE00013\uE001\uE003/u);
+  assert.match(value, /Đoạn văn tiếp theo/u);
+});
+
+test("legacy Office files are refreshed once with the current structured extraction", () => {
+  const core = readFileSync(new URL("../lib/transfer/core.ts", import.meta.url), "utf8");
+  const store = readFileSync(new URL("../lib/transfer/store.ts", import.meta.url), "utf8");
+  assert.match(core, /extractionVersion\?: number/u);
+  assert.match(store, /refreshLegacyOfficeExtraction/u);
+  assert.match(store, /TRANSFER_EXTRACTION_VERSION/u);
+  assert.match(store, /\["doc", "docx", "html"\]/u);
+  assert.match(store, /await writeJson\(textPathname/u);
+});
+
+test("original transferred files are streamed privately for Preview and Files", () => {
+  const route = readFileSync(new URL("../app/api/transfer/files/[fileId]/source/route.ts", import.meta.url), "utf8");
+  assert.match(route, /x-transfer-key/u);
+  assert.match(route, /readTransferredFile/u);
+  assert.match(route, /meta\.sourcePathname/u);
+  assert.match(route, /content-disposition/u);
+  assert.match(route, /filename\*=UTF-8/u);
+  assert.match(route, /private, no-store/u);
+});
+
 test("QR pairing stays client-side and automatically clears the secret fragment", () => {
   const source = readFileSync(new URL("../app/transfer/page.tsx", import.meta.url), "utf8");
   assert.match(source, /QRCodeSVG/u);
@@ -132,6 +170,30 @@ test("installed PWA scans and connects without navigating through Safari", () =>
   assert.match(layout, /QrScannerEnhancer/u);
   assert.match(config, /camera=\(self\)/u);
   assert.doesNotMatch(config, /camera=\(\)/u);
+});
+
+test("transfer reader justifies text, fixes centered icons and upgrades table markers", () => {
+  const enhancer = readFileSync(new URL("../app/transfer/qr-scanner-enhancer.tsx", import.meta.url), "utf8");
+  const styles = readFileSync(new URL("../app/transfer/qr-scanner.css", import.meta.url), "utf8");
+  assert.match(enhancer, /enhanceStructuredTables/u);
+  assert.match(enhancer, /role", "table"/u);
+  assert.match(enhancer, /transferStructuredCell/u);
+  assert.match(styles, /text-align: justify/u);
+  assert.match(styles, /\.transferDocumentDetail \.legalBlocks/u);
+  assert.match(styles, /margin-left: 0/u);
+  assert.match(styles, /\.uploadPlus::before/u);
+  assert.match(styles, /\.transferDelete::before/u);
+  assert.match(styles, /place-items: center/u);
+});
+
+test("selected original files use the native share sheet with a safe fallback", () => {
+  const enhancer = readFileSync(new URL("../app/transfer/qr-scanner-enhancer.tsx", import.meta.url), "utf8");
+  assert.match(enhancer, /Mở hoặc lưu file gốc/u);
+  assert.match(enhancer, /navigator\.canShare/u);
+  assert.match(enhancer, /navigator\.share/u);
+  assert.match(enhancer, /new File\(/u);
+  assert.match(enhancer, /window\.open/u);
+  assert.match(enhancer, /URL\.createObjectURL/u);
 });
 
 test("QR parser accepts only transfer links from the same origin", () => {
