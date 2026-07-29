@@ -1,77 +1,247 @@
-import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { NextResponse } from "next/server";
 import {
   TRANSFER_ALLOWED_CONTENT_TYPES,
   TRANSFER_MAX_FILE_BYTES,
+  TRANSFER_MAX_UPLOAD_CHUNKS,
+  TRANSFER_UPLOAD_CHUNK_BYTES,
   safeTransferFilename,
   transferFileId,
   transferMailboxId,
   transferSourcePath,
+  transferUploadChunkPath,
+  transferUploadChunkPrefix,
+  transferUploadSessionPath,
   validTransferKey,
+  type TransferUploadSession,
 } from "@/lib/transfer/core";
-import { processTransferredBlob } from "@/lib/transfer/store";
+import { processTransferredBlob, readTransferredFile } from "@/lib/transfer/store";
+import {
+  del,
+  get,
+  list,
+  put,
+  storageBackend,
+  storageConfigured,
+} from "@/lib/storage/r2-blob-compat";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
-type ClientPayload = {
+const NO_STORE_HEADERS = { "cache-control": "no-store", "x-robots-tag": "noindex" };
+
+type UploadRequest = {
+  action?: unknown;
   key?: unknown;
-  mailboxId?: unknown;
   fileId?: unknown;
   name?: unknown;
   size?: unknown;
   contentType?: unknown;
+  totalChunks?: unknown;
 };
 
-function parseClientPayload(value: string | null | undefined) {
-  const parsed = value ? JSON.parse(value) as ClientPayload : {};
-  const key = typeof parsed.key === "string" ? parsed.key : "";
-  const mailboxId = typeof parsed.mailboxId === "string" ? parsed.mailboxId : "";
-  const fileId = transferFileId(typeof parsed.fileId === "string" ? parsed.fileId : "");
-  const name = safeTransferFilename(typeof parsed.name === "string" ? parsed.name : "tai-lieu");
-  const size = typeof parsed.size === "number" && Number.isFinite(parsed.size) ? parsed.size : 0;
-  const contentType = typeof parsed.contentType === "string" ? parsed.contentType : "application/octet-stream";
-  if (!validTransferKey(key) || transferMailboxId(key) !== mailboxId) throw new Error("Mã kết nối không hợp lệ.");
+function errorResponse(error: unknown, status = 400) {
+  return NextResponse.json(
+    { error: error instanceof Error ? error.message : "Không thể tải file." },
+    { status, headers: NO_STORE_HEADERS },
+  );
+}
+
+function assertSameOrigin(request: Request) {
+  const origin = request.headers.get("origin");
+  if (origin && origin !== new URL(request.url).origin) throw new Error("Yêu cầu tải file khác nguồn đã bị chặn.");
+}
+
+function explicitFileId(value: unknown) {
+  const raw = typeof value === "string" ? value : "";
+  const normalized = transferFileId(raw);
+  if (normalized !== raw || !/^[a-z0-9-]{12,80}$/iu.test(raw)) throw new Error("Mã file không hợp lệ.");
+  return normalized;
+}
+
+function parseUploadRequest(value: UploadRequest) {
+  const key = typeof value.key === "string" ? value.key : "";
+  if (!validTransferKey(key)) throw new Error("Mã kết nối không hợp lệ.");
+  const mailboxId = transferMailboxId(key);
+  const fileId = explicitFileId(value.fileId);
+  const name = safeTransferFilename(typeof value.name === "string" ? value.name : "tai-lieu");
+  const size = typeof value.size === "number" && Number.isFinite(value.size) ? Math.floor(value.size) : 0;
+  const contentType = typeof value.contentType === "string" && value.contentType.trim()
+    ? value.contentType.split(";")[0].trim().toLocaleLowerCase("en")
+    : "application/octet-stream";
+  const totalChunks = typeof value.totalChunks === "number" && Number.isFinite(value.totalChunks)
+    ? Math.floor(value.totalChunks)
+    : 0;
   if (size <= 0 || size > TRANSFER_MAX_FILE_BYTES) throw new Error("File phải nhỏ hơn 50 MB.");
-  return { key, mailboxId, fileId, name, size, contentType };
+  const expectedChunks = Math.ceil(size / TRANSFER_UPLOAD_CHUNK_BYTES);
+  if (totalChunks !== expectedChunks || totalChunks < 1 || totalChunks > TRANSFER_MAX_UPLOAD_CHUNKS) {
+    throw new Error("Số phần tải lên không hợp lệ.");
+  }
+  if (!TRANSFER_ALLOWED_CONTENT_TYPES.includes(contentType as (typeof TRANSFER_ALLOWED_CONTENT_TYPES)[number])) {
+    throw new Error("Định dạng file chưa được hỗ trợ.");
+  }
+  return { key, mailboxId, fileId, name, size, contentType, totalChunks };
+}
+
+async function readSession(mailboxId: string, fileId: string) {
+  const stored = await get(transferUploadSessionPath(mailboxId, fileId), { access: "private", useCache: false });
+  if (!stored || stored.statusCode !== 200 || !stored.stream) return null;
+  const text = await new Response(stored.stream).text();
+  return text ? JSON.parse(text) as TransferUploadSession : null;
+}
+
+async function initializeUpload(parsed: ReturnType<typeof parseUploadRequest>) {
+  if (!storageConfigured()) throw new Error("Kho file riêng tư chưa được cấu hình.");
+  const pathname = transferUploadSessionPath(parsed.mailboxId, parsed.fileId);
+  const session: TransferUploadSession = {
+    mailboxId: parsed.mailboxId,
+    fileId: parsed.fileId,
+    name: parsed.name,
+    size: parsed.size,
+    contentType: parsed.contentType,
+    totalChunks: parsed.totalChunks,
+    createdAt: new Date().toISOString(),
+  };
+  const existing = await readSession(parsed.mailboxId, parsed.fileId);
+  if (existing) {
+    const same = existing.name === session.name &&
+      existing.size === session.size &&
+      existing.contentType === session.contentType &&
+      existing.totalChunks === session.totalChunks;
+    if (!same) throw new Error("Phiên tải file đã tồn tại với thông tin khác.");
+  } else {
+    await put(pathname, JSON.stringify(session), {
+      access: "private",
+      allowOverwrite: false,
+      addRandomSuffix: false,
+      cacheControlMaxAge: 300,
+      contentType: "application/json; charset=utf-8",
+    });
+  }
+  return NextResponse.json({
+    ok: true,
+    file_id: parsed.fileId,
+    chunk_bytes: TRANSFER_UPLOAD_CHUNK_BYTES,
+    total_chunks: parsed.totalChunks,
+    backend: storageBackend(),
+  }, { headers: NO_STORE_HEADERS });
+}
+
+async function completeUpload(parsed: ReturnType<typeof parseUploadRequest>) {
+  const existing = await readTransferredFile(parsed.key, parsed.fileId).catch(() => null);
+  if (existing?.meta) {
+    return NextResponse.json({ ok: true, file: existing.meta, backend: storageBackend() }, { headers: NO_STORE_HEADERS });
+  }
+  const session = await readSession(parsed.mailboxId, parsed.fileId);
+  if (!session) throw new Error("Phiên tải file không còn tồn tại. Vui lòng chọn file và gửi lại.");
+  if (
+    session.name !== parsed.name ||
+    session.size !== parsed.size ||
+    session.contentType !== parsed.contentType ||
+    session.totalChunks !== parsed.totalChunks
+  ) throw new Error("Thông tin hoàn tất không khớp phiên tải file.");
+
+  const chunkPrefix = transferUploadChunkPrefix(parsed.mailboxId, parsed.fileId);
+  const listed = await list({ prefix: chunkPrefix, limit: TRANSFER_MAX_UPLOAD_CHUNKS + 1 });
+  const chunks = listed.blobs
+    .filter((blob) => blob.pathname.endsWith(".bin"))
+    .sort((left, right) => left.pathname.localeCompare(right.pathname));
+  if (chunks.length !== parsed.totalChunks) {
+    throw new Error(`File mới nhận đủ ${chunks.length}/${parsed.totalChunks} phần.`);
+  }
+
+  const buffers: Buffer[] = [];
+  let totalBytes = 0;
+  for (let index = 0; index < chunks.length; index += 1) {
+    const expectedPath = transferUploadChunkPath(parsed.mailboxId, parsed.fileId, index);
+    if (chunks[index].pathname !== expectedPath) throw new Error("Thứ tự phần file không liên tục.");
+    const stored = await get(expectedPath, { access: "private", useCache: false });
+    if (!stored || stored.statusCode !== 200 || !stored.stream) throw new Error(`Không đọc được phần ${index + 1}.`);
+    const buffer = Buffer.from(await new Response(stored.stream).arrayBuffer());
+    const expectedBytes = index === parsed.totalChunks - 1
+      ? parsed.size - TRANSFER_UPLOAD_CHUNK_BYTES * (parsed.totalChunks - 1)
+      : TRANSFER_UPLOAD_CHUNK_BYTES;
+    if (buffer.byteLength !== expectedBytes) throw new Error(`Kích thước phần ${index + 1} không khớp.`);
+    buffers.push(buffer);
+    totalBytes += buffer.byteLength;
+  }
+  if (totalBytes !== parsed.size) throw new Error("Dung lượng file hoàn chỉnh không khớp.");
+
+  const sourceBuffer = Buffer.concat(buffers, totalBytes);
+  const sourcePathname = transferSourcePath(parsed.mailboxId, parsed.fileId, parsed.name);
+  await put(sourcePathname, sourceBuffer, {
+    access: "private",
+    allowOverwrite: false,
+    addRandomSuffix: false,
+    cacheControlMaxAge: 31_536_000,
+    contentType: parsed.contentType,
+  });
+
+  try {
+    const record = await processTransferredBlob({
+      mailboxId: parsed.mailboxId,
+      fileId: parsed.fileId,
+      name: parsed.name,
+      size: parsed.size,
+      contentType: parsed.contentType,
+      sourcePathname,
+      sourceBuffer,
+    });
+    return NextResponse.json({ ok: true, file: record, backend: storageBackend() }, { headers: NO_STORE_HEADERS });
+  } finally {
+    await del([
+      ...chunks.map((chunk) => chunk.pathname),
+      transferUploadSessionPath(parsed.mailboxId, parsed.fileId),
+    ]).catch(() => undefined);
+  }
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json()) as HandleUploadBody;
   try {
-    const response = await handleUpload({
-      body,
-      request,
-      onBeforeGenerateToken: async (pathname, clientPayload) => {
-        const parsed = parseClientPayload(clientPayload);
-        const expectedPathname = transferSourcePath(parsed.mailboxId, parsed.fileId, parsed.name);
-        if (pathname !== expectedPathname) throw new Error("Đường dẫn upload không hợp lệ.");
-        return {
-          allowedContentTypes: [...TRANSFER_ALLOWED_CONTENT_TYPES],
-          maximumSizeInBytes: TRANSFER_MAX_FILE_BYTES,
-          addRandomSuffix: false,
-          allowOverwrite: false,
-          tokenPayload: JSON.stringify(parsed),
-        };
-      },
-      onUploadCompleted: async ({ blob, tokenPayload }) => {
-        const parsed = parseClientPayload(tokenPayload);
-        await processTransferredBlob({
-          mailboxId: parsed.mailboxId,
-          fileId: parsed.fileId,
-          name: parsed.name,
-          size: parsed.size,
-          contentType: parsed.contentType,
-          sourcePathname: blob.pathname,
-        });
-      },
-    });
-    return NextResponse.json(response, { headers: { "cache-control": "no-store" } });
+    assertSameOrigin(request);
+    const body = await request.json() as UploadRequest;
+    const parsed = parseUploadRequest(body);
+    if (body.action === "init") return initializeUpload(parsed);
+    if (body.action === "complete") return completeUpload(parsed);
+    throw new Error("Thao tác tải file không hợp lệ.");
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Không thể tạo phiên tải file." },
-      { status: 400, headers: { "cache-control": "no-store" } },
-    );
+    return errorResponse(error);
+  }
+}
+
+export async function PUT(request: Request) {
+  try {
+    assertSameOrigin(request);
+    if (!storageConfigured()) throw new Error("Kho file riêng tư chưa được cấu hình.");
+    const key = request.headers.get("x-transfer-key") ?? "";
+    if (!validTransferKey(key)) throw new Error("Mã kết nối không hợp lệ.");
+    const mailboxId = transferMailboxId(key);
+    const url = new URL(request.url);
+    const fileId = explicitFileId(url.searchParams.get("file_id"));
+    const index = Number(url.searchParams.get("index"));
+    if (!Number.isInteger(index) || index < 0 || index >= TRANSFER_MAX_UPLOAD_CHUNKS) {
+      throw new Error("Thứ tự phần tải lên không hợp lệ.");
+    }
+    const session = await readSession(mailboxId, fileId);
+    if (!session) throw new Error("Phiên tải file không tồn tại.");
+    if (index >= session.totalChunks) throw new Error("Phần tải lên vượt quá số phần dự kiến.");
+    const declaredLength = Number(request.headers.get("content-length") ?? 0);
+    if (declaredLength > TRANSFER_UPLOAD_CHUNK_BYTES) throw new Error("Phần tải lên vượt giới hạn.");
+    const body = Buffer.from(await request.arrayBuffer());
+    const expectedBytes = index === session.totalChunks - 1
+      ? session.size - TRANSFER_UPLOAD_CHUNK_BYTES * (session.totalChunks - 1)
+      : TRANSFER_UPLOAD_CHUNK_BYTES;
+    if (body.byteLength !== expectedBytes) throw new Error("Kích thước phần tải lên không khớp.");
+    const pathname = transferUploadChunkPath(mailboxId, fileId, index);
+    await put(pathname, body, {
+      access: "private",
+      allowOverwrite: true,
+      addRandomSuffix: false,
+      cacheControlMaxAge: 300,
+      contentType: "application/octet-stream",
+    });
+    return NextResponse.json({ ok: true, index, bytes: body.byteLength, backend: storageBackend() }, { headers: NO_STORE_HEADERS });
+  } catch (error) {
+    return errorResponse(error);
   }
 }
