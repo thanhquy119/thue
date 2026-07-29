@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 
 export const TRANSFER_KEY_MIN_LENGTH = 20;
 export const TRANSFER_MAX_FILE_BYTES = 50_000_000;
+export const TRANSFER_UPLOAD_CHUNK_BYTES = 2_500_000;
+export const TRANSFER_MAX_UPLOAD_CHUNKS = Math.ceil(TRANSFER_MAX_FILE_BYTES / TRANSFER_UPLOAD_CHUNK_BYTES);
 export const TRANSFER_ALLOWED_CONTENT_TYPES = [
   "application/pdf",
   "application/msword",
@@ -10,6 +12,7 @@ export const TRANSFER_ALLOWED_CONTENT_TYPES = [
   "text/markdown",
   "text/html",
   "application/rtf",
+  "application/octet-stream",
 ] as const;
 
 export type TransferFileStatus = "processing" | "ready" | "ocr_partial" | "unsupported" | "failed";
@@ -30,6 +33,16 @@ export type TransferFileRecord = {
   processedPages: number;
   warnings: string[];
   error: string | null;
+};
+
+export type TransferUploadSession = {
+  mailboxId: string;
+  fileId: string;
+  name: string;
+  size: number;
+  contentType: string;
+  totalChunks: number;
+  createdAt: string;
 };
 
 export function normalizeTransferKey(value: string) {
@@ -70,6 +83,21 @@ export function transferBasePath(mailboxId: string, fileId: string) {
 
 export function transferSourcePath(mailboxId: string, fileId: string, filename: string) {
   return `${transferBasePath(mailboxId, fileId)}/source/${safeTransferFilename(filename)}`;
+}
+
+export function transferUploadSessionPath(mailboxId: string, fileId: string) {
+  return `${transferBasePath(mailboxId, fileId)}/upload/session.json`;
+}
+
+export function transferUploadChunkPrefix(mailboxId: string, fileId: string) {
+  return `${transferBasePath(mailboxId, fileId)}/upload/chunks/`;
+}
+
+export function transferUploadChunkPath(mailboxId: string, fileId: string, index: number) {
+  if (!Number.isInteger(index) || index < 0 || index >= TRANSFER_MAX_UPLOAD_CHUNKS) {
+    throw new Error("Thứ tự phần tải lên không hợp lệ.");
+  }
+  return `${transferUploadChunkPrefix(mailboxId, fileId)}${String(index).padStart(3, "0")}.bin`;
 }
 
 export function transferMetaPath(mailboxId: string, fileId: string) {
