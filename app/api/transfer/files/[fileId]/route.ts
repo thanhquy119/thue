@@ -20,6 +20,17 @@ export async function GET(
   if (!/^[a-z0-9-]{12,80}$/iu.test(fileId)) return NextResponse.json({ error: "Mã file không hợp lệ." }, { status: 400 });
   const file = await readTransferredFile(key, fileId);
   if (!file) return NextResponse.json({ error: "Không tìm thấy file." }, { status: 404 });
+  if (file.meta.status !== "ready" || !file.meta.textPathname) {
+    const error = file.meta.status === "processing"
+      ? "Tài liệu đang được xử lý đầy đủ."
+      : file.meta.status === "ocr_partial"
+        ? "PDF đang được OCR đầy đủ trước khi mở."
+        : file.meta.error || "Tài liệu chưa sẵn sàng để mở.";
+    return NextResponse.json({ error, file: file.meta }, {
+      status: 409,
+      headers: { "cache-control": "no-store" },
+    });
+  }
 
   const legacyOfficeFile = ["doc", "docx", "html"].includes(file.meta.extractionMethod ?? "") &&
     file.meta.extractionVersion !== TRANSFER_EXTRACTION_VERSION;
