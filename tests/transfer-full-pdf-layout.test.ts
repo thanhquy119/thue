@@ -2,15 +2,18 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-test("scanned PDFs use a sequential rate safely below fifteen requests per minute", () => {
+test("scanned PDFs use a globally serialized rate far below fifteen requests per minute", () => {
   const ocr = readFileSync(new URL("../lib/transfer/pdf-ocr.ts", import.meta.url), "utf8");
+  const core = readFileSync(new URL("../lib/transfer/core.ts", import.meta.url), "utf8");
   const extraction = readFileSync(new URL("../lib/transfer/extraction.ts", import.meta.url), "utf8");
-  assert.match(ocr, /OCR_REQUEST_INTERVAL_MS = 8_000/u);
-  assert.match(ocr, /OCR_PAGES_PER_RUN = 18/u);
-  assert.match(ocr, /for \(let index = 0; index < pages\.length; index \+= 1\)/u);
+  assert.match(ocr, /OCR_REQUEST_INTERVAL_MS = 30_000/u);
+  assert.match(ocr, /OCR_PAGES_PER_RUN = 5/u);
+  assert.match(ocr, /DEFAULT_QUOTA_RETRY_MS = 180_000/u);
+  assert.match(ocr, /let lastRequestStartedAt = Date\.now\(\)/u);
   assert.match(ocr, /await wait\(Math\.max\(0, requestIntervalMs\(\) - elapsed\)\)/u);
+  assert.match(ocr, /Math\.max\(DEFAULT_QUOTA_RETRY_MS, headerDelay, messageDelay\)/u);
   assert.doesNotMatch(ocr, /OCR_CONCURRENCY/u);
-  assert.match(ocr, /first: endPage/u);
+  assert.match(core, /return "transfers\/ocr-global-lease\.json"/u);
   assert.match(extraction, /deferPdfOcr/u);
   assert.match(extraction, /method: "pdf_ocr"[\s\S]*processedPages: 0[\s\S]*partial: true/u);
 });
@@ -35,24 +38,30 @@ test("PDF OCR is checkpointed, serialized and cannot open before every page comp
   assert.match(enhancer, /readyToOpen/u);
 });
 
-test("transferred legal text is justified and the administrative preamble stays aligned", () => {
+test("transferred legal text is justified, split by article and navigable", () => {
+  const page = readFileSync(new URL("../app/transfer/page.tsx", import.meta.url), "utf8");
   const styles = readFileSync(new URL("../app/transfer/reader-overrides.css", import.meta.url), "utf8");
   const layout = readFileSync(new URL("../app/transfer/layout.tsx", import.meta.url), "utf8");
   assert.match(layout, /reader-overrides\.css/u);
+  assert.match(page, /splitTransferredReaderItems/u);
+  assert.match(page, /transferProvisionNav/u);
+  assert.match(page, /← Điều trước/u);
+  assert.match(page, /Điều sau →/u);
+  assert.match(page, /goToProvision\(currentProvisionIndex - 1, true\)/u);
   assert.match(styles, /preamble-authority[\s\S]*grid-column: 1 !important/u);
   assert.match(styles, /preamble-national[\s\S]*grid-column: 2 !important/u);
-  assert.match(styles, /preamble-number[\s\S]*grid-row: 3 !important/u);
   assert.match(styles, /legalBlock\.paragraph[\s\S]*text-align: justify !important/u);
-  assert.match(styles, /text-align-last: left !important/u);
-  assert.match(styles, /\.uploadCard small[\s\S]*display: none !important/u);
+  assert.match(styles, /\.transferProvisionNav/u);
 });
 
 test("technical extraction labels are removed from the rendered reader", () => {
+  const page = readFileSync(new URL("../app/transfer/page.tsx", import.meta.url), "utf8");
   const enhancer = readFileSync(new URL("../app/transfer/transfer-polish-enhancer.tsx", import.meta.url), "utf8");
   const cleanup = readFileSync(new URL("../app/copy-cleanup.css", import.meta.url), "utf8");
   const rootLayout = readFileSync(new URL("../app/layout.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(page, /Trích từ Word cũ/u);
+  assert.doesNotMatch(page, /transferMethod/u);
   assert.doesNotMatch(enhancer, /Trích từ Word cũ/u);
-  assert.match(cleanup, /\.transferMethod[\s\S]*display: none !important/u);
   assert.match(cleanup, /notificationHistoryFooter > span/u);
   assert.match(rootLayout, /copy-cleanup\.css/u);
 });
