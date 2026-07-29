@@ -1,4 +1,4 @@
-import { del, get, list, put } from "@vercel/blob";
+import { del, get, list, put } from "../storage/r2-blob-compat.ts";
 import {
   transferBasePath,
   transferMailboxId,
@@ -37,6 +37,7 @@ export async function processTransferredBlob(input: {
   size: number;
   contentType: string;
   sourcePathname: string;
+  sourceBuffer?: Buffer;
 }) {
   const now = new Date().toISOString();
   const base: TransferFileRecord = {
@@ -59,9 +60,12 @@ export async function processTransferredBlob(input: {
   await writeJson(transferMetaPath(input.mailboxId, input.fileId), base);
 
   try {
-    const source = await get(input.sourcePathname, { access: "private", useCache: false });
-    if (!source || source.statusCode !== 200) throw new Error("Không đọc lại được file vừa tải lên.");
-    const buffer = await streamBuffer(source.stream);
+    let buffer = input.sourceBuffer;
+    if (!buffer) {
+      const source = await get(input.sourcePathname, { access: "private", useCache: false });
+      if (!source || source.statusCode !== 200) throw new Error("Không đọc lại được file vừa tải lên.");
+      buffer = await streamBuffer(source.stream);
+    }
     const extracted = await extractTransferredFile(buffer, input.name, input.contentType);
     if (extracted.text.length < 20) throw new Error("File không chứa đủ nội dung chữ để đọc.");
     const textPathname = transferTextPath(input.mailboxId, input.fileId);
