@@ -1,9 +1,9 @@
-export const OCR_REQUEST_INTERVAL_MS = 8_000;
-export const OCR_PAGES_PER_RUN = 18;
+export const OCR_REQUEST_INTERVAL_MS = 30_000;
+export const OCR_PAGES_PER_RUN = 5;
 const RENDER_WIDTH = 1_600;
 const OCR_TIMEOUT_MS = 45_000;
 const DEFAULT_OCR_MODEL = "gemini-3.5-flash-lite";
-const DEFAULT_QUOTA_RETRY_MS = 65_000;
+const DEFAULT_QUOTA_RETRY_MS = 180_000;
 
 type GeminiPayload = {
   candidates?: Array<{ content?: { parts?: Array<{ text?: unknown; thought?: unknown }> } }>;
@@ -30,7 +30,7 @@ export class TransferOcrRateLimitError extends Error {
   constructor(message: string, retryAfterMs = DEFAULT_QUOTA_RETRY_MS) {
     super(message);
     this.name = "TransferOcrRateLimitError";
-    this.retryAfterMs = Math.max(15_000, retryAfterMs);
+    this.retryAfterMs = Math.max(DEFAULT_QUOTA_RETRY_MS, retryAfterMs);
   }
 }
 
@@ -61,11 +61,14 @@ function requestIntervalMs() {
 
 function quotaRetryMs(response: Response, message: string) {
   const retryAfter = Number(response.headers.get("retry-after"));
-  if (Number.isFinite(retryAfter) && retryAfter > 0) return Math.ceil(retryAfter * 1_000) + 1_500;
+  const headerDelay = Number.isFinite(retryAfter) && retryAfter > 0
+    ? Math.ceil(retryAfter * 1_000) + 1_500
+    : 0;
   const seconds = [...message.matchAll(/retry(?:\s+in|Delay)?[^\d]*(\d+(?:\.\d+)?)s/giu)]
     .map((match) => Number(match[1]))
     .filter(Number.isFinite);
-  return seconds.length ? Math.ceil(Math.max(...seconds) * 1_000) + 1_500 : DEFAULT_QUOTA_RETRY_MS;
+  const messageDelay = seconds.length ? Math.ceil(Math.max(...seconds) * 1_000) + 1_500 : 0;
+  return Math.max(DEFAULT_QUOTA_RETRY_MS, headerDelay, messageDelay);
 }
 
 async function wait(ms: number) {
@@ -111,7 +114,7 @@ async function ocrImage(image: Buffer, page: number, totalPages: number) {
       const message = typeof payload.error?.message === "string" ? payload.error.message : `Gemini trả lỗi ${response.status}.`;
       if (response.status === 429 || /quota|rate limit|resource exhausted|too many requests/iu.test(message)) {
         throw new TransferOcrRateLimitError(
-          `OCR đang tạm nghỉ để bảo vệ hạn mức: ${message}`,
+          "OCR đang tạm nghỉ để bảo vệ hạn mức. Hệ thống sẽ tự tiếp tục sau.",
           quotaRetryMs(response, message),
         );
       }
@@ -180,10 +183,11 @@ export async function ocrTransferredPdfBatch(
   }
 
   const completed: TransferOcrPage[] = [];
-  let lastRequestStartedAt = 0;
+  // Chờ cả trước request đầu tiên để các lượt serverless nối tiếp nhau cũng không tạo burst.
+  let lastRequestStartedAt = Date.now();
   for (let index = 0; index < pages.length; index += 1) {
     const elapsed = Date.now() - lastRequestStartedAt;
-    if (lastRequestStartedAt > 0) await wait(Math.max(0, requestIntervalMs() - elapsed));
+    await wait(Math.max(0, requestIntervalMs() - elapsed));
     lastRequestStartedAt = Date.now();
     const pageNumber = startPage + index;
     const image = Buffer.from(pages[index].data);
