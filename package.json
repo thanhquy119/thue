@@ -27,6 +27,7 @@
     "mammoth": "1.10.0",
     "next": "16.2.6",
     "pdf-parse": "2.4.5",
+    "qrcode.react": "4.2.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "web-push": "3.6.7",

@@ -45,6 +45,28 @@ test("transfer page remembers pairing, uploads directly and supports speech", ()
   assert.match(source, /PDF, Word, TXT/u);
 });
 
+test("QR pairing stays client-side and automatically clears the secret fragment", () => {
+  const source = readFileSync(new URL("../app/transfer/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /QRCodeSVG/u);
+  assert.match(source, /\/transfer#pair=/u);
+  assert.match(source, /window\.location\.hash/u);
+  assert.match(source, /history\.replaceState/u);
+  assert.doesNotMatch(source, /\/transfer\?pair=/u);
+  assert.match(source, /Kết nối thiết bị khác/u);
+});
+
+test("transferred documents reuse the main application reader structure", () => {
+  const source = readFileSync(new URL("../app/transfer/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /className="documentDetail transferDocumentDetail"/u);
+  assert.match(source, /className="detailHeader"/u);
+  assert.match(source, /className="readerBlock"/u);
+  assert.match(source, /className="readerText"/u);
+  assert.match(source, /className="legalProvision"/u);
+  assert.ok(source.includes("className={`legalBlock ${block.kind}"));
+  assert.ok(source.includes("className={`audioDock ${audioVisible"));
+  assert.doesNotMatch(source, /Mã kết nối được lưu trên từng trình duyệt/u);
+});
+
 test("home footer is converted into the device transfer action", () => {
   const source = readFileSync(new URL("../app/cache-version.tsx", import.meta.url), "utf8");
   assert.match(source, /footer > a\.brand/u);
