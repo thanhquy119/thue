@@ -1,6 +1,5 @@
 import JSZip from "jszip";
 import WordExtractor from "word-extractor";
-import { ocrTransferredPdf } from "./pdf-ocr.ts";
 import { normalizeTransferredText } from "./structured-text.ts";
 
 export const TRANSFER_EXTRACTION_VERSION = 2;
@@ -92,6 +91,7 @@ async function extractPdf(buffer: Buffer): Promise<TransferExtraction> {
     };
   }
 
+  const { ocrTransferredPdf } = await import("./pdf-ocr.ts");
   const ocr = await ocrTransferredPdf(buffer);
   return {
     text: ocr.text,
