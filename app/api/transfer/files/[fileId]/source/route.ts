@@ -27,17 +27,18 @@ export async function GET(
   const { fileId } = await context.params;
   if (!/^[a-z0-9-]{12,80}$/iu.test(fileId)) return NextResponse.json({ error: "Mã file không hợp lệ." }, { status: 400 });
   const file = await readTransferredFile(key, fileId);
-  if (!file) return NextResponse.json({ error: "Không tìm thấy file." }, { status: 404 });
-  const source = await get(file.meta.sourcePathname, { access: "private", useCache: false });
+  if (!file?.meta) return NextResponse.json({ error: "Không tìm thấy file." }, { status: 404 });
+  const meta = file.meta;
+  const source = await get(meta.sourcePathname, { access: "private", useCache: false });
   if (!source || source.statusCode !== 200 || !source.stream) {
     return NextResponse.json({ error: "Không đọc được file gốc." }, { status: 404 });
   }
   return new Response(source.stream, {
     headers: {
       "cache-control": "private, no-store",
-      "content-disposition": dispositionFilename(file.meta.name),
-      "content-length": String(file.meta.size),
-      "content-type": file.meta.contentType || source.blob.contentType || "application/octet-stream",
+      "content-disposition": dispositionFilename(meta.name),
+      "content-length": String(meta.size),
+      "content-type": meta.contentType || source.blob.contentType || "application/octet-stream",
       "x-content-type-options": "nosniff",
       "x-robots-tag": "noindex",
     },
