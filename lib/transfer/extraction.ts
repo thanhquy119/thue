@@ -3,7 +3,7 @@ import WordExtractor from "word-extractor";
 import { normalizeTransferredText } from "./structured-text.ts";
 
 export { normalizeTransferredText } from "./structured-text.ts";
-export const TRANSFER_EXTRACTION_VERSION = 2;
+export const TRANSFER_EXTRACTION_VERSION = 3;
 
 export type TransferExtraction = {
   text: string;
@@ -12,6 +12,10 @@ export type TransferExtraction = {
   processedPages: number;
   partial: boolean;
   warnings: string[];
+};
+
+export type TransferExtractionOptions = {
+  deferPdfOcr?: boolean;
 };
 
 function decodeHtml(value: string) {
@@ -65,7 +69,7 @@ async function extractDocx(buffer: Buffer) {
   return docxXmlToText(await entry.async("string"));
 }
 
-async function extractPdf(buffer: Buffer): Promise<TransferExtraction> {
+async function extractPdf(buffer: Buffer, options: TransferExtractionOptions): Promise<TransferExtraction> {
   const [{ PDFParse }, { CanvasFactory }] = await Promise.all([
     import("pdf-parse"),
     import("pdf-parse/worker"),
@@ -92,6 +96,17 @@ async function extractPdf(buffer: Buffer): Promise<TransferExtraction> {
     };
   }
 
+  if (options.deferPdfOcr) {
+    return {
+      text: "",
+      method: "pdf_ocr",
+      totalPages,
+      processedPages: 0,
+      partial: true,
+      warnings: [],
+    };
+  }
+
   const { ocrTransferredPdf } = await import("./pdf-ocr.ts");
   const ocr = await ocrTransferredPdf(buffer);
   if (ocr.processedPages !== ocr.totalPages || ocr.truncated) {
@@ -107,10 +122,15 @@ async function extractPdf(buffer: Buffer): Promise<TransferExtraction> {
   };
 }
 
-export async function extractTransferredFile(buffer: Buffer, filename: string, contentType: string): Promise<TransferExtraction> {
+export async function extractTransferredFile(
+  buffer: Buffer,
+  filename: string,
+  contentType: string,
+  options: TransferExtractionOptions = {},
+): Promise<TransferExtraction> {
   const lower = filename.toLocaleLowerCase("en");
   if (contentType.includes("pdf") || lower.endsWith(".pdf") || buffer.subarray(0, 5).toString("ascii") === "%PDF-") {
-    return extractPdf(buffer);
+    return extractPdf(buffer, options);
   }
   if (contentType.includes("wordprocessingml") || lower.endsWith(".docx")) {
     return { text: await extractDocx(buffer), method: "docx", totalPages: 0, processedPages: 0, partial: false, warnings: [] };

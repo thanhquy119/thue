@@ -5,3 +5,7 @@
 .notificationHistoryFooter {
   justify-content: flex-end !important;
 }
+
+.transferMethod {
+  display: none !important;
+}

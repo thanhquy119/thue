@@ -4,17 +4,20 @@ import { useEffect, useRef } from "react";
 
 const STORAGE_KEY = "thue-transfer-key-v1";
 const REFRESH_MS = 4_000;
+const STALE_PROCESSING_MS = 120_000;
 
 type TransferFileSummary = {
   id: string;
   name: string;
   contentType: string;
+  updatedAt: string;
   status: "processing" | "ready" | "ocr_partial" | "unsupported" | "failed";
   extractionMethod: string | null;
   textPathname: string | null;
   totalPages: number;
   processedPages: number;
   error: string | null;
+  nextOcrAttemptAt?: string | null;
 };
 
 type TransferListPayload = {
@@ -27,26 +30,48 @@ function readyToOpen(file: TransferFileSummary) {
   return file.totalPages > 0 && file.processedPages === file.totalPages;
 }
 
+function futureTimestamp(value: string | null | undefined) {
+  const timestamp = value ? Date.parse(value) : Number.NaN;
+  return Number.isFinite(timestamp) && timestamp > Date.now();
+}
+
+function staleProcessing(file: TransferFileSummary) {
+  const updatedAt = Date.parse(file.updatedAt);
+  return file.status === "processing" &&
+    Number.isFinite(updatedAt) &&
+    Date.now() - updatedAt >= STALE_PROCESSING_MS;
+}
+
+function retryableFailure(file: TransferFileSummary) {
+  return file.status === "failed" &&
+    /429|quota|rate limit|quá thời gian|timeout|fetch failed|network/iu.test(file.error ?? "");
+}
+
 function needsFullPdfOcr(file: TransferFileSummary) {
   const pdf = file.contentType.includes("pdf") || file.name.toLocaleLowerCase("en").endsWith(".pdf");
-  return pdf && (
-    file.status === "ocr_partial" ||
-    (file.extractionMethod === "pdf_ocr" && file.processedPages < file.totalPages)
-  );
+  if (!pdf || futureTimestamp(file.nextOcrAttemptAt)) return false;
+  return file.status === "ocr_partial" ||
+    staleProcessing(file) ||
+    retryableFailure(file) ||
+    (file.extractionMethod === "pdf_ocr" && file.status !== "ready" && file.processedPages < file.totalPages);
 }
 
 function sizeText(value: string) {
   return value.split("·")[0]?.trim() || value.trim();
 }
 
+function progressText(file: TransferFileSummary) {
+  return file.totalPages > 0 ? `${file.processedPages}/${file.totalPages} trang` : "toàn bộ nội dung";
+}
+
 function statusCopy(file: TransferFileSummary, size: string) {
   if (readyToOpen(file)) return size;
-  if (file.status === "processing") {
-    return file.totalPages > 0
-      ? `${size} · Đang OCR đầy đủ ${file.processedPages}/${file.totalPages} trang`
-      : `${size} · Đang xử lý toàn bộ nội dung…`;
+  if (file.status === "processing") return `${size} · Đang OCR chậm ${progressText(file)}`;
+  if (file.status === "ocr_partial") {
+    return futureTimestamp(file.nextOcrAttemptAt)
+      ? `${size} · Tạm nghỉ để bảo vệ hạn mức · ${progressText(file)}`
+      : `${size} · Chờ lượt OCR tiếp theo · ${progressText(file)}`;
   }
-  if (file.status === "ocr_partial") return `${size} · Đang chuẩn bị OCR toàn bộ PDF…`;
   if (file.status === "failed") return `${size} · ${file.error || "Xử lý file thất bại"}`;
   return size;
 }
@@ -56,9 +81,6 @@ function updateText(element: Element | null, value: string) {
 }
 
 function polishTransferDom(files: TransferFileSummary[]) {
-  const helper = document.querySelector<HTMLElement>(".uploadCard small");
-  if (helper && !helper.hidden) helper.hidden = true;
-
   const buttons = [...document.querySelectorAll<HTMLButtonElement>(".transferFileOpen")];
   buttons.forEach((button, index) => {
     const file = files[index];
@@ -70,18 +92,11 @@ function polishTransferDom(files: TransferFileSummary[]) {
     const size = sizeText(meta?.textContent ?? "");
     updateText(meta, statusCopy(file, size));
   });
-
-  document.querySelectorAll<HTMLElement>(".detailBadges span").forEach((badge) => {
-    if (badge.textContent?.trim() === "Sẵn sàng đọc và nghe" && !badge.hidden) badge.hidden = true;
-  });
-  document.querySelectorAll<HTMLElement>(".transferMethod").forEach((method) => {
-    if (method.textContent?.trim() === "Trích từ Word cũ" && !method.hidden) method.hidden = true;
-  });
 }
 
 export default function TransferPolishEnhancer() {
   const filesRef = useRef<TransferFileSummary[]>([]);
-  const processingRef = useRef(new Set<string>());
+  const processingRef = useRef<string | null>(null);
   const frameRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -96,8 +111,8 @@ export default function TransferPolishEnhancer() {
     };
 
     const processPdf = async (file: TransferFileSummary, key: string) => {
-      if (processingRef.current.has(file.id)) return;
-      processingRef.current.add(file.id);
+      if (processingRef.current) return;
+      processingRef.current = file.id;
       try {
         await fetch(`/api/transfer/files/${encodeURIComponent(file.id)}/process`, {
           method: "POST",
@@ -106,7 +121,9 @@ export default function TransferPolishEnhancer() {
         });
         document.querySelector<HTMLButtonElement>(".transferListHeading button")?.click();
       } catch {
-        // Danh sách sẽ tiếp tục hiển thị trạng thái hiện có; lần tải trang sau có thể thử lại.
+        // Danh sách sẽ tiếp tục hiển thị tiến độ đã lưu và tự thử lại ở lượt sau.
+      } finally {
+        processingRef.current = null;
       }
     };
 
@@ -128,9 +145,8 @@ export default function TransferPolishEnhancer() {
         const files = payload.files ?? [];
         filesRef.current = files;
         schedulePolish();
-        for (const file of files) {
-          if (needsFullPdfOcr(file)) void processPdf(file, key);
-        }
+        const nextFile = files.find(needsFullPdfOcr);
+        if (nextFile) void processPdf(nextFile, key);
       } catch {
         schedulePolish();
       }
