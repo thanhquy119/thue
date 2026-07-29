@@ -1,8 +1,7 @@
-import { geminiModel, hasGeminiConfig } from "../legal/gemini.ts";
-
 const OCR_CONCURRENCY = 4;
 const RENDER_WIDTH = 1_600;
 const OCR_TIMEOUT_MS = 45_000;
+const DEFAULT_OCR_MODEL = "gemini-3.5-flash-lite";
 
 // Giới hạn cũ từng dùng `const MAX_PAGES = 6` và
 // `Math.min(totalPages, MAX_PAGES)`. PDF scan bây giờ phải xử lý đủ mọi trang.
@@ -28,9 +27,13 @@ function apiKey() {
   return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
 }
 
+function ocrModel() {
+  return process.env.OCR_GEMINI_MODEL?.trim() || DEFAULT_OCR_MODEL;
+}
+
 async function ocrImage(image: Buffer, page: number, totalPages: number) {
-  if (!hasGeminiConfig()) throw new Error("Gemini chưa được cấu hình cho OCR PDF scan.");
-  const model = process.env.OCR_GEMINI_MODEL?.trim() || geminiModel();
+  if (!apiKey()) throw new Error("Gemini chưa được cấu hình cho OCR PDF scan.");
+  const model = ocrModel();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), OCR_TIMEOUT_MS);
   try {
