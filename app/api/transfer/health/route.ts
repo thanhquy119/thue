@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { del, get, put } from "@vercel/blob";
 import { NextResponse } from "next/server";
+import {
+  del,
+  get,
+  put,
+  storageBackend,
+  storageConfigured,
+} from "@/lib/storage/r2-blob-compat";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -10,6 +16,7 @@ export async function GET() {
   const nonce = randomUUID();
   const pathname = `transfers/_health/${nonce}.json`;
   try {
+    if (!storageConfigured()) throw new Error("Kho file riêng tư chưa được cấu hình.");
     await put(pathname, JSON.stringify({ nonce }), {
       access: "private",
       addRandomSuffix: false,
@@ -22,7 +29,7 @@ export async function GET() {
     const payload = JSON.parse(await new Response(stored.stream).text()) as { nonce?: string };
     if (payload.nonce !== nonce) throw new Error("Nội dung file kiểm tra riêng tư không khớp.");
     return NextResponse.json(
-      { ok: true, private_storage: true },
+      { ok: true, private_storage: true, backend: storageBackend() },
       { headers: { "cache-control": "no-store" } },
     );
   } catch (error) {
@@ -30,6 +37,7 @@ export async function GET() {
       {
         ok: false,
         private_storage: false,
+        backend: storageBackend(),
         error: error instanceof Error ? error.message : "Kiểm tra kho file riêng tư thất bại.",
       },
       { status: 503, headers: { "cache-control": "no-store" } },
