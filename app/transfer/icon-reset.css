@@ -1,0 +1,20 @@
+.uploadPlus::before,
+.transferDelete::before {
+  content: none !important;
+  display: none !important;
+}
+
+.uploadPlus {
+  display: grid !important;
+  place-items: center !important;
+  padding: 0 !important;
+  font-size: 32px !important;
+  line-height: 1 !important;
+}
+
+.transferDelete {
+  display: inline-block !important;
+  padding: 1px 6px !important;
+  font-size: 22px !important;
+  line-height: normal !important;
+}
