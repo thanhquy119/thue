@@ -165,7 +165,7 @@ function extractSpreadsheet(buffer: Buffer): TransferExtraction {
     method: "spreadsheet",
     totalPages: sheetNames.length,
     processedPages: sheetNames.length,
-    partial: truncated,
+    partial: false,
     warnings,
   };
 }
