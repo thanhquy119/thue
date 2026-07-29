@@ -1,0 +1,7 @@
+.notificationHistoryFooter > span {
+  display: none !important;
+}
+
+.notificationHistoryFooter {
+  justify-content: flex-end !important;
+}
