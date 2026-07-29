@@ -101,6 +101,9 @@ export async function processTransferredBlob(input: {
     }
     const extracted = await extractTransferredFile(buffer, input.name, input.contentType);
     if (extracted.text.length < 20) throw new Error("File không chứa đủ nội dung chữ để đọc.");
+    if (extracted.method === "pdf_ocr" && extracted.processedPages !== extracted.totalPages) {
+      throw new Error(`PDF chưa được OCR đầy đủ (${extracted.processedPages}/${extracted.totalPages} trang).`);
+    }
     const textPathname = transferTextPath(input.mailboxId, input.fileId);
     await writeJson(textPathname, { text: extracted.text });
     const completed: TransferFileRecord = {
@@ -158,6 +161,66 @@ export async function refreshTransferredFileExtraction(key: string, fileId: stri
   if (!initialMeta) return null;
   const meta = await refreshLegacyOfficeExtraction(mailboxId, initialMeta);
   return readTransferPayload(meta);
+}
+
+export async function reprocessTransferredPdf(key: string, fileId: string) {
+  const mailboxId = transferMailboxId(key);
+  const pathname = transferMetaPath(mailboxId, fileId);
+  const initial = await readJson<TransferFileRecord>(pathname);
+  if (!initial) return null;
+  const isPdf = initial.contentType.includes("pdf") || initial.name.toLocaleLowerCase("en").endsWith(".pdf");
+  const needsFullOcr = isPdf && (
+    initial.status === "ocr_partial" ||
+    (initial.extractionMethod === "pdf_ocr" && initial.processedPages < initial.totalPages)
+  );
+  if (!needsFullOcr || initial.status === "processing") return readTransferPayload(initial);
+
+  const processing: TransferFileRecord = {
+    ...initial,
+    updatedAt: new Date().toISOString(),
+    status: "processing",
+    textPathname: null,
+    warnings: [],
+    error: null,
+  };
+  await writeJson(pathname, processing);
+
+  try {
+    const source = await get(initial.sourcePathname, { access: "private", useCache: false });
+    if (!source || source.statusCode !== 200) throw new Error("Không đọc lại được file PDF gốc.");
+    const buffer = await streamBuffer(source.stream);
+    const extracted = await extractTransferredFile(buffer, initial.name, initial.contentType);
+    if (extracted.method !== "pdf_ocr" || extracted.processedPages !== extracted.totalPages || extracted.partial) {
+      throw new Error(`PDF chưa được OCR đầy đủ (${extracted.processedPages}/${extracted.totalPages} trang).`);
+    }
+    if (extracted.text.length < 20) throw new Error("PDF không chứa đủ nội dung chữ để đọc.");
+    const textPathname = transferTextPath(mailboxId, initial.id);
+    await writeJson(textPathname, { text: extracted.text });
+    const completed: TransferFileRecord = {
+      ...processing,
+      updatedAt: new Date().toISOString(),
+      status: "ready",
+      extractionMethod: extracted.method,
+      extractionVersion: TRANSFER_EXTRACTION_VERSION,
+      textPathname,
+      characters: extracted.text.length,
+      totalPages: extracted.totalPages,
+      processedPages: extracted.processedPages,
+      warnings: [],
+      error: null,
+    };
+    await writeJson(pathname, completed);
+    return readTransferPayload(completed);
+  } catch (error) {
+    const failed: TransferFileRecord = {
+      ...processing,
+      updatedAt: new Date().toISOString(),
+      status: "failed",
+      error: error instanceof Error ? error.message : "Không thể OCR đầy đủ PDF.",
+    };
+    await writeJson(pathname, failed);
+    return readTransferPayload(failed);
+  }
 }
 
 export async function deleteTransferredFile(key: string, fileId: string) {
