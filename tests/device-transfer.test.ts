@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  TRANSFER_MAX_UPLOAD_CHUNKS,
+  TRANSFER_UPLOAD_CHUNK_BYTES,
   normalizeTransferKey,
   safeTransferFilename,
   transferMailboxId,
   transferSourcePath,
+  transferUploadChunkPath,
   validTransferKey,
 } from "../lib/transfer/core.ts";
 
@@ -34,15 +37,41 @@ test("upload pathname is scoped to one mailbox and sanitized", () => {
   assert.match(pathname, /Báo cáo-thuế\.pdf$/u);
 });
 
-test("transfer page remembers pairing, uploads directly and supports speech", () => {
+test("chunk paths are bounded, ordered and stay inside one mailbox", () => {
+  const mailbox = transferMailboxId("AB12CD34EF56GH78IJ90KL12");
+  const fileId = "12345678-abcd-4321-abcd-123456789012";
+  assert.equal(TRANSFER_UPLOAD_CHUNK_BYTES, 2_500_000);
+  assert.equal(TRANSFER_MAX_UPLOAD_CHUNKS, 20);
+  assert.match(transferUploadChunkPath(mailbox, fileId, 0), /\/upload\/chunks\/000\.bin$/u);
+  assert.match(transferUploadChunkPath(mailbox, fileId, 19), /\/upload\/chunks\/019\.bin$/u);
+  assert.throws(() => transferUploadChunkPath(mailbox, fileId, 20), /không hợp lệ/u);
+});
+
+test("transfer page remembers pairing, uploads bounded chunks and supports speech", () => {
   const source = readFileSync(new URL("../app/transfer/page.tsx", import.meta.url), "utf8");
   assert.match(source, /localStorage\.setItem\(STORAGE_KEY/u);
   assert.match(source, /localStorage\.getItem\(STORAGE_KEY/u);
-  assert.match(source, /upload\(pathname, file/u);
-  assert.match(source, /access: "private"/u);
+  assert.match(source, /const UPLOAD_CHUNK_BYTES = 2_500_000/u);
+  assert.match(source, /action: "init"/u);
+  assert.match(source, /method: "PUT"/u);
+  assert.match(source, /action: "complete"/u);
+  assert.doesNotMatch(source, /@vercel\/blob\/client/u);
   assert.match(source, /window\.setInterval\(.*5_000/su);
   assert.match(source, /SpeechSynthesisUtterance/u);
   assert.match(source, /PDF, Word, TXT/u);
+});
+
+test("transfer APIs and store use the R2-compatible storage layer", () => {
+  const route = readFileSync(new URL("../app/api/transfer/upload/route.ts", import.meta.url), "utf8");
+  const store = readFileSync(new URL("../lib/transfer/store.ts", import.meta.url), "utf8");
+  const health = readFileSync(new URL("../app/api/transfer/health/route.ts", import.meta.url), "utf8");
+  assert.match(route, /r2-blob-compat/u);
+  assert.match(route, /expectedBytes/u);
+  assert.match(route, /Buffer\.concat/u);
+  assert.match(store, /r2-blob-compat/u);
+  assert.match(health, /storageBackend/u);
+  assert.doesNotMatch(store, /from "@vercel\/blob"/u);
+  assert.doesNotMatch(health, /from "@vercel\/blob"/u);
 });
 
 test("QR pairing stays client-side and automatically clears the secret fragment", () => {
