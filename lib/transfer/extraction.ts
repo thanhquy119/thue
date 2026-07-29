@@ -1,0 +1,134 @@
+import JSZip from "jszip";
+import WordExtractor from "word-extractor";
+import { ocrTransferredPdf } from "./pdf-ocr";
+
+export type TransferExtraction = {
+  text: string;
+  method: string;
+  totalPages: number;
+  processedPages: number;
+  partial: boolean;
+  warnings: string[];
+};
+
+function normalizeText(value: string) {
+  return value
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\t\u00a0]+/g, " ")
+    .replace(/[ ]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function decodeHtml(value: string) {
+  const named: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
+  return value.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (_match, entity: string) => {
+    if (entity.startsWith("#x")) return String.fromCodePoint(Number.parseInt(entity.slice(2), 16));
+    if (entity.startsWith("#")) return String.fromCodePoint(Number.parseInt(entity.slice(1), 10));
+    return named[entity.toLocaleLowerCase("en")] ?? `&${entity};`;
+  });
+}
+
+function htmlToText(html: string) {
+  return normalizeText(
+    decodeHtml(
+      html
+        .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+        .replace(/<(?:br|\/p|\/div|\/li|\/h[1-6]|\/tr)>/gi, "\n")
+        .replace(/<[^>]+>/g, " "),
+    ),
+  );
+}
+
+function docxXmlToText(xml: string) {
+  const tokens: string[] = [];
+  const pattern = /<w:t\b[^>]*>([\s\S]*?)<\/w:t>|<w:tab\b[^>]*\/?\s*>|<w:(?:br|cr)\b[^>]*\/?\s*>|<\/w:(?:p|tr)>|<\/w:tc>/giu;
+  for (const match of xml.matchAll(pattern)) {
+    const token = match[0];
+    if (/^<w:t\b/iu.test(token)) tokens.push(decodeHtml(match[1] ?? ""));
+    else if (/^<w:tab\b/iu.test(token) || /^<\/w:tc>/iu.test(token)) tokens.push("\t");
+    else tokens.push("\n");
+  }
+  return normalizeText(tokens.join(""));
+}
+
+async function extractDocx(buffer: Buffer) {
+  const mammoth = await import("mammoth");
+  try {
+    const result = await mammoth.extractRawText({ buffer });
+    const text = normalizeText(result.value);
+    if (text.length >= 40) return text;
+  } catch {
+    // Fall back to reading the DOCX XML directly.
+  }
+  const zip = await JSZip.loadAsync(buffer, { checkCRC32: false, createFolders: true });
+  const entry = Object.values(zip.files).find(
+    (item) => item.name.replace(/\\/g, "/").replace(/^\/+/, "") === "word/document.xml",
+  );
+  if (!entry || entry.dir) throw new Error("Không tìm thấy nội dung chính trong DOCX.");
+  return docxXmlToText(await entry.async("string"));
+}
+
+async function extractPdf(buffer: Buffer): Promise<TransferExtraction> {
+  const [{ PDFParse }, { CanvasFactory }] = await Promise.all([
+    import("pdf-parse"),
+    import("pdf-parse/worker"),
+  ]);
+  const parser = new PDFParse({ data: Uint8Array.from(buffer), CanvasFactory });
+  let totalPages = 0;
+  let text = "";
+  try {
+    totalPages = (await parser.getInfo()).total;
+    text = normalizeText((await parser.getText()).text.replace(/-- \d+ of \d+ --/g, " "));
+  } finally {
+    await parser.destroy().catch(() => undefined);
+  }
+
+  const readable = text.length >= Math.max(120, totalPages * 35);
+  if (readable) {
+    return {
+      text,
+      method: "pdf_text",
+      totalPages,
+      processedPages: totalPages,
+      partial: false,
+      warnings: [],
+    };
+  }
+
+  const ocr = await ocrTransferredPdf(buffer);
+  return {
+    text: ocr.text,
+    method: "pdf_ocr",
+    totalPages: ocr.totalPages,
+    processedPages: ocr.processedPages,
+    partial: ocr.truncated,
+    warnings: ocr.truncated
+      ? [`PDF scan có ${ocr.totalPages} trang; phiên bản đầu đã OCR ${ocr.processedPages} trang đầu để bảo vệ thời gian và chi phí xử lý.`]
+      : ["PDF không có lớp chữ nên hệ thống đã OCR từ ảnh trang."],
+  };
+}
+
+export async function extractTransferredFile(buffer: Buffer, filename: string, contentType: string): Promise<TransferExtraction> {
+  const lower = filename.toLocaleLowerCase("en");
+  if (contentType.includes("pdf") || lower.endsWith(".pdf") || buffer.subarray(0, 5).toString("ascii") === "%PDF-") {
+    return extractPdf(buffer);
+  }
+  if (contentType.includes("wordprocessingml") || lower.endsWith(".docx")) {
+    return { text: await extractDocx(buffer), method: "docx", totalPages: 0, processedPages: 0, partial: false, warnings: [] };
+  }
+  if (contentType.includes("msword") || lower.endsWith(".doc")) {
+    const extractor = new WordExtractor();
+    const document = await extractor.extract(buffer);
+    const text = normalizeText([document.getBody(), document.getTextboxes({ includeHeadersAndFooters: false })].filter(Boolean).join("\n\n"));
+    return { text, method: "doc", totalPages: 0, processedPages: 0, partial: false, warnings: [] };
+  }
+  if (contentType.includes("html") || lower.endsWith(".html") || lower.endsWith(".htm")) {
+    return { text: htmlToText(buffer.toString("utf8")), method: "html", totalPages: 0, processedPages: 0, partial: false, warnings: [] };
+  }
+  if (contentType.startsWith("text/") || /\.(?:txt|md|rtf)$/iu.test(lower)) {
+    return { text: normalizeText(buffer.toString("utf8")), method: "plain_text", totalPages: 0, processedPages: 0, partial: false, warnings: [] };
+  }
+  throw new Error("Định dạng file này chưa được hỗ trợ để chuyển thành nội dung nghe.");
+}
