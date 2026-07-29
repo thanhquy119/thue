@@ -1,4 +1,4 @@
-import { geminiModel, hasGeminiConfig } from "../legal/gemini";
+import { geminiModel, hasGeminiConfig } from "../legal/gemini.ts";
 
 const OCR_CONCURRENCY = 4;
 const RENDER_WIDTH = 1_600;
