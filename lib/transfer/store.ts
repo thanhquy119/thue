@@ -57,6 +57,11 @@ async function refreshLegacyOfficeExtraction(mailboxId: string, meta: TransferFi
   return refreshed;
 }
 
+async function readTransferPayload(meta: TransferFileRecord) {
+  const text = meta.textPathname ? await readJson<{ text: string }>(meta.textPathname) : null;
+  return { meta, text: text?.text ?? "" };
+}
+
 export async function processTransferredBlob(input: {
   mailboxId: string;
   fileId: string;
@@ -142,14 +147,17 @@ export async function listTransferredFiles(key: string) {
 
 export async function readTransferredFile(key: string, fileId: string) {
   const mailboxId = transferMailboxId(key);
+  const meta = await readJson<TransferFileRecord>(transferMetaPath(mailboxId, fileId));
+  if (!meta) return null;
+  return readTransferPayload(meta);
+}
+
+export async function refreshTransferredFileExtraction(key: string, fileId: string) {
+  const mailboxId = transferMailboxId(key);
   const initialMeta = await readJson<TransferFileRecord>(transferMetaPath(mailboxId, fileId));
   if (!initialMeta) return null;
-  const meta = await refreshLegacyOfficeExtraction(mailboxId, initialMeta).catch((error) => {
-    console.error("[transfer-reextract]", error);
-    return initialMeta;
-  });
-  const text = meta.textPathname ? await readJson<{ text: string }>(meta.textPathname) : null;
-  return { meta, text: text?.text ?? "" };
+  const meta = await refreshLegacyOfficeExtraction(mailboxId, initialMeta);
+  return readTransferPayload(meta);
 }
 
 export async function deleteTransferredFile(key: string, fileId: string) {
