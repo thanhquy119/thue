@@ -90,6 +90,39 @@
   text-align-last: auto !important;
 }
 
+.transferProvisionNav {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.transferProvisionNav button,
+.transferProvisionNav select {
+  min-height: 40px;
+  border: 1px solid rgba(18, 45, 35, 0.16);
+  border-radius: 999px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+}
+
+.transferProvisionNav button {
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.transferProvisionNav button:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+.transferProvisionNav select {
+  max-width: min(360px, 52vw);
+  padding: 8px 34px 8px 14px;
+}
+
 .uploadCard small {
   display: none !important;
 }
@@ -122,5 +155,24 @@
 
   .transferDocumentDetail .readerText > .legalProvision:first-child .preamble-dateline {
     margin-top: 0 !important;
+  }
+
+  .transferProvisionNav {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .transferProvisionNav label {
+    order: -1;
+    width: 100%;
+  }
+
+  .transferProvisionNav select {
+    width: 100%;
+    max-width: none;
+  }
+
+  .transferProvisionNav button {
+    flex: 1 1 0;
   }
 }
