@@ -25,7 +25,11 @@ export async function POST(
 
   const result = await reprocessTransferredPdf(key, fileId);
   if (!result) return NextResponse.json({ error: "Không tìm thấy file." }, { status: 404 });
-  const status = result.meta.status === "ready" ? 200 : result.meta.status === "processing" ? 202 : 422;
+  const status = result.meta.status === "ready"
+    ? 200
+    : result.meta.status === "processing" || result.meta.status === "ocr_partial"
+      ? 202
+      : 422;
   return NextResponse.json(result, {
     status,
     headers: { "cache-control": "no-store", "x-robots-tag": "noindex" },
