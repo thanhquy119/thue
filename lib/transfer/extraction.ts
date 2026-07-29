@@ -2,6 +2,7 @@ import JSZip from "jszip";
 import WordExtractor from "word-extractor";
 import { normalizeTransferredText } from "./structured-text.ts";
 
+export { normalizeTransferredText } from "./structured-text.ts";
 export const TRANSFER_EXTRACTION_VERSION = 2;
 
 export type TransferExtraction = {
