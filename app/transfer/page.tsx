@@ -2,8 +2,8 @@
 
 import { QRCodeSVG } from "qrcode.react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { splitLegalBlocks } from "@/lib/legal/format";
 import type { TransferFileRecord } from "@/lib/transfer/core";
+import { splitTransferredReaderItems } from "@/lib/transfer/reader-structure";
 
 const STORAGE_KEY = "thue-transfer-key-v1";
 const UPLOAD_CHUNK_BYTES = 2_500_000;
@@ -40,26 +40,6 @@ function fileFormat(file: TransferFileRecord) {
   return extension?.toLocaleUpperCase("en") || "TÀI LIỆU";
 }
 
-function extractionLabel(method: string | null) {
-  switch (method) {
-    case "docx":
-      return "Trích từ Word";
-    case "doc":
-      return "Trích từ Word cũ";
-    case "pdf_text":
-      return "Lớp chữ PDF";
-    case "pdf_ocr":
-    case "ocr":
-      return "OCR PDF scan";
-    case "html":
-      return "Trích từ HTML";
-    case "plain_text":
-      return "Văn bản thuần";
-    default:
-      return "Đã chuyển đổi";
-  }
-}
-
 function statusText(file: TransferFileRecord) {
   if (file.status === "processing") return "Đang chuyển thành nội dung nghe…";
   if (file.status === "ocr_partial") return `Đã OCR ${file.processedPages}/${file.totalPages} trang`;
@@ -94,7 +74,33 @@ export default function TransferPage() {
   const speechIndexRef = useRef(0);
   const speechSessionRef = useRef(0);
 
-  const blocks = useMemo(() => selected ? splitLegalBlocks(selected.text) : [], [selected]);
+  const readerItems = useMemo(
+    () => selected
+      ? splitTransferredReaderItems(
+        selected.text,
+        selected.meta.extractionMethod === "spreadsheet" ? "Nội dung bảng tính" : "Nội dung tài liệu",
+      )
+      : [],
+    [selected],
+  );
+  const provisionOffsets = useMemo(() => {
+    let cursor = 0;
+    return readerItems.map((item) => {
+      const offset = cursor;
+      cursor += item.blocks.length;
+      return offset;
+    });
+  }, [readerItems]);
+  const blocks = useMemo(() => readerItems.flatMap((item) => item.blocks), [readerItems]);
+  const currentProvisionIndex = useMemo(() => {
+    let current = 0;
+    for (let index = 0; index < provisionOffsets.length; index += 1) {
+      if (provisionOffsets[index] <= speechIndex) current = index;
+      else break;
+    }
+    return current;
+  }, [provisionOffsets, speechIndex]);
+  const currentReaderItem = readerItems[currentProvisionIndex];
   const pairUrl = useMemo(
     () => key && origin ? `${origin}/transfer#pair=${encodeURIComponent(key)}` : "",
     [key, origin],
@@ -244,7 +250,9 @@ export default function TransferPage() {
       setUploadProgress(100);
       setMessage(completed.file?.status === "failed"
         ? completed.file.error || "Đã nhận file nhưng chưa chuyển được nội dung."
-        : "Đã gửi file và chuyển thành nội dung có thể nghe.");
+        : completed.file?.status === "ocr_partial"
+          ? "Đã gửi file. PDF scan đang xếp hàng OCR chậm để bảo vệ hạn mức."
+          : "Đã gửi file và chuyển thành nội dung có thể nghe.");
       await refreshFiles();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Không thể gửi file.");
@@ -288,6 +296,19 @@ export default function TransferPage() {
       window.speechSynthesis.speak(utterance);
     };
     speakNext(Math.max(0, Math.min(index, blocks.length - 1)));
+  }
+
+  function goToProvision(index: number, startSpeaking = false) {
+    if (!readerItems.length) return;
+    const bounded = Math.max(0, Math.min(readerItems.length - 1, index));
+    const start = provisionOffsets[bounded] ?? 0;
+    speechIndexRef.current = start;
+    setSpeechIndex(start);
+    if (startSpeaking) {
+      speakFrom(start);
+      return;
+    }
+    document.getElementById(`transfer-provision-${bounded}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function removeFile(file: TransferFileRecord) {
@@ -395,13 +416,13 @@ export default function TransferPage() {
             <label className="uploadCard">
               <input
                 type="file"
-                accept=".pdf,.doc,.docx,.txt,.md,.html,.htm,.rtf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/*"
+                accept=".pdf,.doc,.docx,.xlsx,.xls,.xlsm,.xlsb,.xltx,.xltm,.ods,.csv,.tsv,.txt,.md,.html,.htm,.rtf,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.oasis.opendocument.spreadsheet,text/csv,text/tab-separated-values,text/*"
                 onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadFile(file); event.currentTarget.value = ""; }}
                 disabled={busy}
               />
               <span className="uploadPlus">＋</span>
               <strong>Chọn file từ thiết bị này</strong>
-              <small>PDF, Word, TXT, Markdown, HTML · tối đa 50 MB</small>
+              <small>PDF, Word, Excel, CSV, ODS, TXT, Markdown, HTML · tối đa 50 MB</small>
               {busy && uploadProgress ? <em>Đang tải {uploadProgress}%</em> : null}
             </label>
 
@@ -440,9 +461,8 @@ export default function TransferPage() {
               </dl>
               <div className="headerActions">
                 <button className="listenButton" type="button" onClick={() => speakFrom(speechIndexRef.current)} disabled={!blocks.length}>
-                  <span>▶</span>{audioVisible ? "Nghe tiếp" : "Nghe từ đầu"}
+                  <span>▶</span>{audioVisible ? "Nghe tiếp" : speechIndex > 0 ? "Nghe từ Điều này" : "Nghe từ đầu"}
                 </button>
-                <span className="transferMethod">{extractionLabel(selected.meta.extractionMethod)}</span>
               </div>
               {selected.meta.warnings.length ? (
                 <div className="answerWarnings transferWarnings">
@@ -454,24 +474,44 @@ export default function TransferPage() {
             <section className="readerBlock">
               <div className="readerHeading">
                 <div><p className="sectionLabel">Nội dung đã chuyển đổi</p><h3>Toàn bộ nội dung tài liệu</h3></div>
+                {readerItems.length > 1 ? (
+                  <div className="transferProvisionNav" aria-label="Chuyển giữa các điều trong tài liệu">
+                    <button type="button" disabled={currentProvisionIndex <= 0} onClick={() => goToProvision(currentProvisionIndex - 1)}>← Điều trước</button>
+                    <label>
+                      <span className="srOnly">Chọn điều hoặc phần cần đọc</span>
+                      <select value={currentProvisionIndex} onChange={(event) => goToProvision(Number(event.target.value))}>
+                        {readerItems.map((item, index) => <option key={item.id} value={index}>{item.title}</option>)}
+                      </select>
+                    </label>
+                    <button type="button" disabled={currentProvisionIndex >= readerItems.length - 1} onClick={() => goToProvision(currentProvisionIndex + 1)}>Điều sau →</button>
+                  </div>
+                ) : null}
               </div>
               <div className="readerText">
-                <section className="legalProvision">
-                  <h4><span>01.</span>Nội dung tài liệu</h4>
-                  <div className="legalBlocks">
-                    {blocks.map((block, index) => (
-                      <button
-                        id={`transfer-block-${index}`}
-                        className={`legalBlock ${block.kind} ${audioVisible && speechIndex === index ? "speaking" : ""}`}
-                        type="button"
-                        key={`${index}-${block.text.slice(0, 20)}`}
-                        onClick={() => speakFrom(index)}
-                      >
-                        {block.text}
-                      </button>
-                    ))}
-                  </div>
-                </section>
+                {readerItems.map((item, provisionIndex) => {
+                  const offset = provisionOffsets[provisionIndex] ?? 0;
+                  return (
+                    <section className="legalProvision" key={item.id} id={`transfer-provision-${provisionIndex}`}>
+                      <h4><span>{String(provisionIndex + 1).padStart(2, "0")}.</span>{item.title}</h4>
+                      <div className="legalBlocks">
+                        {item.blocks.map((block, blockIndex) => {
+                          const globalIndex = offset + blockIndex;
+                          return (
+                            <button
+                              id={`transfer-block-${globalIndex}`}
+                              className={`legalBlock ${block.kind} ${audioVisible && speechIndex === globalIndex ? "speaking" : ""}`}
+                              type="button"
+                              key={`${item.id}-${blockIndex}`}
+                              onClick={() => speakFrom(globalIndex)}
+                            >
+                              {block.text}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  );
+                })}
               </div>
             </section>
           </article>
@@ -481,12 +521,12 @@ export default function TransferPage() {
       <div className={`audioDock ${audioVisible ? "visible" : ""}`} aria-label="Trình đọc tài liệu đã chuyển">
         <div className="audioTitle">
           <span className="equalizer" aria-hidden="true"><i /><i /><i /></span>
-          <div><strong>{selected?.meta.name}</strong><span>Đoạn {blocks.length ? speechIndex + 1 : 0}/{blocks.length}</span></div>
+          <div><strong>{selected?.meta.name}</strong><span>{currentReaderItem?.title} · Đoạn {blocks.length ? speechIndex + 1 : 0}/{blocks.length}</span></div>
         </div>
         <div className="audioTransport">
-          <button type="button" onClick={() => speakFrom(Math.max(0, speechIndex - 1))}>← Đoạn</button>
+          <button type="button" disabled={!readerItems.length || currentProvisionIndex <= 0} onClick={() => goToProvision(currentProvisionIndex - 1, true)}>← Điều</button>
           <button className="stopButton" type="button" onClick={speaking ? () => stopSpeech() : () => speakFrom(speechIndex)}>{speaking ? "Dừng" : "Tiếp tục"}</button>
-          <button type="button" onClick={() => speakFrom(Math.min(Math.max(0, blocks.length - 1), speechIndex + 1))}>Đoạn →</button>
+          <button type="button" disabled={!readerItems.length || currentProvisionIndex >= readerItems.length - 1} onClick={() => goToProvision(currentProvisionIndex + 1, true)}>Điều →</button>
         </div>
         <div className="audioSettings">
           {voices.length ? (
