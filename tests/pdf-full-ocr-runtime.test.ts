@@ -25,14 +25,16 @@ function blankPdf(pageCount: number) {
   return Buffer.from(value, "ascii");
 }
 
-test("runtime OCR processes every page beyond the former six-page limit", async () => {
+test("runtime OCR processes every page sequentially beyond the former six-page limit", async () => {
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.GEMINI_API_KEY;
+  const originalInterval = process.env.TRANSFER_OCR_TEST_INTERVAL_MS;
   const seenPages: number[] = [];
   let active = 0;
   let maxActive = 0;
 
   process.env.GEMINI_API_KEY = "test-key";
+  process.env.TRANSFER_OCR_TEST_INTERVAL_MS = "0";
   globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
     active += 1;
     maxActive = Math.max(maxActive, active);
@@ -43,7 +45,7 @@ test("runtime OCR processes every page beyond the former six-page limit", async 
       const instruction = body.contents?.[0]?.parts?.find((part) => part.text)?.text ?? "";
       const page = Number(instruction.match(/OCR trang (\d+)\//u)?.[1] ?? 0);
       seenPages.push(page);
-      await new Promise((resolve) => setTimeout(resolve, 5));
+      await new Promise((resolve) => setTimeout(resolve, 2));
       return new Response(JSON.stringify({
         candidates: [{ content: { parts: [{ text: `Nội dung OCR trang ${page}` }] } }],
       }), {
@@ -60,14 +62,15 @@ test("runtime OCR processes every page beyond the former six-page limit", async 
     assert.equal(result.totalPages, 8);
     assert.equal(result.processedPages, 8);
     assert.equal(result.truncated, false);
-    assert.deepEqual([...seenPages].sort((left, right) => left - right), [1, 2, 3, 4, 5, 6, 7, 8]);
-    assert.ok(maxActive > 1);
-    assert.ok(maxActive <= 4);
+    assert.deepEqual(seenPages, [1, 2, 3, 4, 5, 6, 7, 8]);
+    assert.equal(maxActive, 1);
     assert.match(result.text, /Nội dung OCR trang 1/u);
     assert.match(result.text, /Nội dung OCR trang 8/u);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalKey == null) delete process.env.GEMINI_API_KEY;
     else process.env.GEMINI_API_KEY = originalKey;
+    if (originalInterval == null) delete process.env.TRANSFER_OCR_TEST_INTERVAL_MS;
+    else process.env.TRANSFER_OCR_TEST_INTERVAL_MS = originalInterval;
   }
 });
