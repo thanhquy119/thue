@@ -8,6 +8,16 @@ export const TRANSFER_ALLOWED_CONTENT_TYPES = [
   "application/pdf",
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel.sheet.macroenabled.12",
+  "application/vnd.ms-excel.sheet.binary.macroenabled.12",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.template",
+  "application/vnd.ms-excel.template.macroenabled.12",
+  "application/vnd.oasis.opendocument.spreadsheet",
+  "text/csv",
+  "application/csv",
+  "text/tab-separated-values",
   "text/plain",
   "text/markdown",
   "text/html",
@@ -120,5 +130,6 @@ export function transferOcrCheckpointPath(mailboxId: string, fileId: string) {
 
 export function transferOcrLeasePath(mailboxId: string) {
   assertMailboxId(mailboxId);
-  return `transfers/${mailboxId}/ocr-lease.json`;
+  // Tất cả hộp file dùng chung một khóa OCR để không cộng dồn request trên cùng API key.
+  return "transfers/ocr-global-lease.json";
 }

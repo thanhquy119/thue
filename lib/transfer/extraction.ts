@@ -1,9 +1,18 @@
+import * as XLSX from "@e965/xlsx";
 import JSZip from "jszip";
 import WordExtractor from "word-extractor";
 import { normalizeTransferredText } from "./structured-text.ts";
 
 export { normalizeTransferredText } from "./structured-text.ts";
-export const TRANSFER_EXTRACTION_VERSION = 3;
+export const TRANSFER_EXTRACTION_VERSION = 4;
+
+const MAX_SPREADSHEET_SHEETS = 100;
+const MAX_SPREADSHEET_ROWS_PER_SHEET = 50_000;
+const MAX_SPREADSHEET_COLUMNS = 500;
+const MAX_SPREADSHEET_CELLS = 250_000;
+const MAX_SPREADSHEET_CHARACTERS = 2_000_000;
+const SPREADSHEET_EXTENSION = /\.(?:xlsx|xls|xlsm|xlsb|xltx|xltm|ods|csv|tsv)$/iu;
+const SPREADSHEET_CONTENT_TYPE = /(?:spreadsheet|excel|csv|tab-separated-values)/iu;
 
 export type TransferExtraction = {
   text: string;
@@ -69,6 +78,98 @@ async function extractDocx(buffer: Buffer) {
   return docxXmlToText(await entry.async("string"));
 }
 
+function spreadsheetCellText(value: unknown) {
+  if (value == null) return "";
+  if (value instanceof Date) return value.toLocaleString("vi-VN");
+  return String(value)
+    .replace(/[\uE000-\uE003]/gu, " ")
+    .replace(/\r\n?|\n/gu, " / ")
+    .replace(/\t/gu, " ")
+    .replace(/[ ]{2,}/gu, " ")
+    .trim()
+    .slice(0, 2_000);
+}
+
+function extractSpreadsheet(buffer: Buffer): TransferExtraction {
+  let workbook: XLSX.WorkBook;
+  try {
+    workbook = XLSX.read(buffer, {
+      type: "buffer",
+      cellDates: true,
+      cellFormula: false,
+      cellHTML: false,
+      cellNF: false,
+      cellStyles: false,
+      dense: true,
+      sheetRows: MAX_SPREADSHEET_ROWS_PER_SHEET,
+    });
+  } catch {
+    throw new Error("Không đọc được cấu trúc bảng tính. File có thể bị hỏng hoặc được đặt mật khẩu.");
+  }
+
+  const warnings: string[] = [];
+  const output: string[] = [];
+  let characters = 0;
+  let cells = 0;
+  let truncated = false;
+  const sheetNames = workbook.SheetNames.slice(0, MAX_SPREADSHEET_SHEETS);
+  if (workbook.SheetNames.length > sheetNames.length) {
+    warnings.push(`Chỉ trích ${MAX_SPREADSHEET_SHEETS} trang tính đầu tiên.`);
+  }
+
+  sheetLoop:
+  for (const sheetName of sheetNames) {
+    const worksheet = workbook.Sheets[sheetName];
+    if (!worksheet) continue;
+    const rows = XLSX.utils.sheet_to_json(worksheet, {
+      header: 1,
+      raw: false,
+      defval: "",
+      blankrows: false,
+    }) as unknown[][];
+    const lines = [`Trang tính: ${spreadsheetCellText(sheetName) || "Không tên"}`];
+    if (rows.length >= MAX_SPREADSHEET_ROWS_PER_SHEET) {
+      warnings.push(`Trang tính “${sheetName}” được giới hạn ở ${MAX_SPREADSHEET_ROWS_PER_SHEET.toLocaleString("vi-VN")} dòng.`);
+    }
+
+    for (const row of rows) {
+      const values = Array.from({ length: Math.min(row.length, MAX_SPREADSHEET_COLUMNS) }, (_, index) =>
+        spreadsheetCellText(row[index]),
+      );
+      while (values.length && !values.at(-1)) values.pop();
+      if (!values.some(Boolean)) continue;
+      cells += values.filter(Boolean).length;
+      if (cells > MAX_SPREADSHEET_CELLS) {
+        truncated = true;
+        break sheetLoop;
+      }
+      const line = values.join("\t");
+      if (characters + line.length + 1 > MAX_SPREADSHEET_CHARACTERS) {
+        truncated = true;
+        break sheetLoop;
+      }
+      lines.push(line);
+      characters += line.length + 1;
+    }
+
+    if (lines.length > 1) output.push(lines.join("\n"));
+  }
+
+  if (truncated) {
+    warnings.push("Bảng tính quá lớn nên nội dung nghe được giới hạn để bảo đảm bộ nhớ và tốc độ xử lý.");
+  }
+  const text = normalizeTransferredText(output.join("\n\n"));
+  if (text.length < 2) throw new Error("Bảng tính không có ô dữ liệu nào để đọc.");
+  return {
+    text,
+    method: "spreadsheet",
+    totalPages: sheetNames.length,
+    processedPages: sheetNames.length,
+    partial: false,
+    warnings,
+  };
+}
+
 async function extractPdf(buffer: Buffer, options: TransferExtractionOptions): Promise<TransferExtraction> {
   const [{ PDFParse }, { CanvasFactory }] = await Promise.all([
     import("pdf-parse"),
@@ -131,6 +232,9 @@ export async function extractTransferredFile(
   const lower = filename.toLocaleLowerCase("en");
   if (contentType.includes("pdf") || lower.endsWith(".pdf") || buffer.subarray(0, 5).toString("ascii") === "%PDF-") {
     return extractPdf(buffer, options);
+  }
+  if (SPREADSHEET_CONTENT_TYPE.test(contentType) || SPREADSHEET_EXTENSION.test(lower)) {
+    return extractSpreadsheet(buffer);
   }
   if (contentType.includes("wordprocessingml") || lower.endsWith(".docx")) {
     return { text: await extractDocx(buffer), method: "docx", totalPages: 0, processedPages: 0, partial: false, warnings: [] };

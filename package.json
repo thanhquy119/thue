@@ -21,6 +21,7 @@
     "verify": "npm run lint && npm run typecheck && npm run build"
   },
   "dependencies": {
+    "@e965/xlsx": "0.20.3",
     "@napi-rs/canvas": "0.1.80",
     "@vercel/blob": "2.6.1",
     "jszip": "3.10.1",
