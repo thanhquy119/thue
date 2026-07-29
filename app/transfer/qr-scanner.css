@@ -27,6 +27,7 @@
 /* The connection flow is device-aware: desktop creates/shows a QR automatically,
    while mobile opens the in-PWA scanner. The legacy cards and secret key bar stay
    in the DOM only as an implementation fallback and are never shown to users. */
+.pairPanel,
 .transferDeviceDesktop .pairPanel,
 .transferDeviceMobile .pairPanel,
 .transferShell .connectionBar {
@@ -50,8 +51,19 @@
   text-align: center;
 }
 
-.transferHero .eyebrow[hidden] {
+.transferHero .eyebrow {
   display: none !important;
+}
+
+.transferHero h1 {
+  font-size: 0 !important;
+}
+
+.transferHero h1::after {
+  content: "Gửi file sang điện thoại.";
+  display: block;
+  font-size: clamp(44px, 7vw, 82px);
+  line-height: 1;
 }
 
 .transferDeviceMobile:not(.transferHasMailbox) .transferHero {
@@ -61,5 +73,9 @@
 @media (max-width: 760px) {
   .transferAutoStatus {
     width: calc(100% - 28px);
+  }
+
+  .transferHero h1::after {
+    font-size: clamp(42px, 13vw, 62px);
   }
 }
