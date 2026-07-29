@@ -1,12 +1,12 @@
 "use client";
 
-import { upload } from "@vercel/blob/client";
 import { QRCodeSVG } from "qrcode.react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { splitLegalBlocks } from "@/lib/legal/format";
 import type { TransferFileRecord } from "@/lib/transfer/core";
 
 const STORAGE_KEY = "thue-transfer-key-v1";
+const UPLOAD_CHUNK_BYTES = 2_500_000;
 
 function generateKey() {
   const bytes = new Uint8Array(18);
@@ -66,6 +66,12 @@ function statusText(file: TransferFileRecord) {
   if (file.status === "ready") return "Sẵn sàng đọc và nghe";
   if (file.status === "failed") return file.error || "Xử lý file thất bại";
   return "Chưa hỗ trợ";
+}
+
+async function responsePayload(response: Response) {
+  const payload = await response.json().catch(() => ({})) as { error?: string; file?: TransferFileRecord };
+  if (!response.ok) throw new Error(payload.error || "Không thể gửi file.");
+  return payload;
 }
 
 export default function TransferPage() {
@@ -193,25 +199,52 @@ export default function TransferPage() {
     }
     const fileId = crypto.randomUUID();
     const safeName = file.name.replace(/[\\/\u0000-\u001f\u007f]+/g, "-").slice(0, 140) || "tai-lieu";
-    const pathname = `transfers/${mailboxId}/${fileId}/source/${safeName}`;
+    const contentType = file.type || "application/octet-stream";
+    const totalChunks = Math.ceil(file.size / UPLOAD_CHUNK_BYTES);
+    const uploadDetails = {
+      key,
+      fileId,
+      name: safeName,
+      size: file.size,
+      contentType,
+      totalChunks,
+    };
     setBusy(true);
     setMessage("");
     setUploadProgress(0);
     try {
-      await upload(pathname, file, {
-        access: "private",
-        handleUploadUrl: "/api/transfer/upload",
-        clientPayload: JSON.stringify({
-          key,
-          mailboxId,
-          fileId,
-          name: safeName,
-          size: file.size,
-          contentType: file.type || "application/octet-stream",
-        }),
-        onUploadProgress: ({ percentage }) => setUploadProgress(Math.round(percentage)),
-      });
-      setMessage("Đã gửi file. Hệ thống đang chuyển thành nội dung có thể nghe.");
+      await responsePayload(await fetch("/api/transfer/upload", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "init", ...uploadDetails }),
+      }));
+
+      for (let index = 0; index < totalChunks; index += 1) {
+        const start = index * UPLOAD_CHUNK_BYTES;
+        const chunk = file.slice(start, Math.min(file.size, start + UPLOAD_CHUNK_BYTES));
+        await responsePayload(await fetch(
+          `/api/transfer/upload?file_id=${encodeURIComponent(fileId)}&index=${index}`,
+          {
+            method: "PUT",
+            headers: {
+              "content-type": "application/octet-stream",
+              "x-transfer-key": key,
+            },
+            body: chunk,
+          },
+        ));
+        setUploadProgress(Math.round(((index + 1) / (totalChunks + 1)) * 100));
+      }
+
+      const completed = await responsePayload(await fetch("/api/transfer/upload", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "complete", ...uploadDetails }),
+      }));
+      setUploadProgress(100);
+      setMessage(completed.file?.status === "failed"
+        ? completed.file.error || "Đã nhận file nhưng chưa chuyển được nội dung."
+        : "Đã gửi file và chuyển thành nội dung có thể nghe.");
       await refreshFiles();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Không thể gửi file.");
