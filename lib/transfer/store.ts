@@ -6,7 +6,7 @@ import {
   transferTextPath,
   type TransferFileRecord,
 } from "./core";
-import { extractTransferredFile } from "./extraction";
+import { extractTransferredFile, TRANSFER_EXTRACTION_VERSION } from "./extraction";
 
 async function streamBuffer(stream: ReadableStream<Uint8Array> | null) {
   if (!stream) throw new Error("Không đọc được file đã tải lên.");
@@ -30,6 +30,33 @@ async function writeJson(pathname: string, value: unknown) {
   });
 }
 
+async function refreshLegacyOfficeExtraction(mailboxId: string, meta: TransferFileRecord) {
+  if (meta.extractionVersion === TRANSFER_EXTRACTION_VERSION) return meta;
+  if (!meta.sourcePathname || !["doc", "docx", "html"].includes(meta.extractionMethod ?? "")) return meta;
+  const source = await get(meta.sourcePathname, { access: "private", useCache: false });
+  if (!source || source.statusCode !== 200) return meta;
+  const buffer = await streamBuffer(source.stream);
+  const extracted = await extractTransferredFile(buffer, meta.name, meta.contentType);
+  if (extracted.text.length < 20) return meta;
+  const textPathname = meta.textPathname || transferTextPath(mailboxId, meta.id);
+  await writeJson(textPathname, { text: extracted.text });
+  const refreshed: TransferFileRecord = {
+    ...meta,
+    updatedAt: new Date().toISOString(),
+    status: extracted.partial ? "ocr_partial" : "ready",
+    extractionMethod: extracted.method,
+    extractionVersion: TRANSFER_EXTRACTION_VERSION,
+    textPathname,
+    characters: extracted.text.length,
+    totalPages: extracted.totalPages,
+    processedPages: extracted.processedPages,
+    warnings: [...new Set([...meta.warnings, ...extracted.warnings])],
+    error: null,
+  };
+  await writeJson(transferMetaPath(mailboxId, meta.id), refreshed);
+  return refreshed;
+}
+
 export async function processTransferredBlob(input: {
   mailboxId: string;
   fileId: string;
@@ -50,6 +77,7 @@ export async function processTransferredBlob(input: {
     updatedAt: now,
     status: "processing",
     extractionMethod: null,
+    extractionVersion: TRANSFER_EXTRACTION_VERSION,
     textPathname: null,
     characters: 0,
     totalPages: 0,
@@ -114,8 +142,12 @@ export async function listTransferredFiles(key: string) {
 
 export async function readTransferredFile(key: string, fileId: string) {
   const mailboxId = transferMailboxId(key);
-  const meta = await readJson<TransferFileRecord>(transferMetaPath(mailboxId, fileId));
+  let meta = await readJson<TransferFileRecord>(transferMetaPath(mailboxId, fileId));
   if (!meta) return null;
+  meta = await refreshLegacyOfficeExtraction(mailboxId, meta).catch((error) => {
+    console.error("[transfer-reextract]", error);
+    return meta;
+  });
   const text = meta.textPathname ? await readJson<{ text: string }>(meta.textPathname) : null;
   return { meta, text: text?.text ?? "" };
 }
