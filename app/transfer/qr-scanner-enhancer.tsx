@@ -26,12 +26,6 @@ type TransferListPayload = {
   error?: string;
   files?: TransferFileSummary[];
 };
-type PreparedSource = {
-  fileId: string;
-  name: string;
-  contentType: string;
-  blob: Blob;
-};
 type StructuredSegment =
   | { kind: "text"; text: string }
   | { kind: "table"; rows: string[][] };
@@ -132,19 +126,54 @@ function enhanceStructuredTables() {
   }
 }
 
-function openBlobFallback(source: PreparedSource) {
-  const url = URL.createObjectURL(source.blob);
+function openBlobFallback(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
   const opened = window.open(url, "_blank", "noopener,noreferrer");
   if (!opened) {
     const link = document.createElement("a");
     link.href = url;
-    link.download = source.name;
+    link.download = name;
     link.rel = "noopener";
     document.body.append(link);
     link.click();
     link.remove();
   }
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+async function openOriginalFile(file: TransferFileSummary, button: HTMLButtonElement) {
+  const key = currentTransferKey();
+  if (!key || button.dataset.busy === "true") return;
+  button.dataset.busy = "true";
+  button.disabled = true;
+  button.textContent = "Đang mở file gốc…";
+  try {
+    const response = await fetch(`/api/transfer/files/${encodeURIComponent(file.id)}/source`, {
+      headers: { "x-transfer-key": key },
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({})) as { error?: string };
+      throw new Error(payload.error || "Không mở được file gốc.");
+    }
+    const blob = await response.blob();
+    const sharedFile = new File([blob], file.name, {
+      type: file.contentType || blob.type || "application/octet-stream",
+    });
+    const shareData: ShareData = { files: [sharedFile], title: file.name };
+    if (navigator.share && (!navigator.canShare || navigator.canShare(shareData))) {
+      await navigator.share(shareData);
+    } else {
+      openBlobFallback(blob, file.name);
+    }
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return;
+    window.alert(error instanceof Error ? error.message : "Không mở được file gốc.");
+  } finally {
+    delete button.dataset.busy;
+    button.disabled = false;
+    button.textContent = "Mở hoặc lưu file gốc";
+  }
 }
 
 export default function QrScannerEnhancer() {
@@ -155,9 +184,6 @@ export default function QrScannerEnhancer() {
   const pairingKnownRef = useRef(false);
   const pairedRef = useRef(false);
   const selectedFileRef = useRef<TransferFileSummary | null>(null);
-  const preparedSourceRef = useRef<PreparedSource | null>(null);
-  const sourceErrorRef = useRef("");
-  const preparingSourceRef = useRef("");
   const [deviceKind, setDeviceKind] = useState<DeviceKind>("unknown");
   const [currentKey, setCurrentKey] = useState("");
   const [launcherVisible, setLauncherVisible] = useState(false);
@@ -201,26 +227,6 @@ export default function QrScannerEnhancer() {
     applyPairingStatus(payload);
   }, [applyPairingStatus]);
 
-  const sharePreparedSource = useCallback((expectedFileId: string) => {
-    const source = preparedSourceRef.current;
-    if (!source || source.fileId !== expectedFileId) {
-      window.alert(sourceErrorRef.current || "File gốc vẫn đang được chuẩn bị. Em thử lại sau ít giây nhé.");
-      return;
-    }
-    const sharedFile = new File([source.blob], source.name, {
-      type: source.contentType || source.blob.type || "application/octet-stream",
-    });
-    const shareData: ShareData = { files: [sharedFile], title: source.name };
-    if (navigator.share && (!navigator.canShare || navigator.canShare(shareData))) {
-      void navigator.share(shareData).catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        openBlobFallback(source);
-      });
-      return;
-    }
-    openBlobFallback(source);
-  }, []);
-
   const updateSourceAction = useCallback(() => {
     const file = selectedFileRef.current;
     const actions = document.querySelector<HTMLElement>(".transferDocumentDetail .headerActions");
@@ -232,52 +238,17 @@ export default function QrScannerEnhancer() {
       button.type = "button";
       button.className = "transferSourceAction";
       button.dataset.fileId = file.id;
-      button.addEventListener("click", () => sharePreparedSource(file.id));
+      button.addEventListener("click", () => void openOriginalFile(file, button!));
       const listen = actions.querySelector(".listenButton");
       if (listen?.nextSibling) actions.insertBefore(button, listen.nextSibling);
       else actions.prepend(button);
     }
-    const ready = preparedSourceRef.current?.fileId === file.id;
-    const failed = Boolean(sourceErrorRef.current);
-    button.disabled = !ready && !failed;
-    button.textContent = ready ? "Mở hoặc lưu file gốc" : failed ? "Thử mở file gốc" : "Đang chuẩn bị file gốc…";
-    button.setAttribute("aria-label", ready
-      ? `Mở hoặc lưu file gốc ${file.name}`
-      : `Đang chuẩn bị file gốc ${file.name}`);
-  }, [sharePreparedSource]);
-
-  const prepareSource = useCallback(async (file: TransferFileSummary, key: string) => {
-    if (preparingSourceRef.current === file.id || preparedSourceRef.current?.fileId === file.id) return;
-    preparingSourceRef.current = file.id;
-    preparedSourceRef.current = null;
-    sourceErrorRef.current = "";
-    updateSourceAction();
-    try {
-      const response = await fetch(`/api/transfer/files/${encodeURIComponent(file.id)}/source`, {
-        headers: { "x-transfer-key": key },
-        cache: "no-store",
-      });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({})) as { error?: string };
-        throw new Error(payload.error || "Không chuẩn bị được file gốc.");
-      }
-      const blob = await response.blob();
-      if (selectedFileRef.current?.id !== file.id) return;
-      preparedSourceRef.current = {
-        fileId: file.id,
-        name: file.name,
-        contentType: file.contentType || blob.type,
-        blob,
-      };
-    } catch (error) {
-      if (selectedFileRef.current?.id === file.id) {
-        sourceErrorRef.current = error instanceof Error ? error.message : "Không chuẩn bị được file gốc.";
-      }
-    } finally {
-      if (preparingSourceRef.current === file.id) preparingSourceRef.current = "";
-      updateSourceAction();
-    }
-  }, [updateSourceAction]);
+    if (button.dataset.busy === "true") return;
+    if (button.disabled) button.disabled = false;
+    if (button.textContent !== "Mở hoặc lưu file gốc") button.textContent = "Mở hoặc lưu file gốc";
+    const label = `Mở hoặc lưu file gốc ${file.name}`;
+    if (button.getAttribute("aria-label") !== label) button.setAttribute("aria-label", label);
+  }, []);
 
   const selectFileByIndex = useCallback(async (index: number) => {
     const key = currentTransferKey();
@@ -288,19 +259,15 @@ export default function QrScannerEnhancer() {
         cache: "no-store",
       });
       const payload = await response.json().catch(() => ({})) as TransferListPayload;
-      if (!response.ok) throw new Error(payload.error || "Không đọc được danh sách file.");
+      if (!response.ok) return;
       const file = payload.files?.[index];
       if (!file) return;
       selectedFileRef.current = file;
-      preparedSourceRef.current = null;
-      sourceErrorRef.current = "";
-      window.setTimeout(updateSourceAction, 30);
-      void prepareSource(file, key);
-    } catch (error) {
-      sourceErrorRef.current = error instanceof Error ? error.message : "Không chuẩn bị được file gốc.";
-      updateSourceAction();
+      window.setTimeout(updateSourceAction, 0);
+    } catch {
+      // Opening and listening to the converted text must never depend on the optional source-file action.
     }
-  }, [prepareSource, updateSourceAction]);
+  }, [updateSourceAction]);
 
   useEffect(() => {
     const handleFileSelection = (event: Event) => {
@@ -331,7 +298,7 @@ export default function QrScannerEnhancer() {
       shell?.classList.toggle("transferPeerConnected", Boolean(key) && pairedRef.current);
 
       const eyebrow = document.querySelector<HTMLElement>(".transferHero .eyebrow");
-      if (eyebrow) eyebrow.hidden = true;
+      if (eyebrow && !eyebrow.hidden) eyebrow.hidden = true;
       const heading = document.querySelector<HTMLElement>(".transferHero h1");
       if (heading && heading.textContent !== "Gửi file sang điện thoại.") {
         heading.textContent = "Gửi file sang điện thoại.";
