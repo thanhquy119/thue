@@ -34,6 +34,7 @@ export type TransferFileRecord = {
   processedPages: number;
   warnings: string[];
   error: string | null;
+  nextOcrAttemptAt?: string | null;
 };
 
 export type TransferUploadSession = {
@@ -76,8 +77,12 @@ export function transferFileId(value?: string) {
   return cleaned.length >= 12 ? cleaned : randomUUID();
 }
 
-export function transferBasePath(mailboxId: string, fileId: string) {
+function assertMailboxId(mailboxId: string) {
   if (!/^[a-f0-9]{64}$/u.test(mailboxId)) throw new Error("Hộp file không hợp lệ.");
+}
+
+export function transferBasePath(mailboxId: string, fileId: string) {
+  assertMailboxId(mailboxId);
   if (!/^[a-z0-9-]{12,80}$/iu.test(fileId)) throw new Error("Mã file không hợp lệ.");
   return `transfers/${mailboxId}/${fileId}`;
 }
@@ -107,4 +112,13 @@ export function transferMetaPath(mailboxId: string, fileId: string) {
 
 export function transferTextPath(mailboxId: string, fileId: string) {
   return `${transferBasePath(mailboxId, fileId)}/text.json`;
+}
+
+export function transferOcrCheckpointPath(mailboxId: string, fileId: string) {
+  return `${transferBasePath(mailboxId, fileId)}/ocr/checkpoint.json`;
+}
+
+export function transferOcrLeasePath(mailboxId: string) {
+  assertMailboxId(mailboxId);
+  return `transfers/${mailboxId}/ocr-lease.json`;
 }
