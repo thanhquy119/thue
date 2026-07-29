@@ -73,10 +73,11 @@
   text-align: center !important;
 }
 
-/* Căn đều nội dung thường; tiêu đề và bảng vẫn căn trái để không kéo giãn chữ. */
+/* Căn đều nội dung thường và cả tiêu đề pháp lý dài; dòng cuối vẫn căn trái. */
 .transferDocumentDetail .readerText .legalBlock.paragraph,
 .transferDocumentDetail .readerText .legalBlock.clause,
-.transferDocumentDetail .readerText .legalBlock.point {
+.transferDocumentDetail .readerText .legalBlock.point,
+.transferDocumentDetail .readerText .legalBlock.heading {
   text-align: justify !important;
   text-align-last: left !important;
   text-justify: inter-word;
@@ -84,7 +85,6 @@
   overflow-wrap: break-word;
 }
 
-.transferDocumentDetail .readerText .legalBlock.heading,
 .transferDocumentDetail .readerText .transferTableBlock {
   text-align: left !important;
   text-align-last: auto !important;
