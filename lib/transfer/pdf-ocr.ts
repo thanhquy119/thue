@@ -1,11 +1,12 @@
-export const OCR_REQUEST_INTERVAL_MS = 20_000;
-export const OCR_PAGES_PER_RUN = 2;
+export const OCR_REQUEST_INTERVAL_MS = 7_000;
+export const OCR_PAGES_PER_RUN = 6;
+export const OCR_CONCURRENCY = 3;
 const RENDER_WIDTH = 1_200;
 const OCR_TIMEOUT_MS = 90_000;
 const DEFAULT_OCR_MODEL = "gemini-3.5-flash-lite";
 const DEFAULT_QUOTA_RETRY_MS = 180_000;
 
- type GeminiPayload = {
+type GeminiPayload = {
   candidates?: Array<{ content?: { parts?: Array<{ text?: unknown; thought?: unknown }> } }>;
   error?: { message?: unknown };
 };
@@ -56,9 +57,20 @@ function requestIntervalMs() {
   const testValue = Number(process.env.TRANSFER_OCR_TEST_INTERVAL_MS);
   if (Number.isFinite(testValue) && testValue >= 0) return testValue;
   const configured = Number(process.env.TRANSFER_OCR_INTERVAL_MS);
-  return Number.isFinite(configured) && configured >= 10_000
+  return Number.isFinite(configured) && configured >= 6_000
     ? configured
     : OCR_REQUEST_INTERVAL_MS;
+}
+
+function requestConcurrency() {
+  const testValue = Number(process.env.TRANSFER_OCR_TEST_CONCURRENCY);
+  if (Number.isFinite(testValue) && testValue >= 1) {
+    return Math.max(1, Math.min(OCR_CONCURRENCY, Math.floor(testValue)));
+  }
+  const configured = Number(process.env.TRANSFER_OCR_CONCURRENCY);
+  return Number.isFinite(configured) && configured >= 1
+    ? Math.max(1, Math.min(OCR_CONCURRENCY, Math.floor(configured)))
+    : OCR_CONCURRENCY;
 }
 
 function quotaRetryMs(response: Response, message: string) {
@@ -192,22 +204,61 @@ export async function ocrTransferredPdfBatch(
   }
 
   const completed: TransferOcrPage[] = [];
-  // Lượt đầu bắt đầu ngay. Các lượt tiếp theo vẫn chờ trước request đầu để không tạo burst giữa hai serverless invocation.
+  const running = new Set<Promise<void>>();
+  const allTasks: Array<Promise<void>> = [];
+  const concurrency = requestConcurrency();
+  let firstError: Error | null = null;
+  let pageCallbackTail: Promise<void> = Promise.resolve();
+  // Lượt đầu bắt đầu ngay. Lượt tiếp theo chờ một nhịp ngắn để tránh burst giữa hai invocation.
   let lastRequestStartedAt = startPage > 1 ? Date.now() : 0;
+
+  const commitPage = async (page: TransferOcrPage) => {
+    const operation = pageCallbackTail.then(async () => {
+      await options.onPage?.(page, totalPages);
+    });
+    pageCallbackTail = operation.catch(() => undefined);
+    await operation;
+  };
+
   for (let index = 0; index < pages.length; index += 1) {
+    while (running.size >= concurrency) await Promise.race(running);
+    if (firstError) break;
+
     if (lastRequestStartedAt > 0) {
       const elapsed = Date.now() - lastRequestStartedAt;
       await wait(Math.max(0, requestIntervalMs() - elapsed));
     }
+    if (firstError) break;
+
     const pageNumber = startPage + index;
-    await options.onPageStart?.(pageNumber, totalPages);
+    try {
+      await options.onPageStart?.(pageNumber, totalPages);
+    } catch (error) {
+      firstError = error instanceof Error ? error : new Error(String(error));
+      break;
+    }
     lastRequestStartedAt = Date.now();
     const image = Buffer.from(pages[index].data);
     pages[index] = { data: new Uint8Array() };
-    const page = { page: pageNumber, text: await ocrImage(image, pageNumber, totalPages) };
-    completed.push(page);
-    await options.onPage?.(page, totalPages);
+
+    let task: Promise<void>;
+    task = (async () => {
+      try {
+        const page = { page: pageNumber, text: await ocrImage(image, pageNumber, totalPages) };
+        completed.push(page);
+        await commitPage(page);
+      } catch (error) {
+        if (!firstError) firstError = error instanceof Error ? error : new Error(String(error));
+      }
+    })();
+    running.add(task);
+    allTasks.push(task);
+    void task.finally(() => running.delete(task));
   }
+
+  await Promise.all(allTasks);
+  if (firstError) throw firstError;
+  completed.sort((left, right) => left.page - right.page);
 
   const processedThrough = completed.at(-1)?.page ?? startPage - 1;
   return {
