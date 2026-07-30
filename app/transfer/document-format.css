@@ -1,0 +1,108 @@
+/* Bố cục dùng chung cho phần cuối văn bản và các phụ lục OCR. */
+.transferDocumentDetail .transferAppendixTitle,
+.transferDocumentDetail .transferDocumentSectionTitle {
+  width: min(920px, 100%) !important;
+  margin: 34px auto 8px !important;
+  padding: 8px 14px !important;
+  color: #123126 !important;
+  font-size: clamp(17px, 2vw, 22px) !important;
+  font-weight: 850 !important;
+  line-height: 1.45 !important;
+  letter-spacing: .015em;
+  text-align: center !important;
+  text-align-last: center !important;
+  text-transform: none;
+}
+
+.transferDocumentDetail .transferAppendixTitle {
+  border-top: 1px solid rgba(18, 45, 35, .16) !important;
+  padding-top: 24px !important;
+}
+
+.transferDocumentDetail .transferAppendixNote {
+  width: min(900px, 100%) !important;
+  margin: 0 auto 18px !important;
+  padding: 2px 14px !important;
+  color: #315346 !important;
+  font-style: italic;
+  font-weight: 620 !important;
+  line-height: 1.65 !important;
+  text-align: center !important;
+  text-align-last: center !important;
+}
+
+.transferDocumentDetail .transferRecipients {
+  width: min(720px, 100%) !important;
+  margin: 34px auto 8px 0 !important;
+  padding: 18px 20px !important;
+  border: 1px solid rgba(18, 45, 35, .12) !important;
+  border-radius: 16px !important;
+  background: #f8faf9 !important;
+  color: #24473a !important;
+  font-size: 13px !important;
+  line-height: 1.7 !important;
+  text-align: left !important;
+  text-align-last: left !important;
+  white-space: pre-line;
+}
+
+.transferDocumentDetail .transferSignatureRole,
+.transferDocumentDetail .transferSignerName {
+  width: min(430px, 100%) !important;
+  margin-left: auto !important;
+  padding-inline: 18px !important;
+  text-align: center !important;
+  text-align-last: center !important;
+}
+
+.transferDocumentDetail .transferSignatureRole {
+  margin-top: 30px !important;
+  margin-bottom: 0 !important;
+  font-weight: 820 !important;
+  line-height: 1.55 !important;
+  text-transform: uppercase;
+}
+
+.transferDocumentDetail .transferSignerName {
+  margin-top: 58px !important;
+  margin-bottom: 12px !important;
+  font-size: 16px !important;
+  font-weight: 820 !important;
+  line-height: 1.45 !important;
+}
+
+@media (min-width: 860px) {
+  .transferDocumentDetail .transferRecipients {
+    max-width: 58%;
+  }
+
+  .transferDocumentDetail .transferSignatureRole,
+  .transferDocumentDetail .transferSignerName {
+    max-width: 40%;
+  }
+}
+
+@media (max-width: 760px) {
+  .transferDocumentDetail .transferAppendixTitle,
+  .transferDocumentDetail .transferDocumentSectionTitle {
+    margin-top: 28px !important;
+    padding-inline: 8px !important;
+    text-align: left !important;
+    text-align-last: left !important;
+  }
+
+  .transferDocumentDetail .transferAppendixNote {
+    padding-inline: 8px !important;
+    text-align: left !important;
+    text-align-last: left !important;
+  }
+
+  .transferDocumentDetail .transferRecipients,
+  .transferDocumentDetail .transferSignatureRole,
+  .transferDocumentDetail .transferSignerName {
+    width: 100% !important;
+    max-width: none !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+}
