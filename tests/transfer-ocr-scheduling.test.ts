@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { transferOcrLeasePath } from "../lib/transfer/core.ts";
 import {
   TRANSFER_OCR_STALE_PROCESSING_MS,
   transferOcrNeedsRun,
   transferOcrRetryPending,
   type TransferOcrScheduleFile,
 } from "../lib/transfer/ocr-scheduling.ts";
+import { expireOcrLeaseRecord } from "../lib/transfer/store.ts";
 
 const NOW = Date.parse("2026-07-30T09:00:00.000Z");
 
@@ -45,4 +47,19 @@ test("retries transient failures but not completed or non-PDF files", () => {
   assert.equal(transferOcrNeedsRun(pdfFile({ status: "failed", error: "OCR trang 1/35 quá thời gian." }), NOW), true);
   assert.equal(transferOcrNeedsRun(pdfFile({ status: "ready", processedPages: 35 }), NOW), false);
   assert.equal(transferOcrNeedsRun(pdfFile({ name: "bang.xlsx", contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), NOW), false);
+});
+
+test("uses a reusable R2 OCR lease instead of the tombstoned legacy path", () => {
+  assert.equal(
+    transferOcrLeasePath("a".repeat(64)),
+    "transfers/ocr-global-lease-v2.json",
+  );
+  const expired = expireOcrLeaseRecord({
+    token: "lease-token",
+    fileId: "file-123456789",
+    expiresAt: new Date(NOW + 60_000).toISOString(),
+  });
+  assert.equal(expired.token, "lease-token");
+  assert.equal(expired.fileId, "file-123456789");
+  assert.equal(expired.expiresAt, new Date(0).toISOString());
 });
