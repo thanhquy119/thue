@@ -2,19 +2,21 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-test("scanned PDFs use a globally serialized rate far below fifteen requests per minute", () => {
+test("scanned PDFs stay below nine requests per minute with bounded concurrency", () => {
   const ocr = readFileSync(new URL("../lib/transfer/pdf-ocr.ts", import.meta.url), "utf8");
   const core = readFileSync(new URL("../lib/transfer/core.ts", import.meta.url), "utf8");
   const extraction = readFileSync(new URL("../lib/transfer/extraction.ts", import.meta.url), "utf8");
-  assert.match(ocr, /OCR_REQUEST_INTERVAL_MS = 20_000/u);
-  assert.match(ocr, /OCR_PAGES_PER_RUN = 2/u);
+  assert.match(ocr, /OCR_REQUEST_INTERVAL_MS = 7_000/u);
+  assert.match(ocr, /OCR_PAGES_PER_RUN = 6/u);
+  assert.match(ocr, /OCR_CONCURRENCY = 3/u);
+  assert.match(ocr, /configured >= 6_000/u);
   assert.match(ocr, /DEFAULT_QUOTA_RETRY_MS = 180_000/u);
   assert.match(ocr, /let lastRequestStartedAt = startPage > 1 \? Date\.now\(\) : 0/u);
   assert.match(ocr, /await wait\(Math\.max\(0, requestIntervalMs\(\) - elapsed\)\)/u);
+  assert.match(ocr, /while \(running\.size >= concurrency\) await Promise\.race\(running\)/u);
   assert.match(ocr, /Math\.max\(DEFAULT_QUOTA_RETRY_MS, headerDelay, messageDelay\)/u);
   assert.match(ocr, /const partial = Array\.from/u);
   assert.doesNotMatch(ocr, /first: endPage/u);
-  assert.doesNotMatch(ocr, /OCR_CONCURRENCY/u);
   assert.match(core, /return "transfers\/ocr-global-lease-v2\.json"/u);
   assert.match(extraction, /deferPdfOcr/u);
   assert.match(extraction, /method: "pdf_ocr"[\s\S]*processedPages: 0[\s\S]*partial: true/u);
