@@ -15,7 +15,7 @@ test("scanned PDFs use a globally serialized rate far below fifteen requests per
   assert.match(ocr, /const partial = Array\.from/u);
   assert.doesNotMatch(ocr, /first: endPage/u);
   assert.doesNotMatch(ocr, /OCR_CONCURRENCY/u);
-  assert.match(core, /return "transfers\/ocr-global-lease\.json"/u);
+  assert.match(core, /return "transfers\/ocr-global-lease-v2\.json"/u);
   assert.match(extraction, /deferPdfOcr/u);
   assert.match(extraction, /method: "pdf_ocr"[\s\S]*processedPages: 0[\s\S]*partial: true/u);
 });
@@ -29,6 +29,9 @@ test("PDF OCR is checkpointed, serialized and cannot open before every page comp
   assert.match(store, /transferOcrCheckpointPath/u);
   assert.match(store, /acquireOcrLease/u);
   assert.match(store, /OCR_CHECKPOINT_VERSION/u);
+  assert.match(store, /OCR_LEASE_MS = 240_000/u);
+  assert.match(store, /expireOcrLeaseRecord/u);
+  assert.match(store, /Đang chờ lượt OCR hiện tại hoàn tất/u);
   assert.match(store, /status: "ocr_partial"/u);
   assert.match(store, /nextOcrAttemptAt/u);
   assert.match(processRoute, /maxDuration = 300/u);
@@ -37,7 +40,7 @@ test("PDF OCR is checkpointed, serialized and cannot open before every page comp
   assert.match(readRoute, /status: 409/u);
   assert.match(enhancer, /files\.find\(\(file\) => transferOcrNeedsRun\(file\)\)/u);
   assert.match(enhancer, /processingRef = useRef<string \| null>\(null\)/u);
-  assert.match(scheduling, /TRANSFER_OCR_STALE_PROCESSING_MS = 180_000/u);
+  assert.match(scheduling, /TRANSFER_OCR_STALE_PROCESSING_MS = 270_000/u);
   assert.match(scheduling, /file\.status === "processing"/u);
   assert.doesNotMatch(enhancer, /new Set<string>/u);
   assert.match(enhancer, /readyToOpen/u);
