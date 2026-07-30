@@ -106,8 +106,9 @@ test("PDF OCR is paced, checkpointed, low-latency and renders only the current p
   const core = readFileSync(new URL("../lib/transfer/core.ts", import.meta.url), "utf8");
   const store = readFileSync(new URL("../lib/transfer/store.ts", import.meta.url), "utf8");
   const polish = readFileSync(new URL("../app/transfer/transfer-polish-enhancer.tsx", import.meta.url), "utf8");
-  assert.match(ocr, /OCR_REQUEST_INTERVAL_MS = 20_000/u);
-  assert.match(ocr, /OCR_PAGES_PER_RUN = 2/u);
+  assert.match(ocr, /OCR_REQUEST_INTERVAL_MS = 7_000/u);
+  assert.match(ocr, /OCR_PAGES_PER_RUN = 6/u);
+  assert.match(ocr, /OCR_CONCURRENCY = 3/u);
   assert.match(ocr, /RENDER_WIDTH = 1_200/u);
   assert.match(ocr, /OCR_TIMEOUT_MS = 90_000/u);
   assert.match(ocr, /DEFAULT_QUOTA_RETRY_MS = 180_000/u);
