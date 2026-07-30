@@ -33,6 +33,14 @@ function progressText(file: TransferFileSummary) {
   return file.totalPages > 0 ? `${file.processedPages}/${file.totalPages} trang` : "toàn bộ nội dung";
 }
 
+function retryDelayText(value: string | null | undefined) {
+  const timestamp = value ? Date.parse(value) : Number.NaN;
+  if (!Number.isFinite(timestamp)) return "sẽ tự thử lại";
+  const seconds = Math.max(1, Math.ceil((timestamp - Date.now()) / 1_000));
+  if (seconds >= 90) return `tự thử lại sau khoảng ${Math.ceil(seconds / 60)} phút`;
+  return `tự thử lại sau khoảng ${seconds} giây`;
+}
+
 function statusCopy(file: TransferFileSummary, size: string) {
   if (readyToOpen(file)) {
     return file.extractionMethod === "spreadsheet"
@@ -40,14 +48,18 @@ function statusCopy(file: TransferFileSummary, size: string) {
       : `${size} · Sẵn sàng đọc và nghe`;
   }
   if (file.status === "processing") {
-    return file.extractionMethod === "spreadsheet"
-      ? `${size} · Đang đọc cấu trúc bảng tính`
-      : `${size} · Đang OCR chậm ${progressText(file)}`;
+    if (file.extractionMethod === "spreadsheet") return `${size} · Đang đọc cấu trúc bảng tính`;
+    if (file.extractionMethod === "pdf_ocr" && file.processedPages === 0 && file.totalPages > 0) {
+      return `${size} · Đang nhận dạng trang đầu; số 0/${file.totalPages} chỉ tăng khi trang 1 hoàn tất`;
+    }
+    return `${size} · Đang OCR chậm ${progressText(file)}`;
   }
   if (file.status === "ocr_partial") {
-    return transferOcrRetryPending(file.nextOcrAttemptAt)
-      ? `${size} · Tạm nghỉ để bảo vệ hạn mức · ${progressText(file)}`
-      : `${size} · Chờ lượt OCR tiếp theo · ${progressText(file)}`;
+    if (transferOcrRetryPending(file.nextOcrAttemptAt)) {
+      const reason = file.error?.trim() || "Tạm nghỉ để bảo vệ hạn mức OCR";
+      return `${size} · ${reason} · ${retryDelayText(file.nextOcrAttemptAt)} · ${progressText(file)}`;
+    }
+    return `${size} · Chờ lượt OCR tiếp theo · ${progressText(file)}`;
   }
   if (file.status === "failed") return `${size} · ${file.error || "Xử lý file thất bại"}`;
   return size;
