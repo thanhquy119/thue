@@ -9,7 +9,9 @@ function source(path: string) {
 test("table columns stretch to consume available width without a blank strip", () => {
   const enhancer = source("../app/transfer/table-format-enhancer.tsx");
   assert.match(enhancer, /minmax\(\$\{width\}px, \$\{Math\.max\(1, width \/ 120\)\.toFixed\(2\)\}fr\)/u);
-  assert.match(enhancer, /transferTablePolished === "3"/u);
+  assert.match(enhancer, /POLISH_VERSION = "4"/u);
+  assert.match(enhancer, /fitCompactWidths/u);
+  assert.match(enhancer, /table\.scrollLeft = 0/u);
 });
 
 test("transfer page exposes immediate upload and file-opening feedback", () => {
@@ -25,10 +27,13 @@ test("transfer page exposes immediate upload and file-opening feedback", () => {
   assert.match(enhancer, /aria-busy/u);
 });
 
-test("long file lists scroll internally and provision navigation is hidden", () => {
+test("long file lists scroll internally with an opaque sticky heading", () => {
   const styles = source("../app/transfer/transfer-ux.css");
-  assert.match(styles, /\.transferList\s*\{[\s\S]*max-height:/u);
+  assert.match(styles, /\.transferList\s*\{[\s\S]*padding:\s*0\s*!important/u);
   assert.match(styles, /overflow-y:\s*auto/u);
+  assert.match(styles, /\.transferListHeading\s*\{[\s\S]*position:\s*sticky/u);
+  assert.match(styles, /background:\s*#fff/u);
+  assert.match(styles, /z-index:\s*20/u);
   assert.match(styles, /\.transferProvisionNav\s*\{[\s\S]*display:\s*none\s*!important/u);
 });
 
