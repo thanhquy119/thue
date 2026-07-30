@@ -1,4 +1,4 @@
-import { splitLegalBlocks, type LegalBlock } from "../legal/format";
+import { splitLegalBlocks, type LegalBlock } from "../legal/format.ts";
 
 export type TransferReaderItem = {
   id: string;
