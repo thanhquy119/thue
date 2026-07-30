@@ -1,95 +1,36 @@
 "use client";
 
 import { useEffect } from "react";
+import {
+  classifyTransferDocumentBlocks,
+  type TransferDocumentRole,
+} from "@/lib/transfer/document-semantics";
 
-const APPENDIX_TITLE = /^phụ\s+lục(?:\s+(?:số\s+)?[ivxlcdm\d]+)?\b/iu;
-const APPENDIX_NOTE = /^\(?\s*(?:kèm\s+theo|ban\s+hành\s+kèm\s+theo)\b/iu;
-const RECIPIENTS = /^(?:nơi\s+nhận|kính\s+gửi)\s*:/iu;
-const SIGNATURE_ROLE = /^(?:(?:kt|tl|tuq|q)\.\s*)?(?:bộ\s+trưởng|thứ\s+trưởng|thủ\s+trưởng|chủ\s+tịch|phó\s+chủ\s+tịch|tổng\s+cục\s+trưởng|phó\s+tổng\s+cục\s+trưởng|cục\s+trưởng|phó\s+cục\s+trưởng|giám\s+đốc|phó\s+giám\s+đốc|chánh\s+văn\s+phòng|phó\s+chánh\s+văn\s+phòng|thừa\s+lệnh|thừa\s+ủy\s+quyền)\b/iu;
-const SIGNATURE_PREFIX = /^(?:đã\s+ký|ký\s+thay|ký\s+thừa\s+lệnh)\b/iu;
+const ROLE_CLASS: Record<TransferDocumentRole, string | null> = {
+  normal: null,
+  "appendix-title": "transferAppendixTitle",
+  "appendix-note": "transferAppendixNote",
+  "section-title": "transferDocumentSectionTitle",
+  recipients: "transferRecipients",
+  "signature-role": "transferSignatureRole",
+  "signer-name": "transferSignerName",
+};
 
-function normalized(value: string) {
-  return value.replace(/\s+/gu, " ").trim();
-}
-
-function likelySignerName(value: string) {
-  const text = normalized(value);
-  if (!text || text.length > 70 || /[:;,.!?()]/u.test(text)) return false;
-  const words = text.split(" ").filter(Boolean);
-  if (words.length < 2 || words.length > 7) return false;
-  return words.every((word) => /^[\p{Lu}Đ][\p{L}Đđ'’-]*$/u.test(word));
-}
-
-function allCapsHeading(value: string) {
-  const text = normalized(value);
-  if (text.length < 8 || text.length > 220 || /[.!?;:]$/u.test(text)) return false;
-  const letters = [...text].filter((character) => /\p{L}/u.test(character));
-  if (letters.length < 5) return false;
-  const uppercase = letters.filter((character) => character === character.toLocaleUpperCase("vi")).length;
-  return uppercase / letters.length >= 0.86;
-}
-
-function clearClasses(block: HTMLElement) {
-  block.classList.remove(
-    "transferAppendixTitle",
-    "transferAppendixNote",
-    "transferDocumentSectionTitle",
-    "transferRecipients",
-    "transferSignatureRole",
-    "transferSignerName",
-  );
-}
+const SEMANTIC_CLASSES = Object.values(ROLE_CLASS).filter((value): value is string => Boolean(value));
 
 function polishProvision(provision: HTMLElement) {
   const blocks = [...provision.querySelectorAll<HTMLElement>(".legalBlocks .legalBlock")]
     .filter((block) => !block.classList.contains("transferTableBlock"));
   if (!blocks.length) return;
 
-  let appendixContext = 0;
-  let waitingForSigner = false;
-  blocks.forEach((block) => {
-    clearClasses(block);
-    const text = normalized(block.textContent ?? "");
-    if (!text) return;
-
-    if (APPENDIX_TITLE.test(text)) {
-      block.classList.add("transferAppendixTitle");
-      appendixContext = 2;
-      waitingForSigner = false;
-      return;
-    }
-
-    if (appendixContext > 0 && (APPENDIX_NOTE.test(text) || allCapsHeading(text))) {
-      block.classList.add("transferAppendixNote");
-      appendixContext -= 1;
-      return;
-    }
-    appendixContext = Math.max(0, appendixContext - 1);
-
-    if (RECIPIENTS.test(text)) {
-      block.classList.add("transferRecipients");
-      waitingForSigner = false;
-      return;
-    }
-
-    if (SIGNATURE_ROLE.test(text) || SIGNATURE_PREFIX.test(text)) {
-      block.classList.add("transferSignatureRole");
-      waitingForSigner = true;
-      return;
-    }
-
-    if (waitingForSigner && likelySignerName(text)) {
-      block.classList.add("transferSignerName");
-      waitingForSigner = false;
-      return;
-    }
-
-    if (allCapsHeading(text) && !/^CỘNG\s+HÒA|^ĐỘC\s+LẬP|^SỐ\s*:/iu.test(text)) {
-      block.classList.add("transferDocumentSectionTitle");
-    }
+  const roles = classifyTransferDocumentBlocks(blocks.map((block) => block.textContent ?? ""));
+  blocks.forEach((block, index) => {
+    block.classList.remove(...SEMANTIC_CLASSES);
+    const className = ROLE_CLASS[roles[index] ?? "normal"];
+    if (className) block.classList.add(className);
   });
 
-  provision.dataset.transferDocumentPolished = "2";
+  provision.dataset.transferDocumentPolished = "3";
 }
 
 function polishAllDocuments() {
