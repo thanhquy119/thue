@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+import { transferOcrLeasePath } from "../lib/transfer/core.ts";
 import {
   TRANSFER_OCR_STALE_PROCESSING_MS,
   transferOcrNeedsRun,
@@ -45,4 +47,22 @@ test("retries transient failures but not completed or non-PDF files", () => {
   assert.equal(transferOcrNeedsRun(pdfFile({ status: "failed", error: "OCR trang 1/35 quá thời gian." }), NOW), true);
   assert.equal(transferOcrNeedsRun(pdfFile({ status: "ready", processedPages: 35 }), NOW), false);
   assert.equal(transferOcrNeedsRun(pdfFile({ name: "bang.xlsx", contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), NOW), false);
+});
+
+test("uses a reusable R2 OCR lease instead of the tombstoned legacy path", () => {
+  const store = readFileSync(new URL("../lib/transfer/store.ts", import.meta.url), "utf8");
+  const releaseStart = store.indexOf("async function releaseOcrLease");
+  const releaseEnd = store.indexOf("\n}\n", releaseStart);
+  const releaseSource = releaseStart >= 0 && releaseEnd > releaseStart
+    ? store.slice(releaseStart, releaseEnd + 3)
+    : "";
+  assert.equal(
+    transferOcrLeasePath("a".repeat(64)),
+    "transfers/ocr-global-lease-v2.json",
+  );
+  assert.match(store, /export function expireOcrLeaseRecord/u);
+  assert.match(store, /expiresAt: new Date\(0\)\.toISOString\(\)/u);
+  assert.match(store, /await writeJson\(pathname, expireOcrLeaseRecord\(lease\)\)/u);
+  assert.ok(releaseSource);
+  assert.doesNotMatch(releaseSource, /await del\(pathname\)/u);
 });

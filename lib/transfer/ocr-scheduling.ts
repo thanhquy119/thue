@@ -1,4 +1,4 @@
-export const TRANSFER_OCR_STALE_PROCESSING_MS = 180_000;
+export const TRANSFER_OCR_STALE_PROCESSING_MS = 270_000;
 
 export type TransferOcrScheduleFile = {
   name: string;

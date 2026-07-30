@@ -21,8 +21,9 @@ import {
 } from "./pdf-ocr.ts";
 
 const OCR_CHECKPOINT_VERSION = 1;
-const OCR_LEASE_MS = 90_000;
+const OCR_LEASE_MS = 240_000;
 const OCR_LEASE_SETTLE_MS = 250;
+const OCR_BUSY_RETRY_MS = 30_000;
 const OCR_TRANSIENT_RETRY_MS = 65_000;
 
 type TransferOcrCheckpoint = {
@@ -35,6 +36,11 @@ type TransferOcrLease = {
   token: string;
   fileId: string;
   expiresAt: string;
+};
+
+type TransferOcrLeaseAttempt = {
+  lease: TransferOcrLease | null;
+  busyUntil: string | null;
 };
 
 async function streamBuffer(stream: ReadableStream<Uint8Array> | null) {
@@ -72,16 +78,26 @@ function unexpired(value: string | null | undefined) {
   return Number.isFinite(timestamp) && timestamp > Date.now();
 }
 
-async function acquireOcrLease(mailboxId: string, fileId: string) {
+export function expireOcrLeaseRecord(lease: TransferOcrLease): TransferOcrLease {
+  return { ...lease, expiresAt: new Date(0).toISOString() };
+}
+
+async function acquireOcrLease(mailboxId: string, fileId: string): Promise<TransferOcrLeaseAttempt> {
   const pathname = transferOcrLeasePath(mailboxId);
   const existing = await readJson<TransferOcrLease>(pathname).catch(() => null);
-  if (existing && unexpired(existing.expiresAt)) return null;
+  if (existing && unexpired(existing.expiresAt)) {
+    return { lease: null, busyUntil: existing.expiresAt };
+  }
 
   const lease: TransferOcrLease = { token: randomUUID(), fileId, expiresAt: leaseExpiry() };
   await writeJson(pathname, lease);
   await wait(OCR_LEASE_SETTLE_MS);
   const confirmed = await readJson<TransferOcrLease>(pathname).catch(() => null);
-  return confirmed?.token === lease.token ? lease : null;
+  if (confirmed?.token === lease.token) return { lease, busyUntil: null };
+  return {
+    lease: null,
+    busyUntil: confirmed && unexpired(confirmed.expiresAt) ? confirmed.expiresAt : null,
+  };
 }
 
 async function refreshOcrLease(mailboxId: string, lease: TransferOcrLease) {
@@ -96,7 +112,11 @@ async function releaseOcrLease(mailboxId: string, lease: TransferOcrLease | null
   if (!lease) return;
   const pathname = transferOcrLeasePath(mailboxId);
   const current = await readJson<TransferOcrLease>(pathname).catch(() => null);
-  if (current?.token === lease.token) await del(pathname).catch(() => undefined);
+  if (current?.token === lease.token) {
+    // Không xóa object lease trên R2: lớp tương thích dùng tombstone cho object đã xóa,
+    // khiến cùng pathname không thể được đọc lại sau lần đầu. Ghi một lease hết hạn để tái sử dụng.
+    await writeJson(pathname, expireOcrLeaseRecord(lease)).catch(() => undefined);
+  }
 }
 
 function contiguousPageCount(pages: Array<string | null>) {
@@ -276,8 +296,25 @@ export async function reprocessTransferredPdf(key: string, fileId: string) {
     return readTransferPayload(initial);
   }
 
-  const lease = await acquireOcrLease(mailboxId, fileId);
-  if (!lease) return readTransferPayload(initial);
+  const leaseAttempt = await acquireOcrLease(mailboxId, fileId);
+  const lease = leaseAttempt.lease;
+  if (!lease) {
+    const busyUntil = leaseAttempt.busyUntil ? Date.parse(leaseAttempt.busyUntil) : Number.NaN;
+    const retryAt = new Date(
+      Number.isFinite(busyUntil)
+        ? Math.min(busyUntil, Date.now() + OCR_BUSY_RETRY_MS)
+        : Date.now() + OCR_BUSY_RETRY_MS,
+    ).toISOString();
+    const queued: TransferFileRecord = {
+      ...initial,
+      updatedAt: new Date().toISOString(),
+      status: "ocr_partial",
+      error: "Đang chờ lượt OCR hiện tại hoàn tất",
+      nextOcrAttemptAt: retryAt,
+    };
+    await writeJson(pathname, queued);
+    return readTransferPayload(queued);
+  }
 
   let checkpoint = await readJson<TransferOcrCheckpoint>(checkpointPathname).catch(() => null);
   if (!checkpoint || checkpoint.version !== OCR_CHECKPOINT_VERSION) {
@@ -305,6 +342,9 @@ export async function reprocessTransferredPdf(key: string, fileId: string) {
     const batch = await ocrTransferredPdfBatch(buffer, {
       startPage,
       maxPages: OCR_PAGES_PER_RUN,
+      onPageStart: async () => {
+        await refreshOcrLease(mailboxId, lease);
+      },
       onPage: async (page, totalPages) => {
         if (checkpoint.totalPages > 0 && checkpoint.totalPages !== totalPages) {
           throw new Error("Tổng số trang PDF đã thay đổi trong lúc OCR.");

@@ -130,6 +130,7 @@ export function transferOcrCheckpointPath(mailboxId: string, fileId: string) {
 
 export function transferOcrLeasePath(mailboxId: string) {
   assertMailboxId(mailboxId);
-  // Tất cả hộp file dùng chung một khóa OCR để không cộng dồn request trên cùng API key.
-  return "transfers/ocr-global-lease.json";
+  // Bản v1 đã từng bị tombstone trên R2 sau lần xóa đầu tiên. Bản v2 luôn được ghi đè
+  // bằng một lease hết hạn thay vì xóa, để mọi lượt OCR sau vẫn có thể giành khóa.
+  return "transfers/ocr-global-lease-v2.json";
 }
