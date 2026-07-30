@@ -1,5 +1,4 @@
-/* Bảng cũ dùng border của cả hàng, nên đường ngang dừng ở chiều rộng viewport khi ô tràn ngang.
-   Vẽ đường theo từng ô và buộc mỗi hàng có cùng chiều rộng nội tại để đường kẻ luôn liền mạch. */
+/* Bảng chuyển đổi cũ phải có cùng chiều rộng nội tại ở mọi hàng để đường ngang không dừng tại mép viewport. */
 .transferStructuredRow {
   width: max-content;
   min-width: 100%;
@@ -30,9 +29,7 @@
   text-align: center;
 }
 .spreadsheetLoading button,
-.spreadsheetWorkspace button {
-  font: inherit;
-}
+.spreadsheetWorkspace button { font: inherit; }
 .spreadsheetWorkspaceHeader {
   display: flex;
   align-items: flex-start;
@@ -42,11 +39,29 @@
   border-bottom: 1px solid var(--line);
   background: linear-gradient(135deg, #fff 0%, var(--soft) 100%);
 }
-.spreadsheetWorkspaceHeader h2 { margin: 4px 0 8px; font-size: clamp(28px, 4vw, 44px); letter-spacing: -.04em; overflow-wrap: anywhere; }
-.spreadsheetWorkspaceHeader p:not(.sectionLabel) { max-width: 760px; margin: 0; color: var(--muted); line-height: 1.6; }
-.spreadsheetHeaderActions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.spreadsheetWorkspaceHeader h2 {
+  margin: 4px 0 8px;
+  font-size: clamp(28px, 4vw, 44px);
+  letter-spacing: -.04em;
+  overflow-wrap: anywhere;
+}
+.spreadsheetWorkspaceHeader p:not(.sectionLabel) {
+  max-width: 760px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.spreadsheetHeaderActions,
+.spreadsheetCommandActions,
+.spreadsheetLocalActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.spreadsheetHeaderActions { justify-content: flex-end; }
 .spreadsheetHeaderActions button,
-.spreadsheetCommandActions button {
+.spreadsheetCommandActions button,
+.spreadsheetDataPanel button {
   min-height: 42px;
   border: 1px solid var(--ink);
   border-radius: 999px;
@@ -57,8 +72,10 @@
   cursor: pointer;
 }
 .spreadsheetHeaderActions button.secondary,
-.spreadsheetCommandActions button.secondary { background: #fff; color: var(--ink); }
-.spreadsheetHeaderActions button:disabled { opacity: .45; cursor: default; }
+.spreadsheetCommandActions button.secondary,
+.spreadsheetDataPanel button.secondary { background: #fff; color: var(--ink); }
+.spreadsheetHeaderActions button:disabled,
+.spreadsheetDataPanel button:disabled { opacity: .45; cursor: default; }
 
 .spreadsheetSheetTabs {
   display: flex;
@@ -101,27 +118,74 @@
   color: var(--ink);
   font: inherit;
 }
-.spreadsheetColumnSelectors { display: flex; flex-wrap: wrap; gap: 10px; }
-.spreadsheetColumnSelectors label { min-width: min(280px, 100%); display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 750; }
-.spreadsheetColumnSelectors select {
+.spreadsheetColumnOptions {
+  align-self: start;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fafbf9;
+  padding: 10px 12px;
+}
+.spreadsheetColumnOptions summary { cursor: pointer; font-size: 13px; font-weight: 760; }
+.spreadsheetColumnSelectors { display: flex; flex-wrap: wrap; gap: 10px; padding-top: 12px; }
+.spreadsheetColumnSelectors label,
+.spreadsheetCompanionRow label {
+  min-width: min(280px, 100%);
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+.spreadsheetColumnSelectors select,
+.spreadsheetCompanionRow select {
   min-height: 42px;
-  max-width: 360px;
+  max-width: 420px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #fff;
   padding: 0 12px;
   color: var(--ink);
 }
-.spreadsheetCommandActions { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
-.spreadsheetCommandActions input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.spreadsheetCommandActions { align-items: end; justify-content: flex-end; }
 
-.spreadsheetNotice { margin: 14px 24px 0; border-radius: 12px; background: #eaf6ee; padding: 12px 14px; color: #146c3b; font-weight: 700; }
+.spreadsheetNotice {
+  margin: 14px 24px 0;
+  border-radius: 12px;
+  background: #eaf6ee;
+  padding: 12px 14px;
+  color: #146c3b;
+  font-weight: 700;
+}
 .spreadsheetNotice.error { background: #fff0ee; color: #9b2c24; }
-.spreadsheetPreamble { display: grid; gap: 5px; padding: 18px 24px; border-bottom: 1px solid var(--line); }
+.spreadsheetPreamble {
+  display: grid;
+  gap: 5px;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--line);
+}
 .spreadsheetPreamble strong { overflow-wrap: anywhere; }
-.spreadsheetFormulaBar { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: #fafbf9; }
-.spreadsheetFormulaBar > span { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 800; text-align: center; }
-.spreadsheetFormulaBar input { min-height: 40px; border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 0 12px; font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.spreadsheetFormulaBar {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: #fafbf9;
+}
+.spreadsheetFormulaBar > span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 800;
+  text-align: center;
+}
+.spreadsheetFormulaBar input {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 12px;
+  font: 14px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
 .spreadsheetFormulaBar small { color: var(--muted); }
 
 .spreadsheetGridViewport {
@@ -138,11 +202,9 @@
   table-layout: fixed;
   font-size: 13px;
 }
+.spreadsheetGrid col.spreadsheetRowNumberColumn { width: 70px; min-width: 70px; max-width: 70px; }
 .spreadsheetGrid th,
 .spreadsheetGrid td {
-  width: 156px;
-  min-width: 156px;
-  max-width: 156px;
   box-sizing: border-box;
   border-right: 1px solid #d9ddd8;
   border-bottom: 1px solid #d9ddd8;
@@ -154,13 +216,13 @@
   position: sticky;
   top: 0;
   z-index: 4;
-  height: 52px;
+  min-height: 58px;
   background: #f4f5f2;
-  padding: 8px 10px;
+  padding: 9px 10px;
   font-weight: 820;
+  line-height: 1.35;
   text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .spreadsheetGrid .spreadsheetRowNumber {
   position: sticky;
@@ -196,7 +258,43 @@
 .spreadsheetGrid td[class*="result-lech-"] { background: #fce1de; }
 .spreadsheetGrid td[class*="result-"] > button { font-weight: 780; }
 .spreadsheetGrid .spreadsheetSpacer td { border: 0; background: transparent; }
-.spreadsheetWorkspaceFooter { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 12px 20px; border-top: 1px solid var(--line); background: #fafbf9; color: var(--muted); font-size: 12px; font-weight: 680; }
+.spreadsheetWorkspaceFooter {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 20px;
+  border-top: 1px solid var(--line);
+  background: #fafbf9;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.spreadsheetDataPanel {
+  display: grid;
+  gap: 18px;
+  padding: 26px;
+  border-top: 1px solid var(--line);
+  background: linear-gradient(180deg, #fff 0%, #fafbf9 100%);
+}
+.spreadsheetDataCopy h3 { margin: 4px 0 7px; font-size: clamp(21px, 3vw, 30px); letter-spacing: -.03em; }
+.spreadsheetDataCopy p:not(.sectionLabel) { max-width: 850px; margin: 0; color: var(--muted); line-height: 1.55; }
+.spreadsheetCompanionRow {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) auto auto;
+  align-items: end;
+  gap: 10px;
+}
+.spreadsheetCompanionRow select { width: 100%; max-width: none; }
+.spreadsheetLocalActions input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.spreadsheetDataEmpty { margin: 0; color: var(--muted); }
 
 @media (max-width: 900px) {
   .spreadsheetWorkspace { width: calc(100% - 12px); margin-top: 30px; border-radius: 18px; }
@@ -204,11 +302,16 @@
   .spreadsheetHeaderActions { justify-content: flex-start; }
   .spreadsheetHeaderActions button { flex: 1 1 180px; }
   .spreadsheetCommandPanel { grid-template-columns: 1fr; padding: 18px; }
+  .spreadsheetCommandActions { justify-content: stretch; }
+  .spreadsheetCommandActions button { width: 100%; }
   .spreadsheetColumnSelectors { display: grid; grid-template-columns: 1fr; }
   .spreadsheetColumnSelectors label,
   .spreadsheetColumnSelectors select { width: 100%; max-width: none; }
-  .spreadsheetCommandActions button { flex: 1 1 150px; }
   .spreadsheetFormulaBar { grid-template-columns: 56px minmax(0, 1fr); }
   .spreadsheetFormulaBar small { display: none; }
   .spreadsheetGridViewport { height: 68vh; min-height: 480px; }
+  .spreadsheetDataPanel { padding: 22px 18px; }
+  .spreadsheetCompanionRow { grid-template-columns: 1fr; align-items: stretch; }
+  .spreadsheetCompanionRow button,
+  .spreadsheetLocalActions button { flex: 1 1 180px; }
 }

@@ -1,6 +1,6 @@
-export const OCR_REQUEST_INTERVAL_MS = 30_000;
+export const OCR_REQUEST_INTERVAL_MS = 20_000;
 export const OCR_PAGES_PER_RUN = 5;
-const RENDER_WIDTH = 1_600;
+const RENDER_WIDTH = 1_440;
 const OCR_TIMEOUT_MS = 45_000;
 const DEFAULT_OCR_MODEL = "gemini-3.5-flash-lite";
 const DEFAULT_QUOTA_RETRY_MS = 180_000;
@@ -54,8 +54,10 @@ function ocrModel() {
 
 function requestIntervalMs() {
   const testValue = Number(process.env.TRANSFER_OCR_TEST_INTERVAL_MS);
-  return Number.isFinite(testValue) && testValue >= 0
-    ? testValue
+  if (Number.isFinite(testValue) && testValue >= 0) return testValue;
+  const configured = Number(process.env.TRANSFER_OCR_INTERVAL_MS);
+  return Number.isFinite(configured) && configured >= 10_000
+    ? configured
     : OCR_REQUEST_INTERVAL_MS;
 }
 
@@ -166,14 +168,14 @@ export async function ocrTransferredPdfBatch(
       return { pages: [], totalPages, processedThrough: totalPages, complete: true };
     }
     endPage = Math.min(totalPages, startPage + maxPages - 1);
+    const partial = Array.from({ length: endPage - startPage + 1 }, (_, index) => startPage + index);
     const screenshots = await parser.getScreenshot({
       desiredWidth: RENDER_WIDTH,
-      first: endPage,
+      partial,
       imageDataUrl: false,
       imageBuffer: true,
     });
-    const rendered = screenshots.pages as ScreenshotPage[];
-    pages = rendered.slice(startPage - 1, endPage);
+    pages = screenshots.pages as ScreenshotPage[];
   } finally {
     await parser.destroy().catch(() => undefined);
   }
@@ -183,11 +185,13 @@ export async function ocrTransferredPdfBatch(
   }
 
   const completed: TransferOcrPage[] = [];
-  // Chờ cả trước request đầu tiên để các lượt serverless nối tiếp nhau cũng không tạo burst.
-  let lastRequestStartedAt = Date.now();
+  // Lượt đầu bắt đầu ngay. Các lượt tiếp theo vẫn chờ trước request đầu để không tạo burst giữa hai serverless invocation.
+  let lastRequestStartedAt = startPage > 1 ? Date.now() : 0;
   for (let index = 0; index < pages.length; index += 1) {
-    const elapsed = Date.now() - lastRequestStartedAt;
-    await wait(Math.max(0, requestIntervalMs() - elapsed));
+    if (lastRequestStartedAt > 0) {
+      const elapsed = Date.now() - lastRequestStartedAt;
+      await wait(Math.max(0, requestIntervalMs() - elapsed));
+    }
     lastRequestStartedAt = Date.now();
     const pageNumber = startPage + index;
     const image = Buffer.from(pages[index].data);
