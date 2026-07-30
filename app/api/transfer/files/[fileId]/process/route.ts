@@ -132,6 +132,9 @@ export async function POST(
     const result = await reprocessTransferredPdf(key, fileId);
     if (!result) return NextResponse.json({ error: "Không tìm thấy file." }, { status: 404, headers: NO_STORE_HEADERS });
     logResult(fileId, result);
+    if (needsBackgroundOcr(result.meta)) {
+      after(async () => runBackgroundOcr(request.url, key, fileId));
+    }
     const status = result.meta.status === "ready"
       ? 200
       : result.meta.status === "processing" || result.meta.status === "ocr_partial"
