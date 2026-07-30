@@ -16,7 +16,7 @@ function pageMarker(line: string, page: number) {
   if (/^(?:trang|page)\s*\d{1,4}(?:\s*(?:\/|trên|of)\s*\d{1,4})?$/iu.test(value)) return true;
   if (/^\d{1,4}\s*(?:\/|trên|of)\s*\d{1,4}$/iu.test(value)) return true;
   if (/^[-–—•·]\s*\d{1,4}\s*[-–—•·]$/u.test(value)) return true;
-  if (/^[[(]\s*\d{1,4}\s*[\])]$/u.test(value)) return true;
+  if (/^(?:\(\s*\d{1,4}\s*\)|\[\s*\d{1,4}\s*\])$/u.test(value)) return true;
 
   const bare = value.match(/^0*(\d{1,4})$/u);
   if (!bare) return false;
