@@ -101,16 +101,22 @@ test("reader keeps justified text, structured tables and native file sharing", (
   assert.match(styles, /transferStructuredCell/u);
 });
 
-test("PDF OCR is paced, globally serialized, checkpointed and renders only the current pages", () => {
+test("PDF OCR is paced, checkpointed, low-latency and renders only the current pages", () => {
   const ocr = readFileSync(new URL("../lib/transfer/pdf-ocr.ts", import.meta.url), "utf8");
   const core = readFileSync(new URL("../lib/transfer/core.ts", import.meta.url), "utf8");
   const store = readFileSync(new URL("../lib/transfer/store.ts", import.meta.url), "utf8");
+  const polish = readFileSync(new URL("../app/transfer/transfer-polish-enhancer.tsx", import.meta.url), "utf8");
   assert.match(ocr, /OCR_REQUEST_INTERVAL_MS = 20_000/u);
-  assert.match(ocr, /OCR_PAGES_PER_RUN = 5/u);
+  assert.match(ocr, /OCR_PAGES_PER_RUN = 2/u);
+  assert.match(ocr, /RENDER_WIDTH = 1_200/u);
+  assert.match(ocr, /OCR_TIMEOUT_MS = 90_000/u);
   assert.match(ocr, /DEFAULT_QUOTA_RETRY_MS = 180_000/u);
   assert.match(ocr, /partial,/u);
   assert.doesNotMatch(ocr, /first: endPage/u);
+  assert.match(ocr, /thinkingLevel: "minimal"/u);
+  assert.doesNotMatch(ocr, /temperature:/u);
   assert.match(ocr, /\[không đọc rõ\]/u);
   assert.match(core, /transferOcrLeasePath/u);
   assert.match(store, /transferOcrCheckpointPath/u);
+  assert.match(polish, /transferOcrNeedsRun/u);
 });
