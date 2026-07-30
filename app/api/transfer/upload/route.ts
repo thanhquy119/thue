@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import {
   TRANSFER_ALLOWED_CONTENT_TYPES,
   TRANSFER_MAX_FILE_BYTES,
@@ -12,6 +12,7 @@ import {
   transferUploadChunkPrefix,
   transferUploadSessionPath,
   validTransferKey,
+  type TransferFileRecord,
   type TransferUploadSession,
 } from "@/lib/transfer/core";
 import { processTransferredBlob, readTransferredFile } from "@/lib/transfer/store";
@@ -104,6 +105,38 @@ async function readSession(mailboxId: string, fileId: string) {
   return text ? JSON.parse(text) as TransferUploadSession : null;
 }
 
+function needsBackgroundOcr(record: TransferFileRecord) {
+  const isPdf = record.contentType.includes("pdf") || record.name.toLocaleLowerCase("en").endsWith(".pdf");
+  return isPdf && record.status !== "ready" && (
+    record.status === "processing" ||
+    record.status === "ocr_partial" ||
+    (record.extractionMethod === "pdf_ocr" && record.processedPages < record.totalPages)
+  );
+}
+
+function scheduleBackgroundOcr(requestUrl: string, key: string, record: TransferFileRecord) {
+  if (!needsBackgroundOcr(record)) return;
+  after(async () => {
+    const endpoint = new URL(`/api/transfer/files/${encodeURIComponent(record.id)}/process`, requestUrl);
+    endpoint.searchParams.set("background", "1");
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "x-transfer-key": key },
+        cache: "no-store",
+      });
+      if (!response.ok && response.status !== 202) {
+        console.error("[transfer-ocr-start]", JSON.stringify({ fileId: record.id, status: response.status }));
+      }
+    } catch (error) {
+      console.error("[transfer-ocr-start]", JSON.stringify({
+        fileId: record.id,
+        message: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  });
+}
+
 async function initializeUpload(parsed: ReturnType<typeof parseUploadRequest>) {
   if (!storageConfigured()) throw new Error("Kho file riêng tư chưa được cấu hình.");
   const pathname = transferUploadSessionPath(parsed.mailboxId, parsed.fileId);
@@ -137,9 +170,10 @@ async function initializeUpload(parsed: ReturnType<typeof parseUploadRequest>) {
   }, { headers: NO_STORE_HEADERS });
 }
 
-async function completeUpload(parsed: ReturnType<typeof parseUploadRequest>) {
+async function completeUpload(parsed: ReturnType<typeof parseUploadRequest>, requestUrl: string) {
   const existing = await readTransferredFile(parsed.key, parsed.fileId).catch(() => null);
   if (existing?.meta) {
+    scheduleBackgroundOcr(requestUrl, parsed.key, existing.meta);
     return NextResponse.json({ ok: true, file: existing.meta, backend: storageBackend() }, { headers: NO_STORE_HEADERS });
   }
   const session = await readSession(parsed.mailboxId, parsed.fileId);
@@ -197,6 +231,7 @@ async function completeUpload(parsed: ReturnType<typeof parseUploadRequest>) {
       sourcePathname,
       sourceBuffer,
     });
+    scheduleBackgroundOcr(requestUrl, parsed.key, record);
     return NextResponse.json({ ok: true, file: record, backend: storageBackend() }, { headers: NO_STORE_HEADERS });
   } finally {
     await del([
@@ -212,7 +247,7 @@ export async function POST(request: Request) {
     const body = await request.json() as UploadRequest;
     const parsed = parseUploadRequest(body);
     if (body.action === "init") return initializeUpload(parsed);
-    if (body.action === "complete") return completeUpload(parsed);
+    if (body.action === "complete") return completeUpload(parsed, request.url);
     throw new Error("Thao tác tải file không hợp lệ.");
   } catch (error) {
     return errorResponse(error);
