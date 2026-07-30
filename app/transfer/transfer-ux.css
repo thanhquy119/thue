@@ -32,22 +32,47 @@
   font-weight: 780;
 }
 
-/* Danh sách dài cuộn trong thẻ thay vì kéo toàn bộ trang xuống. */
+/* Danh sách dài cuộn trong thẻ thay vì kéo toàn bộ trang xuống. Không để nội dung
+   cuộn lọt vào vùng padding phía trên tiêu đề sticky. */
 .transferList {
   max-height: min(390px, 58vh);
+  padding: 0 !important;
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
+  background: #fff;
+  isolation: isolate;
 }
 
 .transferListHeading {
   position: sticky;
   top: 0;
-  z-index: 4;
-  margin-bottom: 0;
-  padding-bottom: 14px;
+  z-index: 20;
+  min-height: 82px;
+  margin: 0 !important;
+  padding: 24px 24px 14px;
+  box-sizing: border-box;
   background: #fff;
+  box-shadow: 0 1px 0 var(--line), 0 12px 22px -22px rgba(18, 45, 35, .55);
+}
+
+.transferListHeading::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: #fff;
+}
+
+.transferList > .transferFile {
+  margin-inline: 24px;
+}
+
+.transferList > .transferEmpty {
+  margin: 0;
+  padding: 18px 24px 28px;
 }
 
 .transferListHeading + .transferFile,
@@ -96,5 +121,18 @@
 @media (max-width: 760px) {
   .transferList {
     max-height: min(340px, 54vh);
+  }
+
+  .transferListHeading {
+    min-height: 76px;
+    padding: 20px 20px 13px;
+  }
+
+  .transferList > .transferFile {
+    margin-inline: 20px;
+  }
+
+  .transferList > .transferEmpty {
+    padding-inline: 20px;
   }
 }
