@@ -1,3 +1,5 @@
+import { stripOcrPageMarkers } from "./ocr-page-cleanup.ts";
+
 export const OCR_REQUEST_INTERVAL_MS = 7_000;
 export const OCR_PAGES_PER_RUN = 6;
 export const OCR_CONCURRENCY = 3;
@@ -109,14 +111,14 @@ async function ocrImage(image: Buffer, page: number, totalPages: number) {
           systemInstruction: {
             parts: [{
               text:
-                "Bạn là bộ OCR tiếng Việt. Chép trung thực nội dung nhìn thấy trong ảnh tài liệu, theo đúng thứ tự đọc. Bỏ watermark, số trang đứng riêng, khung và yếu tố trang trí. Giữ tiêu đề, bảng, danh sách, dấu câu và xuống dòng hợp lý. Không tự bổ sung nội dung; chỗ không chắc ghi [không đọc rõ].",
+                "Bạn là bộ OCR tiếng Việt. Chép trung thực nội dung nhìn thấy trong ảnh tài liệu, theo đúng thứ tự đọc. Không chép số trang ở mép trên hoặc mép dưới, kể cả dạng Trang N, Page N, - N -, N/M hoặc số đứng riêng. Bỏ watermark, khung và yếu tố trang trí. Giữ tiêu đề, bảng, danh sách, dấu câu và xuống dòng hợp lý. Không tự bổ sung nội dung; chỗ không chắc ghi [không đọc rõ].",
             }],
           },
           contents: [{
             role: "user",
             parts: [
               { inline_data: { mime_type: "image/png", data: image.toString("base64") } },
-              { text: `OCR trang ${page}/${totalPages}. Chỉ trả về phần chữ, không Markdown và không giải thích.` },
+              { text: `OCR trang ${page}/${totalPages}. Chỉ trả về phần chữ, không Markdown, không giải thích và không kèm số trang.` },
             ],
           }],
           generationConfig: {
@@ -140,12 +142,12 @@ async function ocrImage(image: Buffer, page: number, totalPages: number) {
       }
       throw new Error(`OCR trang ${page}/${totalPages} thất bại: ${message}`);
     }
-    const text = normalizeText(
+    const text = stripOcrPageMarkers(normalizeText(
       (payload.candidates?.[0]?.content?.parts ?? [])
         .filter((part) => part.thought !== true && typeof part.text === "string")
         .map((part) => part.text as string)
         .join("\n"),
-    );
+    ), page);
     if (!text) throw new Error(`Không OCR được trang ${page}/${totalPages}.`);
     return text;
   } catch (error) {
