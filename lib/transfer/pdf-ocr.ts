@@ -1,4 +1,5 @@
 import { stripOcrPageMarkers } from "./ocr-page-cleanup.ts";
+import { structureTransferredTables } from "./structured-text.ts";
 
 export const OCR_REQUEST_INTERVAL_MS = 7_000;
 export const OCR_PAGES_PER_RUN = 6;
@@ -111,14 +112,14 @@ async function ocrImage(image: Buffer, page: number, totalPages: number) {
           systemInstruction: {
             parts: [{
               text:
-                "Bạn là bộ OCR tiếng Việt. Chép trung thực nội dung nhìn thấy trong ảnh tài liệu, theo đúng thứ tự đọc. Không chép số trang ở mép trên hoặc mép dưới, kể cả dạng Trang N, Page N, - N -, N/M hoặc số đứng riêng. Bỏ watermark, khung và yếu tố trang trí. Giữ tiêu đề, bảng, danh sách, dấu câu và xuống dòng hợp lý. Không tự bổ sung nội dung; chỗ không chắc ghi [không đọc rõ].",
+                "Bạn là bộ OCR tiếng Việt. Chép trung thực nội dung nhìn thấy trong ảnh tài liệu, theo đúng thứ tự đọc. Không chép số trang ở mép trên hoặc mép dưới, kể cả dạng Trang N, Page N, - N -, N/M hoặc số đứng riêng. Bỏ watermark, khung và yếu tố trang trí. Không tự bổ sung nội dung; chỗ không chắc ghi [không đọc rõ]. Khi gặp bảng, tuyệt đối không dồn bảng thành một đoạn văn. Bao mỗi bảng bằng một dòng [[TABLE]] và một dòng [[/TABLE]]. Bên trong, mỗi hàng của bảng phải nằm trên đúng một dòng, các ô phân cách bằng dấu |, giữ ô trống bằng hai dấu | liền nhau, giữ nguyên thứ tự cột và cả các hàng tiêu đề nhiều tầng. Bảng tiếp nối sang trang khác vẫn phải được ghi thành một khối bảng riêng của trang đang thấy. Không dùng dòng gạch phân cách kiểu Markdown.",
             }],
           },
           contents: [{
             role: "user",
             parts: [
               { inline_data: { mime_type: "image/png", data: image.toString("base64") } },
-              { text: `OCR trang ${page}/${totalPages}. Chỉ trả về phần chữ, không Markdown, không giải thích và không kèm số trang.` },
+              { text: `OCR trang ${page}/${totalPages}. Chỉ trả về phần chữ, không giải thích và không kèm số trang. Chỉ được dùng [[TABLE]], [[/TABLE]] và dấu | khi cần biểu diễn bảng.` },
             ],
           }],
           generationConfig: {
@@ -142,12 +143,12 @@ async function ocrImage(image: Buffer, page: number, totalPages: number) {
       }
       throw new Error(`OCR trang ${page}/${totalPages} thất bại: ${message}`);
     }
-    const text = stripOcrPageMarkers(normalizeText(
+    const text = structureTransferredTables(stripOcrPageMarkers(normalizeText(
       (payload.candidates?.[0]?.content?.parts ?? [])
         .filter((part) => part.thought !== true && typeof part.text === "string")
         .map((part) => part.text as string)
         .join("\n"),
-    ), page);
+    ), page));
     if (!text) throw new Error(`Không OCR được trang ${page}/${totalPages}.`);
     return text;
   } catch (error) {
@@ -274,7 +275,7 @@ export async function ocrTransferredPdfBatch(
 export async function ocrTransferredPdf(buffer: Buffer) {
   const batch = await ocrTransferredPdfBatch(buffer, { maxPages: Number.MAX_SAFE_INTEGER });
   return {
-    text: normalizeText(batch.pages.map((page) => page.text).join("\n\n")),
+    text: structureTransferredTables(normalizeText(batch.pages.map((page) => page.text).join("\n\n"))),
     totalPages: batch.totalPages,
     processedPages: batch.processedThrough,
     truncated: !batch.complete,

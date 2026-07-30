@@ -1,0 +1,137 @@
+.transferStandalonePwa .transferHero h1::after {
+  content: "Gửi file sang máy tính.";
+}
+
+.transferDocumentDetail .transferTableBlock {
+  margin-block: 10px 18px;
+  border-color: rgba(18, 45, 35, 0.2);
+  box-shadow: 0 14px 38px rgba(18, 45, 35, 0.08);
+}
+
+.transferDocumentDetail .transferStructuredTable {
+  position: relative;
+  background: #fff;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(18, 45, 35, 0.32) transparent;
+}
+
+.transferDocumentDetail .transferStructuredTable::-webkit-scrollbar {
+  height: 10px;
+}
+
+.transferDocumentDetail .transferStructuredTable::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: rgba(18, 45, 35, 0.32);
+  background-clip: padding-box;
+}
+
+.transferDocumentDetail .transferStructuredRow {
+  min-width: max(100%, var(--transfer-table-min-width, 680px));
+  grid-template-columns: var(
+    --transfer-table-template,
+    repeat(var(--transfer-table-columns), minmax(120px, 1fr))
+  );
+  align-items: stretch;
+}
+
+.transferDocumentDetail .transferStructuredCell {
+  min-height: 48px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  background: #fff;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+.transferDocumentDetail .transferStructuredHeaderRow .transferStructuredCell,
+.transferDocumentDetail .transferStructuredRow:first-child .transferStructuredCell {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  align-items: center;
+  background: #edf4f0;
+  color: #123126;
+  font-weight: 820;
+  text-align: center;
+}
+
+.transferDocumentDetail .transferStructuredRepeatedHeader .transferStructuredCell {
+  border-top: 2px solid rgba(18, 45, 35, 0.24);
+}
+
+.transferDocumentDetail .transferStructuredDataRow:nth-child(even) .transferStructuredCell {
+  background: #fbfcfb;
+}
+
+.transferDocumentDetail .transferStructuredDataRow:hover .transferStructuredCell {
+  background: #f2f7f4;
+}
+
+.transferDocumentDetail .transferStructuredStickyCell {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  box-shadow: 1px 0 0 var(--line), 10px 0 18px -18px rgba(18, 45, 35, 0.7);
+}
+
+.transferDocumentDetail .transferStructuredHeaderRow .transferStructuredStickyCell,
+.transferDocumentDetail .transferStructuredRow:first-child .transferStructuredStickyCell {
+  z-index: 5;
+  background: #e5f0ea;
+}
+
+.transferDocumentDetail .transferStructuredNumericCell {
+  justify-content: flex-end;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.transferDocumentDetail .transferStructuredEmptyCell {
+  background-image: linear-gradient(
+    135deg,
+    transparent 0,
+    transparent 48%,
+    rgba(18, 45, 35, 0.035) 49%,
+    rgba(18, 45, 35, 0.035) 51%,
+    transparent 52%,
+    transparent 100%
+  );
+}
+
+.transferDocumentDetail .transferWideTable .transferStructuredCell {
+  font-size: 12.5px;
+}
+
+.transferDocumentDetail .transferVeryWideTable .transferStructuredCell {
+  padding: 10px 11px;
+  font-size: 12px;
+}
+
+.transferDocumentDetail .transferTableContext {
+  background: linear-gradient(180deg, #fbfdfc, #f5f9f7);
+  color: #173b2e;
+}
+
+@media (max-width: 760px) {
+  .transferDocumentDetail .transferTableBlock {
+    width: calc(100vw - 28px);
+    max-width: none;
+    margin-left: calc(50% - 50vw + 14px);
+    border-radius: 14px;
+  }
+
+  .transferDocumentDetail .transferStructuredCell {
+    min-height: 44px;
+    padding: 10px 11px;
+    font-size: 12px;
+  }
+
+  .transferDocumentDetail .transferStructuredHeaderRow .transferStructuredCell,
+  .transferDocumentDetail .transferStructuredRow:first-child .transferStructuredCell {
+    font-size: 11.5px;
+  }
+}

@@ -1,4 +1,5 @@
 import { splitLegalBlocks, type LegalBlock } from "../legal/format.ts";
+import { structureTransferredTables } from "./structured-text.ts";
 
 export type TransferReaderItem = {
   id: string;
@@ -42,7 +43,7 @@ export function splitTransferredReaderItems(
   input: string,
   fallbackTitle = "Nội dung tài liệu",
 ): TransferReaderItem[] {
-  const text = normalizeReaderText(input);
+  const text = normalizeReaderText(structureTransferredTables(input));
   if (!text) return [];
 
   const articlePattern = /^\s*Điều\s+(\d+[a-zA-Z]?)\s*[.:]?\s*([^\n]*)$/gimu;
