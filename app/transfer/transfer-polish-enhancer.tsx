@@ -1,23 +1,18 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import {
+  transferOcrNeedsRun,
+  transferOcrRetryPending,
+  type TransferOcrScheduleFile,
+} from "@/lib/transfer/ocr-scheduling";
 
 const STORAGE_KEY = "thue-transfer-key-v1";
 const REFRESH_MS = 4_000;
-const STALE_PROCESSING_MS = 120_000;
 
-type TransferFileSummary = {
+type TransferFileSummary = TransferOcrScheduleFile & {
   id: string;
-  name: string;
-  contentType: string;
-  updatedAt: string;
-  status: "processing" | "ready" | "ocr_partial" | "unsupported" | "failed";
-  extractionMethod: string | null;
   textPathname: string | null;
-  totalPages: number;
-  processedPages: number;
-  error: string | null;
-  nextOcrAttemptAt?: string | null;
 };
 
 type TransferListPayload = {
@@ -28,32 +23,6 @@ function readyToOpen(file: TransferFileSummary) {
   if (file.status !== "ready" || !file.textPathname) return false;
   if (file.extractionMethod !== "pdf_ocr") return true;
   return file.totalPages > 0 && file.processedPages === file.totalPages;
-}
-
-function futureTimestamp(value: string | null | undefined) {
-  const timestamp = value ? Date.parse(value) : Number.NaN;
-  return Number.isFinite(timestamp) && timestamp > Date.now();
-}
-
-function staleProcessing(file: TransferFileSummary) {
-  const updatedAt = Date.parse(file.updatedAt);
-  return file.status === "processing" &&
-    Number.isFinite(updatedAt) &&
-    Date.now() - updatedAt >= STALE_PROCESSING_MS;
-}
-
-function retryableFailure(file: TransferFileSummary) {
-  return file.status === "failed" &&
-    /429|quota|rate limit|quá thời gian|timeout|fetch failed|network/iu.test(file.error ?? "");
-}
-
-function needsFullPdfOcr(file: TransferFileSummary) {
-  const pdf = file.contentType.includes("pdf") || file.name.toLocaleLowerCase("en").endsWith(".pdf");
-  if (!pdf || futureTimestamp(file.nextOcrAttemptAt)) return false;
-  return file.status === "ocr_partial" ||
-    staleProcessing(file) ||
-    retryableFailure(file) ||
-    (file.extractionMethod === "pdf_ocr" && file.status !== "ready" && file.processedPages < file.totalPages);
 }
 
 function sizeText(value: string) {
@@ -76,7 +45,7 @@ function statusCopy(file: TransferFileSummary, size: string) {
       : `${size} · Đang OCR chậm ${progressText(file)}`;
   }
   if (file.status === "ocr_partial") {
-    return futureTimestamp(file.nextOcrAttemptAt)
+    return transferOcrRetryPending(file.nextOcrAttemptAt)
       ? `${size} · Tạm nghỉ để bảo vệ hạn mức · ${progressText(file)}`
       : `${size} · Chờ lượt OCR tiếp theo · ${progressText(file)}`;
   }
@@ -163,7 +132,7 @@ export default function TransferPolishEnhancer() {
         const files = payload.files ?? [];
         filesRef.current = files;
         schedulePolish();
-        const nextFile = files.find(needsFullPdfOcr);
+        const nextFile = files.find((file) => transferOcrNeedsRun(file));
         if (nextFile) void processPdf(nextFile, key);
       } catch {
         schedulePolish();
