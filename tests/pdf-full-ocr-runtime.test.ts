@@ -30,6 +30,7 @@ test("runtime OCR processes every page sequentially beyond the former six-page l
   const originalKey = process.env.GEMINI_API_KEY;
   const originalInterval = process.env.TRANSFER_OCR_TEST_INTERVAL_MS;
   const seenPages: number[] = [];
+  const generationConfigs: Array<Record<string, unknown>> = [];
   let active = 0;
   let maxActive = 0;
 
@@ -41,10 +42,12 @@ test("runtime OCR processes every page sequentially beyond the former six-page l
     try {
       const body = JSON.parse(String(init?.body ?? "{}")) as {
         contents?: Array<{ parts?: Array<{ text?: string }> }>;
+        generationConfig?: Record<string, unknown>;
       };
       const instruction = body.contents?.[0]?.parts?.find((part) => part.text)?.text ?? "";
       const page = Number(instruction.match(/OCR trang (\d+)\//u)?.[1] ?? 0);
       seenPages.push(page);
+      generationConfigs.push(body.generationConfig ?? {});
       await new Promise((resolve) => setTimeout(resolve, 2));
       return new Response(JSON.stringify({
         candidates: [{ content: { parts: [{ text: `Nội dung OCR trang ${page}` }] } }],
@@ -66,6 +69,10 @@ test("runtime OCR processes every page sequentially beyond the former six-page l
     assert.equal(maxActive, 1);
     assert.match(result.text, /Nội dung OCR trang 1/u);
     assert.match(result.text, /Nội dung OCR trang 8/u);
+    assert.equal(generationConfigs.length, 8);
+    assert.deepEqual(generationConfigs[0]?.thinkingConfig, { thinkingLevel: "minimal" });
+    assert.equal(generationConfigs[0]?.maxOutputTokens, 6_144);
+    assert.equal(Object.hasOwn(generationConfigs[0] ?? {}, "temperature"), false);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalKey == null) delete process.env.GEMINI_API_KEY;
