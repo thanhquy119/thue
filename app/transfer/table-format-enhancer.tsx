@@ -65,15 +65,21 @@ function columnWidths(rows: HTMLElement[], columnCount: number) {
   return widths;
 }
 
+function responsiveTemplate(widths: number[]) {
+  return widths
+    .map((width) => `minmax(${width}px, ${Math.max(1, width / 120).toFixed(2)}fr)`)
+    .join(" ");
+}
+
 function polishTable(table: HTMLElement) {
-  if (table.dataset.transferTablePolished === "2") return;
+  if (table.dataset.transferTablePolished === "3") return;
   const rows = [...table.querySelectorAll<HTMLElement>(":scope > .transferStructuredRow")];
   if (!rows.length) return;
   const columnCount = Math.max(...rows.map((row) => cellsOf(row).length));
   if (columnCount < 2) return;
 
   const widths = columnWidths(rows, columnCount);
-  table.style.setProperty("--transfer-table-template", widths.map((width) => `${width}px`).join(" "));
+  table.style.setProperty("--transfer-table-template", responsiveTemplate(widths));
   table.style.setProperty("--transfer-table-min-width", `${widths.reduce((sum, width) => sum + width, 0)}px`);
   table.classList.toggle("transferWideTable", columnCount >= 7);
   table.classList.toggle("transferVeryWideTable", columnCount >= 14);
@@ -101,7 +107,7 @@ function polishTable(table: HTMLElement) {
   const block = table.closest<HTMLElement>(".transferTableBlock");
   block?.classList.toggle("transferTableHasManyColumns", columnCount >= 7);
   block?.setAttribute("aria-label", `Bảng gồm ${rows.length} hàng và ${columnCount} cột. Chạm để nghe nội dung bảng.`);
-  table.dataset.transferTablePolished = "2";
+  table.dataset.transferTablePolished = "3";
 }
 
 function polishAllTables() {
