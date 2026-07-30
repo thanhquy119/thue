@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { classifyTransferDocumentBlocks } from "../lib/transfer/document-semantics.ts";
 
 function source(path: string) {
   return readFileSync(new URL(path, import.meta.url), "utf8");
@@ -13,13 +14,34 @@ test("transfer reader wires semantic formatting for appendices and closing block
 
   assert.match(layout, /DocumentFormatEnhancer/u);
   assert.match(layout, /document-format\.css/u);
-  assert.match(enhancer, /APPENDIX_TITLE/u);
-  assert.match(enhancer, /RECIPIENTS/u);
-  assert.match(enhancer, /SIGNATURE_ROLE/u);
+  assert.match(enhancer, /classifyTransferDocumentBlocks/u);
   assert.match(enhancer, /transferSignerName/u);
   assert.match(styles, /\.transferAppendixTitle/u);
   assert.match(styles, /\.transferRecipients/u);
   assert.match(styles, /\.transferSignatureRole/u);
+});
+
+test("appendix title and attached-note lines are classified independently", () => {
+  assert.deepEqual(classifyTransferDocumentBlocks([
+    "Phụ lục II",
+    "TIÊU CHÍ PHÂN LOẠI MỨC ĐỘ RỦI RO ĐỐI VỚI NGƯỜI NỘP THUẾ",
+    "(kèm theo Thông tư số 94/2026/TT-BTC ngày 01 tháng 7 năm 2026)",
+    "Nội dung thông thường",
+  ]), ["appendix-title", "appendix-note", "appendix-note", "normal"]);
+});
+
+test("recipient and signing blocks are recognized across common administrative forms", () => {
+  assert.deepEqual(classifyTransferDocumentBlocks([
+    "Nơi nhận: - Ban Bí thư; - Thủ tướng Chính phủ; - Lưu: VT.",
+    "KT. BỘ TRƯỞNG THỨ TRƯỞNG",
+    "Cao Anh Tuấn",
+  ]), ["recipients", "signature-role", "signer-name"]);
+
+  assert.deepEqual(classifyTransferDocumentBlocks([
+    "Kính gửi: Cục Thuế các tỉnh, thành phố",
+    "THỪA LỆNH BỘ TRƯỞNG",
+    "Nguyễn Văn An",
+  ]), ["recipients", "signature-role", "signer-name"]);
 });
 
 test("table formatter preserves explicit columns and only merges structural blank cells", () => {
