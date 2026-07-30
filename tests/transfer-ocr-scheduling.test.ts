@@ -51,6 +51,11 @@ test("retries transient failures but not completed or non-PDF files", () => {
 
 test("uses a reusable R2 OCR lease instead of the tombstoned legacy path", () => {
   const store = readFileSync(new URL("../lib/transfer/store.ts", import.meta.url), "utf8");
+  const releaseStart = store.indexOf("async function releaseOcrLease");
+  const releaseEnd = store.indexOf("\n}\n", releaseStart);
+  const releaseSource = releaseStart >= 0 && releaseEnd > releaseStart
+    ? store.slice(releaseStart, releaseEnd + 3)
+    : "";
   assert.equal(
     transferOcrLeasePath("a".repeat(64)),
     "transfers/ocr-global-lease-v2.json",
@@ -58,8 +63,6 @@ test("uses a reusable R2 OCR lease instead of the tombstoned legacy path", () =>
   assert.match(store, /export function expireOcrLeaseRecord/u);
   assert.match(store, /expiresAt: new Date\(0\)\.toISOString\(\)/u);
   assert.match(store, /await writeJson\(pathname, expireOcrLeaseRecord\(lease\)\)/u);
-  assert.doesNotMatch(
-    store.match(/async function releaseOcrLease[\s\S]*?\n}\n/u)?.[0] ?? "",
-    /await del\(pathname\)/u,
-  );
+  assert.ok(releaseSource);
+  assert.doesNotMatch(releaseSource, /await del\(pathname\)/u);
 });
