@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-test("upload starts a server-side OCR chain that survives closing the transfer page", () => {
+test("upload and existing pending files start a server-side OCR chain that survives closing the transfer page", () => {
   const uploadRoute = readFileSync(new URL("../app/api/transfer/upload/route.ts", import.meta.url), "utf8");
   const processRoute = readFileSync(new URL("../app/api/transfer/files/[fileId]/process/route.ts", import.meta.url), "utf8");
 
@@ -10,7 +10,8 @@ test("upload starts a server-side OCR chain that survives closing the transfer p
   assert.match(uploadRoute, /scheduleBackgroundOcr\(requestUrl, parsed\.key, record\)/u);
   assert.match(uploadRoute, /searchParams\.set\("background", "1"\)/u);
 
-  assert.match(processRoute, /after\(async \(\) => runBackgroundOcr/u);
+  const backgroundStarts = processRoute.match(/after\(async \(\) => runBackgroundOcr/g) ?? [];
+  assert.ok(backgroundStarts.length >= 2);
   assert.match(processRoute, /BACKGROUND_BUDGET_MS = 235_000/u);
   assert.match(processRoute, /nextOcrAttemptAt/u);
   assert.match(processRoute, /await handoffBackgroundOcr/u);
