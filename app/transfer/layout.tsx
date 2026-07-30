@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import "./qr-scanner.css";
 import "./icon-reset.css";
 import "./reader-overrides.css";
+import "./transfer-table-format.css";
 import "./spreadsheet-workspace.css";
 import PwaContextEnhancer from "./pwa-context-enhancer";
 import QrScannerEnhancer from "./qr-scanner-enhancer";
