@@ -1,11 +1,11 @@
 export const OCR_REQUEST_INTERVAL_MS = 20_000;
-export const OCR_PAGES_PER_RUN = 5;
-const RENDER_WIDTH = 1_440;
-const OCR_TIMEOUT_MS = 45_000;
+export const OCR_PAGES_PER_RUN = 2;
+const RENDER_WIDTH = 1_200;
+const OCR_TIMEOUT_MS = 90_000;
 const DEFAULT_OCR_MODEL = "gemini-3.5-flash-lite";
 const DEFAULT_QUOTA_RETRY_MS = 180_000;
 
-type GeminiPayload = {
+ type GeminiPayload = {
   candidates?: Array<{ content?: { parts?: Array<{ text?: unknown; thought?: unknown }> } }>;
   error?: { message?: unknown };
 };
@@ -107,7 +107,10 @@ async function ocrImage(image: Buffer, page: number, totalPages: number) {
               { text: `OCR trang ${page}/${totalPages}. Chỉ trả về phần chữ, không Markdown và không giải thích.` },
             ],
           }],
-          generationConfig: { temperature: 0, maxOutputTokens: 8_192 },
+          generationConfig: {
+            maxOutputTokens: 6_144,
+            thinkingConfig: { thinkingLevel: "minimal" },
+          },
         }),
       },
     );
@@ -119,6 +122,9 @@ async function ocrImage(image: Buffer, page: number, totalPages: number) {
           "OCR đang tạm nghỉ để bảo vệ hạn mức. Hệ thống sẽ tự tiếp tục sau.",
           quotaRetryMs(response, message),
         );
+      }
+      if (response.status === 408 || response.status >= 500) {
+        throw new Error(`OCR network tạm thời ở trang ${page}/${totalPages}: ${message}`);
       }
       throw new Error(`OCR trang ${page}/${totalPages} thất bại: ${message}`);
     }
@@ -145,6 +151,7 @@ export async function ocrTransferredPdfBatch(
   options: {
     startPage?: number;
     maxPages?: number;
+    onPageStart?: (page: number, totalPages: number) => Promise<void> | void;
     onPage?: (page: TransferOcrPage, totalPages: number) => Promise<void> | void;
   } = {},
 ): Promise<TransferOcrBatch> {
@@ -192,8 +199,9 @@ export async function ocrTransferredPdfBatch(
       const elapsed = Date.now() - lastRequestStartedAt;
       await wait(Math.max(0, requestIntervalMs() - elapsed));
     }
-    lastRequestStartedAt = Date.now();
     const pageNumber = startPage + index;
+    await options.onPageStart?.(pageNumber, totalPages);
+    lastRequestStartedAt = Date.now();
     const image = Buffer.from(pages[index].data);
     pages[index] = { data: new Uint8Array() };
     const page = { page: pageNumber, text: await ocrImage(image, pageNumber, totalPages) };
