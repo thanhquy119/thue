@@ -109,6 +109,6 @@ test("PDF OCR is deliberately slow, globally serialized and checkpointed", () =>
   assert.match(ocr, /OCR_PAGES_PER_RUN = 5/u);
   assert.match(ocr, /DEFAULT_QUOTA_RETRY_MS = 180_000/u);
   assert.match(ocr, /\[không đọc rõ\]/u);
-  assert.match(core, /transferGlobalOcrLeasePath/u);
+  assert.match(core, /transferOcrLeasePath/u);
   assert.match(store, /transferOcrCheckpointPath/u);
 });
