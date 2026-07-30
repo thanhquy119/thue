@@ -7,7 +7,7 @@ test("scanned PDFs use a globally serialized rate far below fifteen requests per
   const core = readFileSync(new URL("../lib/transfer/core.ts", import.meta.url), "utf8");
   const extraction = readFileSync(new URL("../lib/transfer/extraction.ts", import.meta.url), "utf8");
   assert.match(ocr, /OCR_REQUEST_INTERVAL_MS = 20_000/u);
-  assert.match(ocr, /OCR_PAGES_PER_RUN = 5/u);
+  assert.match(ocr, /OCR_PAGES_PER_RUN = 2/u);
   assert.match(ocr, /DEFAULT_QUOTA_RETRY_MS = 180_000/u);
   assert.match(ocr, /let lastRequestStartedAt = startPage > 1 \? Date\.now\(\) : 0/u);
   assert.match(ocr, /await wait\(Math\.max\(0, requestIntervalMs\(\) - elapsed\)\)/u);
@@ -25,6 +25,7 @@ test("PDF OCR is checkpointed, serialized and cannot open before every page comp
   const processRoute = readFileSync(new URL("../app/api/transfer/files/[fileId]/process/route.ts", import.meta.url), "utf8");
   const readRoute = readFileSync(new URL("../app/api/transfer/files/[fileId]/route.ts", import.meta.url), "utf8");
   const enhancer = readFileSync(new URL("../app/transfer/transfer-polish-enhancer.tsx", import.meta.url), "utf8");
+  const scheduling = readFileSync(new URL("../lib/transfer/ocr-scheduling.ts", import.meta.url), "utf8");
   assert.match(store, /transferOcrCheckpointPath/u);
   assert.match(store, /acquireOcrLease/u);
   assert.match(store, /OCR_CHECKPOINT_VERSION/u);
@@ -34,8 +35,10 @@ test("PDF OCR is checkpointed, serialized and cannot open before every page comp
   assert.match(processRoute, /status === "ocr_partial"/u);
   assert.match(readRoute, /file\.meta\.status !== "ready"/u);
   assert.match(readRoute, /status: 409/u);
-  assert.match(enhancer, /const nextFile = files\.find\(needsFullPdfOcr\)/u);
+  assert.match(enhancer, /files\.find\(\(file\) => transferOcrNeedsRun\(file\)\)/u);
   assert.match(enhancer, /processingRef = useRef<string \| null>\(null\)/u);
+  assert.match(scheduling, /TRANSFER_OCR_STALE_PROCESSING_MS = 180_000/u);
+  assert.match(scheduling, /file\.status === "processing"/u);
   assert.doesNotMatch(enhancer, /new Set<string>/u);
   assert.match(enhancer, /readyToOpen/u);
 });
