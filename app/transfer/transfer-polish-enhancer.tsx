@@ -65,8 +65,16 @@ function progressText(file: TransferFileSummary) {
 }
 
 function statusCopy(file: TransferFileSummary, size: string) {
-  if (readyToOpen(file)) return size;
-  if (file.status === "processing") return `${size} · Đang OCR chậm ${progressText(file)}`;
+  if (readyToOpen(file)) {
+    return file.extractionMethod === "spreadsheet"
+      ? `${size} · Sẵn sàng xem và xử lý`
+      : `${size} · Sẵn sàng đọc và nghe`;
+  }
+  if (file.status === "processing") {
+    return file.extractionMethod === "spreadsheet"
+      ? `${size} · Đang đọc cấu trúc bảng tính`
+      : `${size} · Đang OCR chậm ${progressText(file)}`;
+  }
   if (file.status === "ocr_partial") {
     return futureTimestamp(file.nextOcrAttemptAt)
       ? `${size} · Tạm nghỉ để bảo vệ hạn mức · ${progressText(file)}`
@@ -78,6 +86,15 @@ function statusCopy(file: TransferFileSummary, size: string) {
 
 function updateText(element: Element | null, value: string) {
   if (element && element.textContent !== value) element.textContent = value;
+}
+
+function updateUploadMessage(files: TransferFileSummary[]) {
+  const message = document.querySelector<HTMLElement>(".transferMessage");
+  const newest = files[0];
+  if (!message || newest?.extractionMethod !== "spreadsheet" || newest.status !== "ready") return;
+  if (/chuyển thành nội dung có thể nghe|chuyển được nội dung/iu.test(message.textContent ?? "")) {
+    updateText(message, "Đã tải bảng tính. File sẵn sàng để xem và xử lý.");
+  }
 }
 
 function polishTransferDom(files: TransferFileSummary[]) {
@@ -92,6 +109,7 @@ function polishTransferDom(files: TransferFileSummary[]) {
     const size = sizeText(meta?.textContent ?? "");
     updateText(meta, statusCopy(file, size));
   });
+  updateUploadMessage(files);
 }
 
 export default function TransferPolishEnhancer() {
