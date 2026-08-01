@@ -10,6 +10,7 @@ const NUMBER_TOKEN = /\b\d+(?:[.,/]\d+)*(?:\s*%|\s*(?:đồng|triệu|tỷ))?\b/
 const SPACE = /\s+/gu;
 
 export const VIDEO_TEMPLATE_VERSION = "legal-video-v1";
+export const VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v2";
 
 export function normalizeVideoEvidence(value: string) {
   return value
@@ -32,6 +33,31 @@ export function videoLengthProfile(length: LegalVideoLength) {
 
 function provisionLabel(provision: ProvisionDetail) {
   return [provision.identifier, provision.heading].filter(Boolean).join(" — ") || "Nội dung văn bản";
+}
+
+function evidenceSourceChars(document: DocumentDetail) {
+  const provisions = document.provisions.filter((provision) => provision.official_text.trim());
+  if (!provisions.length) return document.official_text.trim().length;
+  return provisions.reduce(
+    (total, provision) => total + provisionLabel(provision).length + provision.official_text.trim().length + 2,
+    0,
+  );
+}
+
+function clamp(value: number, minimum: number, maximum: number) {
+  return Math.max(minimum, Math.min(maximum, value));
+}
+
+/**
+ * Video ngắn không cần gọi mô hình cho từng Điều nhỏ. Kích thước phần được
+ * điều chỉnh theo tổng dung lượng nguồn để giữ số lượt Gemini trong giới hạn
+ * hợp lý, trong khi bản chi tiết vẫn dùng phần nhỏ hơn để giữ điều kiện/ngoại lệ.
+ */
+export function videoEvidenceSectionChars(document: DocumentDetail, length: LegalVideoLength) {
+  const sourceChars = Math.max(1, evidenceSourceChars(document));
+  if (length === "brief") return clamp(Math.ceil(sourceChars / 12), 12_000, 30_000);
+  if (length === "detailed") return clamp(Math.ceil(sourceChars / 28), 8_500, 18_000);
+  return clamp(Math.ceil(sourceChars / 18), 10_000, 24_000);
 }
 
 function appendProvision(
