@@ -11,6 +11,7 @@ const sandboxBundleDir = "/vercel/sandbox/remotion-bundle";
 const reusableKey = `legal-video/snapshots/by-template/${VIDEO_TEMPLATE_VERSION}.json`;
 const enabled = process.env.VIDEO_EXPERIMENT_ENABLED === "true" || process.env.VERCEL_ENV !== "production";
 const decoder = new TextDecoder();
+const temporarySmokeJobId = "6e3c154f-3390-49d2-8ee3-fb42701e1b75";
 
 if (!enabled) {
   console.log("[video-snapshot] Bỏ qua vì VIDEO_EXPERIMENT_ENABLED chưa bật trên production.");
@@ -20,6 +21,35 @@ if (!enabled) {
 if (!r2Configured()) {
   console.log("[video-snapshot] Bỏ qua vì R2 chưa được cấu hình đầy đủ.");
   process.exit(0);
+}
+
+async function reportTemporarySmokeJob() {
+  const bytes = await readR2Object(`legal-video/jobs/${temporarySmokeJobId}.json`);
+  if (!bytes?.byteLength) {
+    console.log(`[video-smoke] Không tìm thấy job ${temporarySmokeJobId}.`);
+    return;
+  }
+  const job = JSON.parse(decoder.decode(bytes)) as {
+    status?: unknown;
+    progress?: unknown;
+    message?: unknown;
+    sceneCount?: unknown;
+    ttsChunkCount?: unknown;
+    completedTtsChunks?: unknown;
+    videoUrl?: unknown;
+    error?: unknown;
+  };
+  console.log(`[video-smoke] ${JSON.stringify({
+    jobId: temporarySmokeJobId,
+    status: job.status,
+    progress: job.progress,
+    message: job.message,
+    sceneCount: job.sceneCount,
+    ttsChunkCount: job.ttsChunkCount,
+    completedTtsChunks: job.completedTtsChunks,
+    videoReady: typeof job.videoUrl === "string" && Boolean(job.videoUrl),
+    error: job.error,
+  })}`);
 }
 
 async function readSnapshot(pathname: string) {
@@ -38,6 +68,8 @@ async function writeSnapshot(pathname: string, payload: Record<string, unknown>)
     cacheControlMaxAge: 0,
   });
 }
+
+await reportTemporarySmokeJob();
 
 const reusableSnapshotId = await readSnapshot(reusableKey);
 if (reusableSnapshotId) {
