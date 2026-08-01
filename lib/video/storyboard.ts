@@ -4,10 +4,10 @@ import {
   extractVideoNumberTokens,
   normalizeVideoEvidence,
   sourceContainsEvidence,
-  validateGroundedScene,
   videoLengthProfile,
   VIDEO_TEMPLATE_VERSION,
 } from "./chunking";
+import {repairVideoEvidenceCoverage} from "./coverage-repair";
 import type {
   LegalVideoCategory,
   LegalVideoEvidencePoint,
@@ -116,7 +116,7 @@ const EVIDENCE_SCHEMA = {
   properties: {
     points: {
       type: "array",
-      maxItems: 7,
+      maxItems: 8,
       items: {
         type: "object",
         properties: {
@@ -132,18 +132,21 @@ const EVIDENCE_SCHEMA = {
   required: ["points"],
 };
 
-function evidencePrompt(document: DocumentDetail, section: LegalVideoEvidenceSection) {
-  return [
-    `VĂN BẢN: ${document.number} — ${document.title}`,
-    `PHẦN: ${section.heading}`,
-    "",
-    "NỘI DUNG NGUỒN:",
-    section.text,
-  ].join("\n");
-}
-
 function validCategory(value: unknown): value is LegalVideoCategory {
   return typeof value === "string" && CATEGORIES.includes(value as LegalVideoCategory);
+}
+
+function fallbackCategory(sentence: string): LegalVideoCategory {
+  if (/hiệu lực/iu.test(sentence)) return "effective";
+  if (/thời hạn|ngày làm việc|chậm nhất/iu.test(sentence)) return "deadline";
+  if (/\d+\s*%|\d[\d.,]*\s*(?:đồng|triệu|tỷ)|mức phạt/iu.test(sentence)) return "numbers";
+  if (/hồ sơ|thủ tục|trình tự/iu.test(sentence)) return "procedure";
+  if (/đối tượng|phạm vi|áp dụng đối với/iu.test(sentence)) return "scope";
+  if (/sửa đổi|bổ sung|thay thế|bãi bỏ/iu.test(sentence)) return "changes";
+  if (/phụ lục|mẫu số|biểu mẫu/iu.test(sentence)) return "forms";
+  if (/chuyển tiếp/iu.test(sentence)) return "transition";
+  if (/phải|trách nhiệm|nghĩa vụ/iu.test(sentence)) return "obligation";
+  return "overview";
 }
 
 function fallbackEvidence(section: LegalVideoEvidenceSection) {
@@ -151,22 +154,12 @@ function fallbackEvidence(section: LegalVideoEvidenceSection) {
     .replace(/\s+/gu, " ")
     .split(/(?<=[.!?;:])\s+/gu)
     .map((sentence) => sentence.trim())
-    .filter((sentence) => sentence.length >= 45 && sentence.length <= 360)
-    .slice(0, 4);
+    .filter((sentence) => sentence.length >= 35 && sentence.length <= 420)
+    .slice(0, 6);
   return sentences.map((sentence, index): LegalVideoEvidencePoint => ({
     id: `${section.id}-fallback-${index + 1}`,
-    category: /hiệu lực/iu.test(sentence)
-      ? "effective"
-      : /thời hạn|ngày làm việc|chậm nhất/iu.test(sentence)
-        ? "deadline"
-        : /hồ sơ|thủ tục|trình tự/iu.test(sentence)
-          ? "procedure"
-          : /đối tượng|phạm vi/iu.test(sentence)
-            ? "scope"
-            : /phải|trách nhiệm|nghĩa vụ/iu.test(sentence)
-              ? "obligation"
-              : "overview",
-    importance: index === 0 ? 4 : 3,
+    category: fallbackCategory(sentence),
+    importance: index < 2 ? 4 : 3,
     claim: sentence,
     sourceExcerpt: sentence,
     sectionId: section.id,
@@ -182,13 +175,19 @@ export async function summarizeVideoEvidenceSection(
   const raw = await callStructuredGemini(
     [
       "Bạn là biên tập viên pháp luật Việt Nam.",
-      "Chỉ chọn các ý có tác động thực tế hoặc giúp hiểu đúng phạm vi, nghĩa vụ, thủ tục, thời hạn, số liệu, hiệu lực và chuyển tiếp.",
-      "Không suy đoán. sourceExcerpt phải được chép nguyên văn liên tục từ NỘI DUNG NGUỒN, dài 25–320 ký tự.",
-      "claim phải ngắn, rõ, giữ nguyên điều kiện và ngoại lệ quan trọng. Không thêm số liệu không có trong sourceExcerpt.",
+      "Chọn đủ các ý có tác động thực tế trong phần nguồn: phạm vi, đối tượng, thay đổi, nghĩa vụ, thủ tục, thời hạn, số liệu, hiệu lực, chuyển tiếp và biểu mẫu nếu có.",
+      "Không suy đoán. sourceExcerpt phải là đoạn nguyên văn liên tục trong nguồn, dài 25–360 ký tự.",
+      "claim phải ngắn, giữ nguyên chủ thể, điều kiện, ngoại lệ và hệ quả. Không thêm số liệu không có trong sourceExcerpt.",
     ].join(" "),
-    evidencePrompt(document, section),
+    [
+      `VĂN BẢN: ${document.number} — ${document.title}`,
+      `PHẦN: ${section.heading}`,
+      "",
+      "NỘI DUNG NGUỒN:",
+      section.text,
+    ].join("\n"),
     EVIDENCE_SCHEMA,
-    2_600,
+    3_200,
   ) as {points?: Array<Record<string, unknown>>};
 
   const points = (raw.points ?? []).flatMap((point, index): LegalVideoEvidencePoint[] => {
@@ -203,7 +202,7 @@ export async function summarizeVideoEvidenceSection(
       id: `${section.id}-point-${index + 1}`,
       category: point.category,
       importance: Math.max(1, Math.min(5, Number.isFinite(importance) ? Math.round(importance) : 3)) as 1 | 2 | 3 | 4 | 5,
-      claim,
+      claim: claim.slice(0, 420),
       sourceExcerpt,
       sectionId: section.id,
       provisionIds: section.provisionIds,
@@ -212,29 +211,23 @@ export async function summarizeVideoEvidenceSection(
   return points.length ? points : fallbackEvidence(section);
 }
 
-const SCENE_SCHEMA = {
+const GROUP_SCHEMA = {
   type: "object",
   properties: {
-    scenes: {
+    groups: {
       type: "array",
       items: {
         type: "object",
         properties: {
           category: {type: "string", enum: CATEGORIES},
-          kind: {type: "string", enum: ["timeline", "audience", "change", "process", "numbers", "prepare", "summary"]},
-          eyebrow: {type: "string"},
+          evidencePointIds: {type: "array", minItems: 1, maxItems: 3, items: {type: "string"}},
           title: {type: "string"},
-          subtitle: {type: "string"},
-          bullets: {type: "array", maxItems: 3, items: {type: "string"}},
-          narration: {type: "string"},
-          captionChunks: {type: "array", minItems: 1, maxItems: 4, items: {type: "string"}},
-          evidencePointIds: {type: "array", minItems: 1, maxItems: 4, items: {type: "string"}},
         },
-        required: ["category", "kind", "eyebrow", "title", "bullets", "narration", "captionChunks", "evidencePointIds"],
+        required: ["category", "evidencePointIds", "title"],
       },
     },
   },
-  required: ["scenes"],
+  required: ["groups"],
 };
 
 function sceneKind(category: LegalVideoCategory): LegalVideoSceneKind {
@@ -264,124 +257,105 @@ function categoryEyebrow(category: LegalVideoCategory) {
   return labels[category];
 }
 
-function groupSelectedPoints(points: LegalVideoEvidencePoint[], limit: number) {
-  const byCategory = new Map<LegalVideoCategory, LegalVideoEvidencePoint[]>();
-  for (const point of [...points].sort((a, b) => b.importance - a.importance)) {
-    const group = byCategory.get(point.category) ?? [];
-    if (group.length < 3) group.push(point);
-    byCategory.set(point.category, group);
-  }
+function selectEvidence(points: LegalVideoEvidencePoint[], limit: number) {
   const selected: LegalVideoEvidencePoint[] = [];
   for (const category of CATEGORIES) {
-    const first = byCategory.get(category)?.[0];
+    const first = points
+      .filter((point) => point.category === category)
+      .sort((left, right) => right.importance - left.importance)[0];
     if (first) selected.push(first);
   }
-  const remaining = [...points]
-    .filter((point) => !selected.some((chosen) => chosen.id === point.id))
-    .sort((a, b) => b.importance - a.importance);
-  for (const point of remaining) {
+  for (const point of [...points].sort((left, right) => right.importance - left.importance)) {
     if (selected.length >= limit) break;
-    selected.push(point);
+    if (!selected.some((existing) => existing.id === point.id)) selected.push(point);
   }
   return selected;
 }
 
-function fallbackScenes(points: LegalVideoEvidencePoint[], maxScenes: number) {
+function groupDeterministically(points: LegalVideoEvidencePoint[], maxGroups: number) {
   const groups = new Map<LegalVideoCategory, LegalVideoEvidencePoint[]>();
   for (const point of points) {
-    const group = groups.get(point.category) ?? [];
-    if (group.length < 3) group.push(point);
-    groups.set(point.category, group);
+    const current = groups.get(point.category) ?? [];
+    if (current.length < 3) current.push(point);
+    groups.set(point.category, current);
   }
-  return [...groups.entries()].slice(0, maxScenes).map(([category, group], index): LegalVideoScene => {
-    const first = group[0];
-    const bullets = group.map((point) => point.claim).slice(0, 3);
-    return {
-      id: `scene-${index + 2}`,
-      category,
-      kind: sceneKind(category),
-      eyebrow: categoryEyebrow(category),
-      title: first.claim.slice(0, 100),
-      subtitle: "",
-      bullets,
-      narration: bullets.join(". "),
-      captionChunks: bullets,
-      evidencePointIds: group.map((point) => point.id),
-      sourceExcerpt: first.sourceExcerpt,
-    };
-  });
+  return [...groups.entries()].slice(0, maxGroups).map(([category, items]) => ({
+    category,
+    evidencePointIds: items.map((point) => point.id),
+    title: items[0].claim,
+  }));
 }
 
-function scenePrompt(document: DocumentDetail, points: LegalVideoEvidencePoint[], length: LegalVideoLength) {
+async function groupEvidenceForScenes(
+  document: DocumentDetail,
+  points: LegalVideoEvidencePoint[],
+  length: LegalVideoLength,
+) {
   const profile = videoLengthProfile(length);
-  return JSON.stringify({
-    document: {
-      number: document.number,
-      title: document.title,
-      type: document.type,
-      issuer: document.issuer,
-      issuedDate: document.issued_date,
-      effectiveDate: document.effective_date,
-    },
-    target: {
-      length,
-      targetSeconds: profile.targetSeconds,
-      minScenesExcludingIntro: Math.max(4, profile.minScenes - 1),
-      maxScenesExcludingIntro: profile.maxScenes - 1,
-    },
-    evidencePoints: points.map(({id, category, importance, claim, sourceExcerpt}) => ({
-      id,
-      category,
-      importance,
-      claim,
-      sourceExcerpt,
-    })),
-  });
+  const fallback = groupDeterministically(points, profile.maxScenes - 1);
+  if (!videoGeminiConfigured()) return fallback;
+  try {
+    const raw = await callStructuredGemini(
+      [
+        "Nhóm các evidencePoint thành cảnh video pháp luật.",
+        "Không viết thêm nội dung pháp lý. Chỉ trả về category, evidencePointIds đã có và một title ngắn.",
+        "Mỗi category đang có dữ liệu phải xuất hiện ít nhất một lần, ưu tiên importance cao và giữ các điều kiện, ngoại lệ quan trọng ở cùng cảnh.",
+      ].join(" "),
+      JSON.stringify({
+        target: {
+          minGroups: Math.max(4, profile.minScenes - 2),
+          maxGroups: profile.maxScenes - 1,
+        },
+        document: {number: document.number, title: document.title},
+        evidencePoints: points.map(({id, category, importance, claim}) => ({id, category, importance, claim})),
+      }),
+      GROUP_SCHEMA,
+      3_200,
+    ) as {groups?: Array<Record<string, unknown>>};
+    const pointMap = new Map(points.map((point) => [point.id, point]));
+    const groups = (raw.groups ?? []).flatMap((group) => {
+      if (!validCategory(group.category) || !Array.isArray(group.evidencePointIds)) return [];
+      const ids = group.evidencePointIds
+        .filter((id): id is string => typeof id === "string" && pointMap.has(id))
+        .slice(0, 3);
+      if (!ids.length) return [];
+      return [{
+        category: group.category,
+        evidencePointIds: ids,
+        title: typeof group.title === "string" ? group.title.trim().slice(0, 120) : "",
+      }];
+    }).slice(0, profile.maxScenes - 1);
+    return groups.length >= Math.max(3, profile.minScenes - 3) ? groups : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
-function sanitizeScene(
-  raw: Record<string, unknown>,
+function sceneFromGroup(
+  group: {category: LegalVideoCategory; evidencePointIds: string[]; title: string},
   index: number,
   pointMap: Map<string, LegalVideoEvidencePoint>,
-  documentSource: string,
 ): LegalVideoScene | null {
-  const ids = Array.isArray(raw.evidencePointIds)
-    ? raw.evidencePointIds.filter((id): id is string => typeof id === "string" && pointMap.has(id)).slice(0, 4)
-    : [];
-  if (!ids.length || !validCategory(raw.category)) return null;
-  const points = ids.map((id) => pointMap.get(id)).filter(Boolean) as LegalVideoEvidencePoint[];
-  const title = typeof raw.title === "string" ? raw.title.trim() : "";
-  const narration = typeof raw.narration === "string" ? raw.narration.trim() : "";
-  if (!title || !narration) return null;
-  const allowedKinds: LegalVideoSceneKind[] = ["timeline", "audience", "change", "process", "numbers", "prepare", "summary"];
-  const kind = typeof raw.kind === "string" && allowedKinds.includes(raw.kind as LegalVideoSceneKind)
-    ? raw.kind as LegalVideoSceneKind
-    : sceneKind(raw.category);
-  const scene: LegalVideoScene = {
+  const points = group.evidencePointIds.map((id) => pointMap.get(id)).filter(Boolean) as LegalVideoEvidencePoint[];
+  if (!points.length) return null;
+  const bullets = points.map((point) => point.claim).slice(0, 3);
+  const title = group.title || bullets[0];
+  const numbers = extractVideoNumberTokens(title);
+  const allowed = normalizeVideoEvidence(points.map((point) => `${point.claim} ${point.sourceExcerpt}`).join(" "));
+  const safeTitle = numbers.every((token) => allowed.includes(normalizeVideoEvidence(token))) ? title : bullets[0];
+  return {
     id: `scene-${index + 2}`,
-    category: raw.category,
-    kind,
-    eyebrow: typeof raw.eyebrow === "string" && raw.eyebrow.trim()
-      ? raw.eyebrow.trim().slice(0, 70)
-      : categoryEyebrow(raw.category),
-    title: title.slice(0, 120),
-    subtitle: typeof raw.subtitle === "string" ? raw.subtitle.trim().slice(0, 160) : "",
-    bullets: Array.isArray(raw.bullets)
-      ? raw.bullets.filter((item): item is string => typeof item === "string" && Boolean(item.trim())).map((item) => item.trim().slice(0, 170)).slice(0, 3)
-      : [],
-    narration: narration.slice(0, 1_300),
-    captionChunks: Array.isArray(raw.captionChunks)
-      ? raw.captionChunks.filter((item): item is string => typeof item === "string" && Boolean(item.trim())).map((item) => item.trim().slice(0, 180)).slice(0, 4)
-      : [narration.slice(0, 180)],
-    evidencePointIds: ids,
+    category: group.category,
+    kind: sceneKind(group.category),
+    eyebrow: categoryEyebrow(group.category),
+    title: safeTitle.slice(0, 120),
+    subtitle: "",
+    bullets,
+    narration: bullets.join(". "),
+    captionChunks: bullets.map((bullet) => bullet.slice(0, 180)),
+    evidencePointIds: points.map((point) => point.id),
     sourceExcerpt: points[0].sourceExcerpt,
   };
-  const allowedEvidence = points.map((point) => `${point.claim}\n${point.sourceExcerpt}`).join("\n");
-  if (extractVideoNumberTokens([scene.title, scene.subtitle, ...scene.bullets, scene.narration].join(" "))
-    .some((token) => !normalizeVideoEvidence(`${allowedEvidence}\n${documentSource}`).includes(normalizeVideoEvidence(token)))) {
-    return null;
-  }
-  return validateGroundedScene(scene, documentSource).length ? null : scene;
 }
 
 function introScene(document: DocumentDetail): LegalVideoScene {
@@ -428,49 +402,30 @@ export async function createLegalVideoStoryboard(input: {
 }): Promise<LegalVideoStoryboard> {
   const {document, length, voice} = input;
   const profile = videoLengthProfile(length);
-  const source = `${document.title}\n${document.number}\n${document.issued_date ?? ""}\n${document.effective_date ?? ""}\n${document.official_text}`;
+  const repaired = repairVideoEvidenceCoverage(document, input.points);
   const unique = new Map<string, LegalVideoEvidencePoint>();
-  for (const point of input.points) {
+  for (const point of repaired) {
     const key = normalizeVideoEvidence(`${point.category}:${point.claim}`);
     if (!unique.has(key)) unique.set(key, point);
   }
-  const selected = groupSelectedPoints([...unique.values()], profile.maxEvidencePoints);
+  const selected = selectEvidence([...unique.values()], profile.maxEvidencePoints);
   const pointMap = new Map(selected.map((point) => [point.id, point]));
-  let bodyScenes: LegalVideoScene[] = [];
-
-  if (videoGeminiConfigured() && selected.length) {
-    try {
-      const raw = await callStructuredGemini(
-        [
-          "Bạn đang dựng storyboard video tóm tắt văn bản pháp luật bằng tiếng Việt.",
-          "Chỉ dùng evidencePoints được cung cấp. Mỗi cảnh phải ghi đúng evidencePointIds làm căn cứ.",
-          "Không thêm nghĩa vụ, con số, ngày tháng hoặc lợi ích chưa có trong evidencePoints.",
-          "Giữ đầy đủ điều kiện, ngoại lệ quan trọng; ưu tiên các ý importance cao và bảo đảm mỗi category đang có dữ liệu xuất hiện ít nhất một lần.",
-          "Mỗi cảnh có tối đa 3 bullet, lời đọc tự nhiên 1–4 câu, captionChunks ngắn và không hiện chữ nguồn hay lời cảnh báo.",
-        ].join(" "),
-        scenePrompt(document, selected, length),
-        SCENE_SCHEMA,
-        length === "detailed" ? 7_500 : 5_000,
-      ) as {scenes?: Array<Record<string, unknown>>};
-      bodyScenes = (raw.scenes ?? [])
-        .map((scene, index) => sanitizeScene(scene, index, pointMap, source))
-        .filter((scene): scene is LegalVideoScene => Boolean(scene))
-        .slice(0, profile.maxScenes - 1);
-    } catch {
-      bodyScenes = [];
-    }
-  }
-
-  if (bodyScenes.length < Math.max(3, profile.minScenes - 2)) {
-    bodyScenes = fallbackScenes(selected, profile.maxScenes - 1);
-  }
+  const groups = await groupEvidenceForScenes(document, selected, length);
+  let bodyScenes = groups
+    .map((group, index) => sceneFromGroup(group, index, pointMap))
+    .filter((scene): scene is LegalVideoScene => Boolean(scene));
 
   const covered = new Set(bodyScenes.map((scene) => scene.category));
   for (const category of new Set(selected.map((point) => point.category))) {
     if (covered.has(category) || bodyScenes.length >= profile.maxScenes - 1) continue;
     const point = selected.find((item) => item.category === category);
     if (!point) continue;
-    bodyScenes.push(...fallbackScenes([point], 1).map((scene) => ({...scene, id: `scene-${bodyScenes.length + 2}`})));
+    const scene = sceneFromGroup(
+      {category, evidencePointIds: [point.id], title: point.claim},
+      bodyScenes.length,
+      pointMap,
+    );
+    if (scene) bodyScenes.push(scene);
     covered.add(category);
   }
 
