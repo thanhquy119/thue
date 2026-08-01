@@ -1,7 +1,6 @@
-import {createHash, createHmac} from "node:crypto";
 import {r2Configured} from "@/lib/storage/r2-blob-compat";
 
-const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+const encoder = new TextEncoder();
 
 function config() {
   const endpoint = process.env.R2_ENDPOINT?.trim().replace(/\/+$/u, "");
@@ -32,18 +31,37 @@ function encodePath(pathname: string) {
     .join("/");
 }
 
-function sha256(value: string) {
-  return createHash("sha256").update(value).digest("hex");
+function arrayBuffer(value: Uint8Array) {
+  const copy = new Uint8Array(value.byteLength);
+  copy.set(value);
+  return copy.buffer;
 }
 
-function hmac(key: string | Buffer, value: string) {
-  return createHmac("sha256", key).update(value).digest();
+function hex(value: ArrayBuffer | Uint8Array) {
+  const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function signingKey(secret: string, date: string, region: string) {
-  const dateKey = hmac(`AWS4${secret}`, date);
-  const regionKey = hmac(dateKey, region);
-  const serviceKey = hmac(regionKey, "s3");
+async function sha256(value: string) {
+  return hex(await crypto.subtle.digest("SHA-256", encoder.encode(value)));
+}
+
+async function hmac(key: string | Uint8Array, value: string) {
+  const keyBytes = typeof key === "string" ? encoder.encode(key) : key;
+  const imported = await crypto.subtle.importKey(
+    "raw",
+    arrayBuffer(keyBytes),
+    {name: "HMAC", hash: "SHA-256"},
+    false,
+    ["sign"],
+  );
+  return new Uint8Array(await crypto.subtle.sign("HMAC", imported, encoder.encode(value)));
+}
+
+async function signingKey(secret: string, date: string, region: string) {
+  const dateKey = await hmac(`AWS4${secret}`, date);
+  const regionKey = await hmac(dateKey, region);
+  const serviceKey = await hmac(regionKey, "s3");
   return hmac(serviceKey, "aws4_request");
 }
 
@@ -56,7 +74,7 @@ function canonicalQuery(entries: Array<[string, string]>) {
     .join("&");
 }
 
-function presignedR2Url(pathname: string, expiresSeconds: number) {
+async function presignedR2Url(pathname: string, expiresSeconds: number) {
   const current = config();
   if (!current) throw new Error("R2 chưa được cấu hình đầy đủ cho media video.");
   const encodedObjectPath = encodePath(pathname);
@@ -87,15 +105,16 @@ function presignedR2Url(pathname: string, expiresSeconds: number) {
     "AWS4-HMAC-SHA256",
     amzDate,
     scope,
-    sha256(canonicalRequest),
+    await sha256(canonicalRequest),
   ].join("\n");
-  const signature = createHmac("sha256", signingKey(current.secretAccessKey, dateStamp, current.region))
-    .update(stringToSign)
-    .digest("hex");
+  const signature = hex(await hmac(
+    await signingKey(current.secretAccessKey, dateStamp, current.region),
+    stringToSign,
+  ));
   return `${current.endpoint}${canonicalUri}?${query}&X-Amz-Signature=${signature}`;
 }
 
-export function signedR2MediaUrl(pathname: string, expiresSeconds = 21_600) {
+export async function signedR2MediaUrl(pathname: string, expiresSeconds = 21_600) {
   const current = config();
   if (!current) throw new Error("R2 chưa được cấu hình đầy đủ cho media video.");
   if (current.publicBaseUrl) return `${current.publicBaseUrl}/${encodePath(pathname)}`;
@@ -103,7 +122,7 @@ export function signedR2MediaUrl(pathname: string, expiresSeconds = 21_600) {
 }
 
 export async function readR2Object(pathname: string) {
-  const response = await fetch(presignedR2Url(pathname, 300), {cache: "no-store"});
+  const response = await fetch(await presignedR2Url(pathname, 300), {cache: "no-store"});
   if (response.status === 404) return null;
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
@@ -113,7 +132,7 @@ export async function readR2Object(pathname: string) {
 }
 
 export async function r2MediaObjectExists(pathname: string) {
-  const response = await fetch(presignedR2Url(pathname, 300), {
+  const response = await fetch(await presignedR2Url(pathname, 300), {
     method: "GET",
     headers: {range: "bytes=0-0"},
     cache: "no-store",
@@ -129,4 +148,3 @@ export async function r2MediaObjectExists(pathname: string) {
 
 export const R2_MEDIA_CACHE_SECONDS = 31_536_000;
 export const R2_MEDIA_SIGNED_URL_SECONDS = 21_600;
-export {EMPTY_SHA256};
