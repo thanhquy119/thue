@@ -49,11 +49,29 @@ type PublicJob = {
 };
 
 const TERMINAL = new Set(["ready", "failed"]);
+const LAST_JOB_KEY = "thue-ro:last-video-job";
+const JOB_HISTORY_KEY = "thue-ro:video-job-history";
 
 function dateLabel(value: string | null) {
   if (!value) return "Chưa xác định";
   const [year, month, day] = value.split("-");
   return year && month && day ? `${day}/${month}/${year}` : value;
+}
+
+function rememberJob(jobId: string) {
+  try {
+    localStorage.setItem(LAST_JOB_KEY, jobId);
+    const current = JSON.parse(localStorage.getItem(JOB_HISTORY_KEY) || "[]") as unknown;
+    const history = Array.isArray(current)
+      ? current.filter((item): item is string => typeof item === "string" && item !== jobId)
+      : [];
+    localStorage.setItem(JOB_HISTORY_KEY, JSON.stringify([jobId, ...history].slice(0, 10)));
+    const url = new URL(window.location.href);
+    url.searchParams.set("job", jobId);
+    window.history.replaceState(null, "", url);
+  } catch {
+    // Job vẫn chạy khi trình duyệt chặn localStorage.
+  }
 }
 
 export function VideoMakerClient() {
@@ -68,6 +86,7 @@ export function VideoMakerClient() {
   const [creating, setCreating] = useState(false);
   const [job, setJob] = useState<PublicJob | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resumedRef = useRef(false);
 
   useEffect(() => {
     fetch("/api/videos/capabilities", {cache: "no-store"})
@@ -90,6 +109,7 @@ export function VideoMakerClient() {
       if (!response.ok) throw new Error(payload.error || "Không đọc được tiến độ video.");
       const next = payload.job as PublicJob;
       setJob(next);
+      rememberJob(next.jobId);
       if (!TERMINAL.has(next.status)) {
         pollRef.current = setTimeout(() => void pollJob(jobId), 3_000);
       }
@@ -99,6 +119,18 @@ export function VideoMakerClient() {
     }
   }, []);
 
+  useEffect(() => {
+    if (resumedRef.current) return;
+    resumedRef.current = true;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const jobId = params.get("job") || localStorage.getItem(LAST_JOB_KEY);
+      if (jobId && /^[0-9a-f-]{20,64}$/iu.test(jobId)) void pollJob(jobId);
+    } catch {
+      // Không có job cần khôi phục.
+    }
+  }, [pollJob]);
+
   const searchDocument = useCallback(async (forcedQuery?: string) => {
     const value = (forcedQuery ?? query).trim();
     if (!value) return;
@@ -106,7 +138,6 @@ export function VideoMakerClient() {
     setSearchError("");
     setDocument(null);
     setCandidates([]);
-    setJob(null);
     try {
       const response = await fetch("/api/search", {
         method: "POST",
@@ -151,6 +182,7 @@ export function VideoMakerClient() {
       }
       const next = payload.job as PublicJob;
       setJob(next);
+      rememberJob(next.jobId);
       if (!TERMINAL.has(next.status)) void pollJob(next.jobId);
     } catch (error) {
       setSearchError(error instanceof Error ? error.message : "Không khởi động được video.");
@@ -220,15 +252,15 @@ export function VideoMakerClient() {
           <span>02</span>
           <div>
             <h2>Chọn cách tóm tắt</h2>
-            <p>Bản tiêu chuẩn được ưu tiên vì cân bằng độ đầy đủ và thời lượng xem.</p>
+            <p>Bản tiêu chuẩn được ưu tiên để phủ đủ các nhóm ý chính mà vẫn dễ theo dõi.</p>
           </div>
         </div>
 
         <div className="video-maker-option-group" role="radiogroup" aria-label="Độ dài video">
           {([
-            ["brief", "Ngắn", "Khoảng 60–90 giây"],
-            ["standard", "Tiêu chuẩn", "Khoảng 2–3 phút"],
-            ["detailed", "Chi tiết", "Khoảng 4–6 phút"],
+            ["brief", "Ngắn", "60–90 giây · ưu tiên ý quan trọng"],
+            ["standard", "Tiêu chuẩn", "2–3 phút · đủ các nhóm ý chính"],
+            ["detailed", "Chi tiết", "4–6 phút · nhiều điều kiện và ngoại lệ"],
           ] as const).map(([value, label, note]) => (
             <label key={value} className={length === value ? "is-selected" : ""}>
               <input type="radio" name="length" value={value} checked={length === value} onChange={() => setLength(value)} />
@@ -269,7 +301,7 @@ export function VideoMakerClient() {
           <span>03</span>
           <div>
             <h2>Tiến độ xử lý</h2>
-            <p>Có thể đóng trang sau khi job được tạo; workflow vẫn tiếp tục ở chế độ nền.</p>
+            <p>Có thể đóng trang sau khi job được tạo; mở lại trang sẽ tự khôi phục tiến độ gần nhất.</p>
           </div>
         </div>
 
