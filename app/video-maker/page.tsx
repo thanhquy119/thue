@@ -7,7 +7,13 @@ export const metadata: Metadata = {
   description: "Tìm văn bản pháp luật và tạo video tóm tắt bằng pipeline serverless.",
 };
 
-export default function VideoMakerPage() {
+type VideoMakerPageProps = {
+  searchParams: Promise<{query?: string | string[]}>;
+};
+
+export default async function VideoMakerPage({searchParams}: VideoMakerPageProps) {
+  const params = await searchParams;
+  const initialQuery = Array.isArray(params.query) ? params.query[0] : params.query;
   return (
     <main className="video-maker-page">
       <div className="video-maker-shell">
@@ -22,7 +28,7 @@ export default function VideoMakerPage() {
             tạo giọng tiếng Việt, dựng video ở chế độ nền và trả lại tệp MP4.
           </p>
         </header>
-        <VideoMakerClient />
+        <VideoMakerClient initialQuery={(initialQuery || "").slice(0, 300)} />
       </div>
     </main>
   );
