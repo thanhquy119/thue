@@ -21,8 +21,11 @@
     "verify": "npm run lint && npm run typecheck && npm run build"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1094.0",
+    "@aws-sdk/s3-request-presigner": "3.1094.0",
     "@e965/xlsx": "0.20.3",
     "@napi-rs/canvas": "0.1.80",
+    "@remotion/lambda": "4.0.503",
     "@vercel/blob": "2.6.1",
     "jszip": "3.10.1",
     "mammoth": "1.10.0",
