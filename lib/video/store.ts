@@ -1,6 +1,6 @@
 import type {DocumentDetail} from "@/lib/legal/types";
 import {put, storageConfigured} from "@/lib/storage/r2-blob-compat";
-import {readR2Object} from "./r2-media";
+import {readR2Object, r2MediaObjectExists} from "./r2-media";
 import type {
   LegalVideoJob,
   LegalVideoPublicJob,
@@ -49,7 +49,16 @@ export function legalVideoStoreConfigured() {
 }
 
 export async function readLegalVideoJob(jobId: string) {
-  return readJson<LegalVideoJob>(jobPath(jobId));
+  const job = await readJson<LegalVideoJob>(jobPath(jobId));
+  if (!job || job.status === "ready" || !job.videoPath || !job.videoUrl) return job;
+  if (!(await r2MediaObjectExists(job.videoPath))) return job;
+  return {
+    ...job,
+    status: "ready",
+    progress: 100,
+    message: "Video tóm tắt đã sẵn sàng.",
+    error: null,
+  };
 }
 
 export async function writeLegalVideoJob(job: LegalVideoJob) {
