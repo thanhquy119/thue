@@ -1,7 +1,7 @@
 import {hasGeminiConfig} from "@/lib/legal/gemini";
 import {azureTtsConfigured} from "./azure-tts";
-import {videoAwsConfigured} from "./aws-assets";
-import {remotionLambdaConfigured} from "./remotion-renderer";
+import {videoBlobConfigured} from "./blob-assets";
+import {remotionVercelConfigured} from "./remotion-renderer";
 import {legalVideoStoreConfigured} from "./store";
 import type {LegalVideoCapabilities} from "./types";
 
@@ -14,23 +14,23 @@ export function legalVideoCapabilities(): LegalVideoCapabilities {
   const storage = legalVideoStoreConfigured();
   const gemini = hasGeminiConfig();
   const azureTts = azureTtsConfigured();
-  const aws = videoAwsConfigured();
-  const remotion = remotionLambdaConfigured();
+  const blob = videoBlobConfigured();
+  const sandbox = remotionVercelConfigured();
   const missing = [
     !enabled ? "VIDEO_EXPERIMENT_ENABLED" : "",
-    !storage ? "R2 hoặc Vercel Blob" : "",
+    !storage ? "R2 hoặc Vercel Blob cho trạng thái job" : "",
     !gemini ? "GEMINI_API_KEY" : "",
     !azureTts ? "AZURE_SPEECH_KEY và AZURE_SPEECH_REGION" : "",
-    !aws ? "AWS và VIDEO_ASSET_BUCKET" : "",
-    !remotion ? "REMOTION_FUNCTION_NAME và REMOTION_SERVE_URL" : "",
+    !blob ? "BLOB_READ_WRITE_TOKEN" : "",
+    !sandbox ? "Vercel Sandbox" : "",
   ].filter(Boolean);
   return {
     enabled,
     storage,
     gemini,
     azureTts,
-    aws,
-    remotion,
+    blob,
+    sandbox,
     ready: !missing.length,
     missing,
     defaultVoice: "female",
