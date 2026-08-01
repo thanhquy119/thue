@@ -26,11 +26,31 @@ import type {
   LegalVideoVoice,
 } from "@/lib/video/types";
 
-const TTS_MAX_ATTEMPTS = 5;
+const GEMINI_MAX_ATTEMPTS = 24;
+const TTS_MAX_ATTEMPTS = 20;
 const RENDER_MAX_POLLS = 240;
 
 function now() {
   return new Date().toISOString();
+}
+
+function geminiPacingSeconds() {
+  const configured = Number(process.env.VIDEO_GEMINI_MIN_INTERVAL_MS || 5_000);
+  const milliseconds = Number.isFinite(configured) ? Math.max(4_200, configured) : 5_000;
+  return Math.max(5, Math.ceil(milliseconds / 1_000));
+}
+
+function geminiRetrySeconds(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const explicit = message.match(/retry(?:\s+in|\s+after)?\s+(\d+(?:\.\d+)?)\s*s/iu);
+  const explicitSeconds = explicit ? Math.ceil(Number(explicit[1])) + 2 : 0;
+  if (/429|quota|rate.?limit|resource.?exhausted|too many requests/iu.test(message)) {
+    return Math.max(65, explicitSeconds || 0);
+  }
+  if (/500|502|503|504|timeout|timed out|abort|temporar/iu.test(message)) {
+    return Math.max(12, explicitSeconds || 0);
+  }
+  return 0;
 }
 
 function ttsPacingSeconds() {
@@ -40,7 +60,7 @@ function ttsPacingSeconds() {
 }
 
 function retrySeconds(milliseconds: number) {
-  return Math.max(2, Math.min(180, Math.ceil(milliseconds / 1_000)));
+  return Math.max(2, Math.min(300, Math.ceil(milliseconds / 1_000)));
 }
 
 function renderMessage(stage: string, progress: number) {
@@ -74,17 +94,38 @@ export async function legalVideoGenerationWorkflow(
     if (!sections.length) throw new Error("Toàn văn chưa có đủ nội dung để tạo video.");
     const points: LegalVideoEvidencePoint[] = [];
     for (let index = 0; index < sections.length; index += 1) {
-      const sectionPoints = await summarizeSectionStep(document, sections[index]);
+      let sectionPoints: LegalVideoEvidencePoint[] | null = null;
+      for (let attempt = 1; attempt <= GEMINI_MAX_ATTEMPTS; attempt += 1) {
+        try {
+          sectionPoints = await summarizeSectionStep(document, sections[index]);
+          break;
+        } catch (error) {
+          const waitSeconds = geminiRetrySeconds(error);
+          if (!waitSeconds || attempt === GEMINI_MAX_ATTEMPTS) throw error;
+          await patchJobStep(job.jobId, {
+            status: "summarizing",
+            message: `Đang chờ hạn mức AI rồi tiếp tục phần ${index + 1}/${sections.length}; tiến độ hiện tại được giữ nguyên…`,
+            error: null,
+          });
+          await sleep(`${waitSeconds} seconds`);
+        }
+      }
+      if (!sectionPoints) throw new Error("Chưa phân tích được một phần của văn bản.");
       points.push(...sectionPoints);
       const progress = 6 + Math.round(((index + 1) / sections.length) * 28);
       await patchJobStep(job.jobId, {
         status: "summarizing",
         progress,
         message: `Đã phân tích ${index + 1}/${sections.length} phần của văn bản…`,
+        error: null,
       });
+      if (index < sections.length - 1) {
+        await sleep(`${geminiPacingSeconds()} seconds`);
+      }
     }
     if (!points.length) throw new Error("Chưa trích xuất được ý chính có dẫn chứng từ toàn văn.");
 
+    await sleep(`${geminiPacingSeconds()} seconds`);
     const storyboard = await createStoryboardStep({
       document,
       points,
@@ -99,6 +140,7 @@ export async function legalVideoGenerationWorkflow(
       message: `Đã tạo ${storyboard.scenes.length} cảnh; đang chuẩn bị giọng đọc tiếng Việt…`,
       storyboardPath: internalStoryboardPath,
       sceneCount: storyboard.scenes.length,
+      error: null,
     });
 
     const speechChunks = storyboard.scenes.flatMap((scene) =>
@@ -134,6 +176,7 @@ export async function legalVideoGenerationWorkflow(
         await patchJobStep(job.jobId, {
           status: "synthesizing",
           message: `Dịch vụ giọng đọc đang bận; giữ nguyên tiến độ và thử lại đoạn ${index + 1}/${speechChunks.length}…`,
+          error: null,
         });
         await sleep(`${retrySeconds(result.retryAfterMs)} seconds`);
       }
@@ -152,6 +195,7 @@ export async function legalVideoGenerationWorkflow(
         completedTtsChunks: index + 1,
         progress: 40 + Math.round(((index + 1) / speechChunks.length) * 35),
         message: `Đã tạo giọng đọc ${index + 1}/${speechChunks.length} đoạn…`,
+        error: null,
       });
     }
 
@@ -172,6 +216,7 @@ export async function legalVideoGenerationWorkflow(
       renderSandboxId: render.sandboxId,
       renderCommandId: render.commandId,
       videoPath: render.outputPath,
+      error: null,
     });
 
     for (let poll = 0; poll < RENDER_MAX_POLLS; poll += 1) {
@@ -204,6 +249,7 @@ export async function legalVideoGenerationWorkflow(
         status: "rendering",
         progress: Math.max(78, Math.min(98, 78 + Math.round(progress.overallProgress * 20))),
         message: renderMessage(progress.stage, progress.overallProgress),
+        error: null,
       });
     }
     throw new Error("Quá thời gian chờ Vercel Sandbox hoàn tất video.");
@@ -211,7 +257,7 @@ export async function legalVideoGenerationWorkflow(
     const message = error instanceof Error ? error.message : "Tạo video thất bại.";
     await patchJobStep(input.jobId, {
       status: "failed",
-      message: "Không thể hoàn tất video.",
+      message: "Video chưa thể hoàn tất; toàn văn vẫn sử dụng bình thường.",
       error: message,
     }).catch(() => undefined);
     return {jobId: input.jobId, status: "failed", videoUrl: null, error: message};
