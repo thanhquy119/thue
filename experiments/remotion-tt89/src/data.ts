@@ -3,6 +3,7 @@ import type {Caption} from '@remotion/captions';
 export const FPS = 30;
 
 export type SceneKind = 'intro' | 'timeline' | 'electronic' | 'benefits' | 'prepare';
+export type SceneCard = {label: string; value: string};
 
 export type Scene = {
   id: string;
@@ -12,6 +13,10 @@ export type Scene = {
   title: string;
   subtitle?: string;
   bullets?: string[];
+  badgeTop?: string;
+  badgeBottom?: string;
+  cards?: SceneCard[];
+  tag?: string;
   audio: string;
   narration: string;
 };
@@ -24,6 +29,8 @@ export const SCENES: Scene[] = [
     eyebrow: 'VĂN BẢN THUẾ MỚI',
     title: 'Thông tư 89/2026/TT-BTC',
     subtitle: 'Ba điểm cần biết trong chưa đầy một phút',
+    badgeTop: '89',
+    badgeBottom: 'TT-BTC · 2026',
     audio: 'audio/scene-01.wav',
     narration: 'Thông tư số tám mươi chín năm hai nghìn không trăm hai mươi sáu của Bộ Tài chính có điểm gì đáng chú ý?',
   },
@@ -34,6 +41,10 @@ export const SCENES: Scene[] = [
     eyebrow: 'MỐC THỜI GIAN',
     title: 'Có hiệu lực từ 01/07/2026',
     subtitle: 'Ban hành ngày 30/06/2026',
+    cards: [
+      {label: 'BAN HÀNH', value: '30/06/2026'},
+      {label: 'HIỆU LỰC', value: '01/07/2026'},
+    ],
     bullets: [
       'Hướng dẫn Luật Quản lý thuế số 108/2025/QH15',
       'Hướng dẫn Nghị định số 252/2026/NĐ-CP',
@@ -48,6 +59,7 @@ export const SCENES: Scene[] = [
     eyebrow: 'ĐIỂM MỚI NỔI BẬT',
     title: 'Kiểm tra thuế bằng phương thức điện tử',
     subtitle: 'Lần đầu tiên có quy định cụ thể cho quy trình trên môi trường số',
+    tag: 'Hồ sơ · giải trình · trao đổi trên môi trường số',
     audio: 'audio/scene-03.wav',
     narration: 'Điểm mới nổi bật là lần đầu tiên quy định kiểm tra thuế bằng phương thức điện tử.',
   },
