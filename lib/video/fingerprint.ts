@@ -1,7 +1,7 @@
 import {createHash} from "node:crypto";
 import type {DocumentDetail} from "@/lib/legal/types";
 import type {LegalVideoLength} from "./types";
-import {VIDEO_TEMPLATE_VERSION} from "./chunking";
+import {VIDEO_PIPELINE_VERSION, VIDEO_TEMPLATE_VERSION} from "./chunking";
 
 export function videoFingerprint(input: {
   document: DocumentDetail;
@@ -10,6 +10,8 @@ export function videoFingerprint(input: {
 }) {
   return createHash("sha256")
     .update(VIDEO_TEMPLATE_VERSION)
+    .update("\0")
+    .update(VIDEO_PIPELINE_VERSION)
     .update("\0")
     .update(input.document.number)
     .update("\0")
