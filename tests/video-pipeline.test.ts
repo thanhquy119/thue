@@ -7,6 +7,7 @@ import {
   sourceContainsEvidence,
   splitVietnameseTtsText,
   validateGroundedScene,
+  videoEvidenceSectionChars,
 } from "../lib/video/chunking.ts";
 import {repairVideoEvidenceCoverage} from "../lib/video/coverage-repair.ts";
 import {wavDurationSeconds} from "../lib/video/azure-tts.ts";
@@ -133,4 +134,29 @@ test("chia toàn văn theo provision mà không làm mất thứ tự", () => {
   assert.ok(sections.length >= 2);
   assert.equal(sections[0].provisionIds[0], "p1");
   assert.equal(sections.at(-1)?.provisionIds.at(-1), "p3");
+});
+
+test("video ngắn dùng phần nguồn lớn hơn để giảm số lượt gọi mô hình", () => {
+  const longDocument: DocumentDetail = {
+    ...document,
+    official_text: Array.from({length: 60}, (_, index) => `Điều ${index + 1}. ${"Nội dung quản lý thuế và nghĩa vụ thực hiện. ".repeat(80)}`).join("\n"),
+    provisions: Array.from({length: 60}, (_, index) => ({
+      id: `long-${index + 1}`,
+      type: "article",
+      identifier: `Điều ${index + 1}`,
+      article: String(index + 1),
+      heading: `Nội dung ${index + 1}`,
+      official_text: "Nội dung quản lý thuế và nghĩa vụ thực hiện. ".repeat(80),
+      order_index: index,
+    })),
+  };
+  const briefChars = videoEvidenceSectionChars(longDocument, "brief");
+  const standardChars = videoEvidenceSectionChars(longDocument, "standard");
+  const detailedChars = videoEvidenceSectionChars(longDocument, "detailed");
+  assert.ok(briefChars >= standardChars);
+  assert.ok(standardChars >= detailedChars);
+  assert.ok(
+    buildVideoEvidenceSections(longDocument, briefChars).length
+      <= buildVideoEvidenceSections(longDocument, detailedChars).length,
+  );
 });
