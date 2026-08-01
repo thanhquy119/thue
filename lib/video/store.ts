@@ -66,7 +66,20 @@ export async function writeLegalVideoJob(job: LegalVideoJob) {
 export async function patchLegalVideoJob(jobId: string, patch: Partial<LegalVideoJob>) {
   const existing = await readLegalVideoJob(jobId);
   if (!existing) throw new Error(`Không tìm thấy job video ${jobId}.`);
-  return writeLegalVideoJob({...existing, ...patch, jobId: existing.jobId, version: 1});
+  const updated: LegalVideoJob = {
+    ...existing,
+    ...patch,
+    jobId: existing.jobId,
+    version: 1,
+  };
+  if (existing.status === "ready") {
+    updated.status = "ready";
+    updated.progress = 100;
+    updated.videoPath = existing.videoPath;
+    updated.videoUrl = existing.videoUrl;
+    updated.error = null;
+  }
+  return writeLegalVideoJob(updated);
 }
 
 export async function findReusableLegalVideoJob(fingerprint: string) {
