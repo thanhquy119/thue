@@ -63,12 +63,14 @@ jobs:
       - name: Inspect output
         run: |
           ls -lh out
-          ffprobe -v error -show_entries format=duration,size -of default=noprint_wrappers=1 out/thong-tu-89-2026.mp4
+          VIDEO_FILE="$(find out -maxdepth 1 -name '*.mp4' -print -quit)"
+          test -n "$VIDEO_FILE"
+          ffprobe -v error -show_entries format=duration,size -of default=noprint_wrappers=1 "$VIDEO_FILE"
 
       - name: Upload video artifact
         uses: actions/upload-artifact@v4
         with:
-          name: remotion-thong-tu-89-demo-v2
-          path: experiments/remotion-tt89/out/thong-tu-89-2026.mp4
+          name: remotion-legal-video-demo
+          path: experiments/remotion-tt89/out/*.mp4
           if-no-files-found: error
           retention-days: 7
