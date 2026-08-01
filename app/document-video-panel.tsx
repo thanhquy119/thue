@@ -38,20 +38,23 @@ export default function DocumentVideoPanel({documentNumber}: DocumentVideoPanelP
     setShowPlayer(false);
 
     const refresh = async () => {
+      let nextJob: LegalVideoPublicJob | null = null;
       try {
         const response = await fetch(`/api/videos/document?number=${encodeURIComponent(documentNumber)}`, {
           cache: "no-store",
         });
         const payload = (await response.json().catch(() => ({}))) as VideoLookupResponse;
         if (cancelled || requestRef.current !== requestId) return;
-        if (response.ok) setJob(payload.job ?? null);
+        if (response.ok) {
+          nextJob = payload.job ?? null;
+          setJob(nextJob);
+        }
       } catch {
         // Toàn văn vẫn hoạt động bình thường nếu trạng thái video tạm thời chưa đọc được.
       } finally {
         if (cancelled || requestRef.current !== requestId) return;
         setLoaded(true);
-        const current = job;
-        const delay = current && ACTIVE_STATUSES.has(current.status) ? 7_000 : 20_000;
+        const delay = nextJob && ACTIVE_STATUSES.has(nextJob.status) ? 7_000 : 20_000;
         timer = setTimeout(refresh, delay);
       }
     };
