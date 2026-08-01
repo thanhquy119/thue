@@ -120,6 +120,7 @@ export type LegalVideoJob = {
   completedTtsChunks: number;
   renderSandboxId: string | null;
   renderCommandId: string | null;
+  videoPath: string | null;
   videoUrl: string | null;
   error: string | null;
   createdAt: string;
@@ -128,7 +129,12 @@ export type LegalVideoJob = {
 
 export type LegalVideoPublicJob = Omit<
   LegalVideoJob,
-  "fingerprint" | "documentSnapshotPath" | "storyboardPath" | "renderSandboxId" | "renderCommandId"
+  | "fingerprint"
+  | "documentSnapshotPath"
+  | "storyboardPath"
+  | "renderSandboxId"
+  | "renderCommandId"
+  | "videoPath"
 > & {
   storyboardReady: boolean;
 };
@@ -136,8 +142,11 @@ export type LegalVideoPublicJob = Omit<
 export type LegalVideoCapabilities = {
   enabled: boolean;
   storage: boolean;
+  mediaStorage: "r2" | "none";
+  r2: boolean;
   gemini: boolean;
   azureTts: boolean;
+  // Trường tương thích tạm thời với response cũ; pipeline mới không dùng Vercel Blob.
   blob: boolean;
   sandbox: boolean;
   ready: boolean;
