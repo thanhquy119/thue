@@ -23,6 +23,19 @@ export async function GET(request: Request, context: RouteContext) {
   if (token !== expectedToken()) {
     return NextResponse.json({error: "Token smoke không hợp lệ."}, {status: 401});
   }
+
+  const url = new URL(request.url);
+  const query = url.searchParams.get("document")?.trim() || "89/2026/TT-BTC";
+  const length = url.searchParams.get("length") === "detailed"
+    ? "detailed"
+    : url.searchParams.get("length") === "standard"
+      ? "standard"
+      : "brief";
+  const voice = url.searchParams.get("voice") === "male" ? "male" : "female";
+  if (query.length < 2 || query.length > 160) {
+    return NextResponse.json({error: "Số hiệu smoke không hợp lệ."}, {status: 400});
+  }
+
   const internal = new Request(new URL("/api/videos/start", request.url), {
     method: "POST",
     headers: {
@@ -30,7 +43,7 @@ export async function GET(request: Request, context: RouteContext) {
       "user-agent": "Thue-Ro-legal-video-e2e-smoke",
       "x-forwarded-for": "127.0.0.1",
     },
-    body: JSON.stringify({query: "89/2026/TT-BTC", length: "brief", voice: "female"}),
+    body: JSON.stringify({query, length, voice}),
   });
   return startVideo(internal);
 }
