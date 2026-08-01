@@ -100,6 +100,7 @@ export function publicLegalVideoJob(job: LegalVideoJob): LegalVideoPublicJob {
     storyboardPath: internalStoryboardPath,
     renderSandboxId: _renderSandboxId,
     renderCommandId: _renderCommandId,
+    videoPath: _videoPath,
     ...publicFields
   } = job;
   return {...publicFields, storyboardReady: Boolean(internalStoryboardPath)};
