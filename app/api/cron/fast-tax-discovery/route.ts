@@ -17,6 +17,7 @@ import { discoverBroadTaxDocuments } from "@/lib/legal/recent-tax-discovery";
 import type { DurableLegalSource } from "@/lib/legal/durable-ingestion-types";
 import { dispatchPublishedDocumentNotifications } from "@/lib/notifications/push-service";
 import { classifyStrictTaxDocumentForNotification } from "@/lib/notifications/tax-notification-policy";
+import { startAutomaticLegalVideo } from "@/lib/video/automatic-generation";
 import { legalDocumentIngestionWorkflow } from "@/workflows/legal-document-ingestion";
 
 export const runtime = "nodejs";
@@ -89,6 +90,14 @@ async function dispatchReadyNotifications(numbers: string[]) {
     };
     const classification = classifyStrictTaxDocumentForNotification(notification);
     if (!classification.eligible) continue;
+
+    const video = await startAutomaticLegalVideo(revision).catch((error) => ({
+      started: false as const,
+      reused: false as const,
+      decision: null,
+      job: null,
+      error: error instanceof Error ? error.message : "Không xếp hàng được video tự động.",
+    }));
     const summary = await dispatchPublishedDocumentNotifications(notification).catch(
       (error) => ({
         eligible: true,
@@ -100,12 +109,22 @@ async function dispatchReadyNotifications(numbers: string[]) {
       "alreadyDispatched" in summary &&
       summary.alreadyDispatched === true
     ) {
+      if (video.started || video.reused || "error" in video) {
+        dispatches.push({
+          number: revision.document.number,
+          revision_id: revision.revisionId,
+          classification,
+          notification_already_dispatched: true,
+          automatic_video: video,
+        });
+      }
       continue;
     }
     dispatches.push({
       number: revision.document.number,
       revision_id: revision.revisionId,
       classification,
+      automatic_video: video,
       ...summary,
     });
   }
