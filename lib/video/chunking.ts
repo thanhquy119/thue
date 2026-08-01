@@ -1,4 +1,3 @@
-import {createHash} from "node:crypto";
 import type {DocumentDetail, ProvisionDetail} from "@/lib/legal/types";
 import type {
   LegalVideoCategory,
@@ -211,24 +210,4 @@ export function detectVideoCoverage(document: DocumentDetail): LegalVideoCategor
   if (includesAny(source, [/điều khoản chuyển tiếp/u, /chuyển tiếp/u, /trước ngày/u])) categories.add("transition");
   if (includesAny(source, [/mẫu số/u, /biểu mẫu/u, /phụ lục/u])) categories.add("forms");
   return [...categories];
-}
-
-export function videoFingerprint(input: {
-  document: DocumentDetail;
-  length: LegalVideoLength;
-  voice: string;
-}) {
-  return createHash("sha256")
-    .update(VIDEO_TEMPLATE_VERSION)
-    .update("\0")
-    .update(input.document.number)
-    .update("\0")
-    .update(input.document.last_verified_at)
-    .update("\0")
-    .update(input.document.official_text)
-    .update("\0")
-    .update(input.length)
-    .update("\0")
-    .update(input.voice)
-    .digest("hex");
 }
