@@ -56,12 +56,10 @@ function canonicalQuery(entries: Array<[string, string]>) {
     .join("&");
 }
 
-export function signedR2MediaUrl(pathname: string, expiresSeconds = 21_600) {
+function presignedR2Url(pathname: string, expiresSeconds: number) {
   const current = config();
   if (!current) throw new Error("R2 chưa được cấu hình đầy đủ cho media video.");
   const encodedObjectPath = encodePath(pathname);
-  if (current.publicBaseUrl) return `${current.publicBaseUrl}/${encodedObjectPath}`;
-
   const now = new Date();
   const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/gu, "");
   const dateStamp = amzDate.slice(0, 8);
@@ -97,8 +95,25 @@ export function signedR2MediaUrl(pathname: string, expiresSeconds = 21_600) {
   return `${current.endpoint}${canonicalUri}?${query}&X-Amz-Signature=${signature}`;
 }
 
+export function signedR2MediaUrl(pathname: string, expiresSeconds = 21_600) {
+  const current = config();
+  if (!current) throw new Error("R2 chưa được cấu hình đầy đủ cho media video.");
+  if (current.publicBaseUrl) return `${current.publicBaseUrl}/${encodePath(pathname)}`;
+  return presignedR2Url(pathname, expiresSeconds);
+}
+
+export async function readR2Object(pathname: string) {
+  const response = await fetch(presignedR2Url(pathname, 300), {cache: "no-store"});
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`R2 GET ${pathname} thất bại (${response.status})${detail ? `: ${detail.slice(0, 180)}` : ""}`);
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
 export async function r2MediaObjectExists(pathname: string) {
-  const response = await fetch(signedR2MediaUrl(pathname, 300), {
+  const response = await fetch(presignedR2Url(pathname, 300), {
     method: "GET",
     headers: {range: "bytes=0-0"},
     cache: "no-store",
