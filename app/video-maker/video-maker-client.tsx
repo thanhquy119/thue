@@ -48,6 +48,10 @@ type PublicJob = {
   error: string | null;
 };
 
+type VideoMakerClientProps = {
+  initialQuery?: string;
+};
+
 const TERMINAL = new Set(["ready", "failed"]);
 const LAST_JOB_KEY = "thue-ro:last-video-job";
 const JOB_HISTORY_KEY = "thue-ro:video-job-history";
@@ -74,8 +78,8 @@ function rememberJob(jobId: string) {
   }
 }
 
-export function VideoMakerClient() {
-  const [query, setQuery] = useState("");
+export function VideoMakerClient({initialQuery = ""}: VideoMakerClientProps) {
+  const [query, setQuery] = useState(initialQuery);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [document, setDocument] = useState<SearchDocument | null>(null);
@@ -87,6 +91,7 @@ export function VideoMakerClient() {
   const [job, setJob] = useState<PublicJob | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const resumedRef = useRef(false);
+  const initialSearchRef = useRef(false);
 
   useEffect(() => {
     fetch("/api/videos/capabilities", {cache: "no-store"})
@@ -159,6 +164,13 @@ export function VideoMakerClient() {
       setSearching(false);
     }
   }, [query]);
+
+  useEffect(() => {
+    const value = initialQuery.trim();
+    if (!value || initialSearchRef.current) return;
+    initialSearchRef.current = true;
+    void searchDocument(value);
+  }, [initialQuery, searchDocument]);
 
   const chooseCandidate = async (candidate: Candidate) => {
     setQuery(candidate.number);
