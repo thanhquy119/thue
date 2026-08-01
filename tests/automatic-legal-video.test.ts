@@ -24,7 +24,7 @@ test("both discovery paths start or reuse the video before dispatching the docum
   ]) {
     const code = source(pathname);
     const videoIndex = code.indexOf("startAutomaticLegalVideo(revision)");
-    const pushIndex = code.indexOf("dispatchPublishedDocumentNotifications(notification)");
+    const pushIndex = code.indexOf("await dispatchPublishedDocumentNotifications(notification)");
     assert.ok(videoIndex >= 0, `${pathname} must start automatic video`);
     assert.ok(pushIndex > videoIndex, `${pathname} must publish full text/video state before push`);
   }
@@ -49,7 +49,7 @@ test("main deep link preserves full text and turns a stored R2 job into an embed
   const route = source("app/api/videos/document/route.ts");
   const store = source("lib/video/store.ts");
 
-  assert.match(page, /searchParams\(window\.location\.search\)\.get\("document"\)/u);
+  assert.match(page, /URLSearchParams\(window\.location\.search\)\.get\("document"\)/u);
   assert.match(page, /<DocumentVideoPanel documentNumber=\{result\.document\.number\}/u);
   assert.match(panel, /\/api\/videos\/document\?number=/u);
   assert.match(panel, /Toàn văn đã đọc được ngay/u);
