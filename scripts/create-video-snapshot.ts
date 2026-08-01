@@ -5,6 +5,7 @@ import {put, r2Configured} from "@/lib/storage/r2-blob-compat";
 import {videoSnapshotKey} from "@/lib/video/remotion-renderer";
 
 const bundleDir = ".remotion-video";
+const sandboxBundleDir = "/vercel/sandbox/remotion-bundle";
 const enabled = process.env.VIDEO_EXPERIMENT_ENABLED === "true" || process.env.VERCEL_ENV !== "production";
 
 if (!enabled) {
@@ -41,6 +42,8 @@ try {
 
   try {
     console.log("[video-snapshot] Đang đưa bundle vào Sandbox…");
+    // @remotion/vercel 4.0.503 tạo các thư mục con nhưng chưa tạo thư mục gốc.
+    await sandbox.mkDir(sandboxBundleDir);
     await addBundleToSandbox({sandbox, bundleDir});
 
     console.log("[video-snapshot] Đang tạo snapshot không hết hạn…");
