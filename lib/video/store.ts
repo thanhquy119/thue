@@ -3,8 +3,10 @@ import {put, storageConfigured} from "@/lib/storage/r2-blob-compat";
 import {readR2Object, r2MediaObjectExists} from "./r2-media";
 import type {
   LegalVideoJob,
+  LegalVideoLength,
   LegalVideoPublicJob,
   LegalVideoStoryboard,
+  LegalVideoVoice,
 } from "./types";
 
 const encoder = new TextEncoder();
@@ -16,6 +18,25 @@ function jobPath(jobId: string) {
 
 function fingerprintPath(fingerprint: string) {
   return `legal-video/fingerprints/${fingerprint}.json`;
+}
+
+function documentNumberKey(number: string) {
+  return number
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/gu, "")
+    .replace(/đ/giu, "d")
+    .toLocaleLowerCase("vi")
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "")
+    .slice(0, 120);
+}
+
+function documentVideoIndexPath(
+  number: string,
+  length: LegalVideoLength,
+  voice: LegalVideoVoice,
+) {
+  return `legal-video/documents/${documentNumberKey(number)}/${length}-${voice}.json`;
 }
 
 export function documentSnapshotPath(fingerprint: string) {
@@ -64,11 +85,21 @@ export async function readLegalVideoJob(jobId: string): Promise<LegalVideoJob | 
 export async function writeLegalVideoJob(job: LegalVideoJob) {
   const updated = {...job, updatedAt: new Date().toISOString()};
   await writeJson(jobPath(job.jobId), updated);
-  await writeJson(fingerprintPath(job.fingerprint), {
-    jobId: job.jobId,
-    status: job.status,
-    updatedAt: updated.updatedAt,
-  });
+  await Promise.all([
+    writeJson(fingerprintPath(job.fingerprint), {
+      jobId: job.jobId,
+      status: updated.status,
+      updatedAt: updated.updatedAt,
+    }),
+    writeJson(documentVideoIndexPath(job.documentNumber, job.length, job.voice), {
+      jobId: job.jobId,
+      documentNumber: job.documentNumber,
+      length: job.length,
+      voice: job.voice,
+      status: updated.status,
+      updatedAt: updated.updatedAt,
+    }),
+  ]);
   return updated;
 }
 
@@ -99,6 +130,20 @@ export async function findReusableLegalVideoJob(fingerprint: string) {
   return ["queued", "summarizing", "synthesizing", "rendering", "ready"].includes(job.status)
     ? job
     : null;
+}
+
+export async function findLegalVideoJobForDocument(
+  documentNumber: string,
+  length: LegalVideoLength = "detailed",
+  voice: LegalVideoVoice = "female",
+) {
+  const index = await readJson<{jobId?: unknown}>(documentVideoIndexPath(documentNumber, length, voice));
+  if (!index || typeof index.jobId !== "string") return null;
+  const job = await readLegalVideoJob(index.jobId);
+  if (!job) return null;
+  if (documentNumberKey(job.documentNumber) !== documentNumberKey(documentNumber)) return null;
+  if (job.length !== length || job.voice !== voice) return null;
+  return job;
 }
 
 export async function writeLegalVideoDocument(pathname: string, document: DocumentDetail) {
