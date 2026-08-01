@@ -53,6 +53,16 @@ Pipeline không gửi toàn bộ văn bản vào một prompt duy nhất.
 
 Bản **Ngắn** ưu tiên ý quan trọng nhất. Bản **Tiêu chuẩn** cố gắng phủ các nhóm ý chính. Bản **Chi tiết** dành thêm cảnh cho điều kiện, ngoại lệ và chuyển tiếp.
 
+### Tự điều chỉnh số lượt Gemini
+
+Kích thước mỗi phần nguồn được tính từ tổng dung lượng thật của toàn văn và độ dài video:
+
+- Bản Ngắn hướng đến khoảng 12 phần lớn.
+- Bản Tiêu chuẩn hướng đến khoảng 18 phần.
+- Bản Chi tiết hướng đến khoảng 28 phần nhỏ hơn.
+
+Nhờ vậy một văn bản dài không còn mặc định phát sinh hàng chục lượt tóm tắt giống nhau cho video ngắn. Bản chi tiết vẫn giữ phần nhỏ hơn để bảo toàn điều kiện và ngoại lệ. Phiên bản pipeline được tách khỏi phiên bản template Remotion trong fingerprint; thay thuật toán tóm tắt không buộc tạo lại snapshot dựng hình.
+
 ## TTS và hạn mức
 
 - Chia tại ranh giới câu tiếng Việt.
@@ -102,7 +112,7 @@ REMOTION_LICENSE_KEY=...
 
 `R2_PUBLIC_BASE_URL` không bắt buộc. Khi chưa có custom domain công khai, server tạo URL R2 ký ngắn hạn cho Remotion và cho lượt xem video.
 
-`VIDEO_RENDER_SNAPSHOT_ID` chỉ dùng để ghi đè thủ công. Bình thường mỗi deployment tự bundle composition, tạo Sandbox snapshot không hết hạn và lưu snapshot ID vào R2 theo `VERCEL_DEPLOYMENT_ID`.
+`VIDEO_RENDER_SNAPSHOT_ID` chỉ dùng để ghi đè thủ công. Bình thường mỗi deployment dùng lại snapshot theo phiên bản template và ghi một con trỏ snapshot theo `VERCEL_DEPLOYMENT_ID` vào R2.
 
 ## Build và snapshot
 
@@ -113,7 +123,7 @@ next build
 npm run video:snapshot
 ```
 
-Snapshot script tự bỏ qua khi spike chưa bật hoặc R2 chưa được cấu hình. Khi đủ cấu hình, mỗi deployment có snapshot riêng để không phải bundle và cài lại Remotion cho từng video.
+Snapshot script tự bỏ qua khi spike chưa bật hoặc R2 chưa được cấu hình. Snapshot được tái sử dụng theo `VIDEO_TEMPLATE_VERSION`, nên các thay đổi API, Workflow hoặc giao diện không tạo thêm trình duyệt và snapshot mới nếu composition chưa đổi.
 
 ## Dữ liệu trên R2
 
@@ -126,9 +136,10 @@ legal-video/tts/<hash>.wav
 legal-video/tts-metadata/<hash>.json
 legal-video/renders/<jobId>/<document-slug>.mp4
 legal-video/snapshots/<deploymentId>.json
+legal-video/snapshots/by-template/<template-version>.json
 ```
 
-Fingerprint gồm phiên bản template, số hiệu, lần xác minh văn bản, toàn văn, độ dài và giọng. Cùng cấu hình sẽ dùng lại job/video cũ; cùng câu đọc sẽ dùng lại WAV cũ.
+Fingerprint gồm phiên bản template, phiên bản pipeline, số hiệu, lần xác minh văn bản, toàn văn, độ dài và giọng. Cùng cấu hình sẽ dùng lại job/video cũ; cùng câu đọc sẽ dùng lại WAV cũ.
 
 ## Render không phụ thuộc Vercel Blob
 
@@ -155,6 +166,8 @@ Luồng:
 5. Bấm **Tạo video tóm tắt**.
 6. Có thể đóng tab sau khi nhận job ID.
 7. Mở lại trang để tiếp tục theo dõi.
+
+Trang hỗ trợ `?query=<số hiệu>` và tự tìm văn bản ngay khi được mở. Nhờ đó trang kết quả tra cứu có thể dẫn thẳng người dùng sang màn hình tạo video mà không bắt nhập lại số hiệu.
 
 ```text
 queued → summarizing → synthesizing → rendering → ready
