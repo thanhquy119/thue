@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { verifyVideoPlanAgainstSource } from "@/lib/video/evidence";
 import {
   VIDEO_PLAN_SCHEMA,
   buildFallbackVideoPlan,
@@ -54,6 +55,11 @@ async function requestOllama(text: string, title?: string) {
     const parsed = JSON.parse(content) as unknown;
     const plan = validateVideoPlan(parsed);
     if (!plan) throw new Error("Storyboard từ Ollama không đúng schema.");
+
+    const evidence = verifyVideoPlanAgainstSource(plan, text);
+    if (!evidence.ok) {
+      throw new Error(`Storyboard không bám đủ nguồn: ${evidence.errors.slice(0, 2).join(" ")}`);
+    }
     return { plan, model };
   } finally {
     clearTimeout(timeout);
