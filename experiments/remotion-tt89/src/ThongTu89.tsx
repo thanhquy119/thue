@@ -75,7 +75,7 @@ const LaptopIcon = () => {
   );
 };
 
-const CalendarCard = ({label, value, delay}: {label: string; value: string; delay: number}) => {
+const MetricCard = ({label, value, delay}: {label: string; value: string; delay: number}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const rise = spring({frame: frame - delay, fps, config: {damping: 18, stiffness: 120}});
@@ -83,8 +83,8 @@ const CalendarCard = ({label, value, delay}: {label: string; value: string; dela
     <div
       style={{
         flex: 1,
-        minHeight: 260,
-        padding: '42px 38px',
+        minHeight: 250,
+        padding: '40px 36px',
         borderRadius: 34,
         background: COLORS.card,
         border: `2px solid ${COLORS.line}`,
@@ -94,7 +94,7 @@ const CalendarCard = ({label, value, delay}: {label: string; value: string; dela
       }}
     >
       <div style={{fontSize: 26, fontWeight: 800, color: COLORS.muted, marginBottom: 24}}>{label}</div>
-      <div style={{fontSize: 55, lineHeight: 1.05, fontWeight: 950, letterSpacing: '-0.045em', color: COLORS.ink}}>{value}</div>
+      <div style={{fontSize: 53, lineHeight: 1.05, fontWeight: 950, letterSpacing: '-0.045em', color: COLORS.ink}}>{value}</div>
     </div>
   );
 };
@@ -143,7 +143,7 @@ const SceneShell = ({scene, children}: {scene: Scene; children: ReactNode}) => {
   return (
     <AbsoluteFill
       style={{
-        padding: '170px 72px 285px',
+        padding: '170px 72px 260px',
         opacity: interpolate(enter, [0, 1], [0, 1], clamp) * exit,
       }}
     >
@@ -217,8 +217,8 @@ const IntroScene = ({scene}: {scene: Scene}) => {
           }}
         >
           <div style={{textAlign: 'center', color: 'white'}}>
-            <div style={{fontSize: 190, lineHeight: 0.9, fontWeight: 950, letterSpacing: '-0.08em'}}>89</div>
-            <div style={{marginTop: 26, fontSize: 34, fontWeight: 850, letterSpacing: '0.05em'}}>TT-BTC · 2026</div>
+            <div style={{fontSize: 190, lineHeight: 0.9, fontWeight: 950, letterSpacing: '-0.08em'}}>{scene.badgeTop ?? 'MỚI'}</div>
+            <div style={{marginTop: 26, fontSize: 34, fontWeight: 850, letterSpacing: '0.05em'}}>{scene.badgeBottom ?? 'VĂN BẢN THUẾ'}</div>
           </div>
         </div>
       </div>
@@ -230,8 +230,9 @@ const TimelineScene = ({scene}: {scene: Scene}) => (
   <SceneShell scene={scene}>
     <div style={{width: '100%'}}>
       <div style={{display: 'flex', gap: 26, marginBottom: 32}}>
-        <CalendarCard label="BAN HÀNH" value="30/06/2026" delay={8} />
-        <CalendarCard label="HIỆU LỰC" value="01/07/2026" delay={18} />
+        {(scene.cards ?? []).map((card, index) => (
+          <MetricCard key={`${card.label}-${card.value}`} label={card.label} value={card.value} delay={8 + index * 10} />
+        ))}
       </div>
       <BulletList items={scene.bullets ?? []} compact />
     </div>
@@ -242,19 +243,22 @@ const ElectronicScene = ({scene}: {scene: Scene}) => (
   <SceneShell scene={scene}>
     <div style={{display: 'grid', placeItems: 'center', width: '100%'}}>
       <LaptopIcon />
-      <div
-        style={{
-          marginTop: 8,
-          padding: '18px 30px',
-          borderRadius: 999,
-          background: '#fff3ed',
-          color: '#9d3f1d',
-          fontSize: 29,
-          fontWeight: 850,
-        }}
-      >
-        Hồ sơ · giải trình · trao đổi trên môi trường số
-      </div>
+      {scene.tag ? (
+        <div
+          style={{
+            marginTop: 8,
+            padding: '18px 30px',
+            borderRadius: 999,
+            background: '#fff3ed',
+            color: '#9d3f1d',
+            fontSize: 29,
+            fontWeight: 850,
+            textAlign: 'center',
+          }}
+        >
+          {scene.tag}
+        </div>
+      ) : null}
     </div>
   </SceneShell>
 );
@@ -267,24 +271,7 @@ const BenefitsScene = ({scene}: {scene: Scene}) => (
 
 const PrepareScene = ({scene}: {scene: Scene}) => (
   <SceneShell scene={scene}>
-    <div style={{width: '100%'}}>
-      <BulletList items={scene.bullets ?? []} compact />
-      <div
-        style={{
-          marginTop: 30,
-          padding: '22px 28px',
-          borderRadius: 24,
-          border: '2px solid rgba(227,106,62,.28)',
-          background: '#fff8f4',
-          color: '#6b321f',
-          fontSize: 26,
-          lineHeight: 1.4,
-          fontWeight: 700,
-        }}
-      >
-        Video là nội dung tóm tắt hỗ trợ tiếp cận, không thay thế toàn văn và hướng dẫn của cơ quan có thẩm quyền.
-      </div>
-    </div>
+    <BulletList items={scene.bullets ?? []} compact />
   </SceneShell>
 );
 
@@ -310,18 +297,19 @@ const CaptionBar = () => {
         position: 'absolute',
         left: 56,
         right: 56,
-        bottom: 72,
+        bottom: 68,
         zIndex: 20,
-        padding: '25px 31px',
+        padding: '24px 31px',
         borderRadius: 27,
         background: 'rgba(16,42,33,.96)',
         boxShadow: '0 25px 70px rgba(16,42,33,.23)',
         color: 'white',
-        fontSize: 31,
-        lineHeight: 1.35,
-        fontWeight: 700,
+        fontSize: 33,
+        lineHeight: 1.3,
+        fontWeight: 760,
         textAlign: 'center',
-        opacity: interpolate(localMs, [0, 160, duration - 180, duration], [0, 1, 1, 0], clamp),
+        opacity: interpolate(localMs, [0, 140, Math.max(160, duration - 160), duration], [0, 1, 1, 0], clamp),
+        translate: `0 ${interpolate(localMs, [0, 180], [18, 0], clamp)}px`,
       }}
     >
       {caption.text}
@@ -359,12 +347,9 @@ export const ThongTu89 = () => {
       {SCENES.map((scene, index) => (
         <Sequence key={scene.id} from={sceneStartFrame(index)} durationInFrames={scene.durationInFrames} layout="absolute-fill">
           <SceneRenderer scene={scene} />
-          <Audio src={staticFile(scene.audio)} volume={1} />
+          <Audio src={staticFile(scene.audio)} volume={0.96} />
         </Sequence>
       ))}
-      <div style={{position: 'absolute', left: 72, bottom: 235, zIndex: 15, color: COLORS.muted, fontSize: 20, fontWeight: 700}}>
-        Nguồn: Cổng TTĐT Chính phủ và Báo Điện tử Chính phủ
-      </div>
       <CaptionBar />
     </AbsoluteFill>
   );
