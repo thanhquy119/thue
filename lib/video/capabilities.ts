@@ -1,6 +1,6 @@
 import {hasGeminiConfig} from "@/lib/legal/gemini";
 import {azureTtsConfigured} from "./azure-tts";
-import {videoMediaConfigured} from "./blob-assets";
+import {videoMediaConfigured} from "./r2-assets";
 import {remotionVercelConfigured} from "./remotion-renderer";
 import {legalVideoR2Configured} from "./r2-media";
 import {legalVideoStoreConfigured} from "./store";
