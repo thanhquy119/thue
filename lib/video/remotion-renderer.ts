@@ -113,6 +113,53 @@ function renderConfig(input: {
   };
 }
 
+function renderStateFiles(jobId: string) {
+  const safeJobId = jobId.replace(/[^a-z0-9-]/giu, "-");
+  return {
+    exitFile: `/tmp/legal-video-${safeJobId}.exit`,
+    logFile: `/tmp/legal-video-${safeJobId}.log`,
+  };
+}
+
+function detachedRenderScript() {
+  return [
+    'rm -f "$2" "$3"',
+    'node render-video.mjs "$1" >"$2" 2>&1',
+    "code=$?",
+    'printf "%s" "$code" >"$3"',
+    'exit "$code"',
+  ].join("; ");
+}
+
+function missingSandboxFile(error: unknown) {
+  const message = error instanceof Error ? `${error.name} ${error.message}` : String(error);
+  return /404|not found|no such file|enoent/iu.test(message);
+}
+
+async function readOptionalSandboxFile(
+  sandbox: Awaited<ReturnType<typeof Sandbox.get>>,
+  pathname: string,
+) {
+  try {
+    return await sandbox.readFileToBuffer({path: pathname});
+  } catch (error) {
+    if (missingSandboxFile(error)) return null;
+    throw error;
+  }
+}
+
+function renderExitCode(bytes: Uint8Array) {
+  const raw = decoder.decode(bytes).trim();
+  if (!/^\d{1,3}$/u.test(raw)) {
+    throw new Error("Tệp trạng thái render trong Sandbox không hợp lệ.");
+  }
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0 || value > 255) {
+    throw new Error("Mã kết thúc render trong Sandbox không hợp lệ.");
+  }
+  return value;
+}
+
 export async function startLegalVideoRender(input: {
   jobId: string;
   storyboard: LegalVideoStoryboard;
@@ -121,10 +168,18 @@ export async function startLegalVideoRender(input: {
   const slug = safeSlug(input.storyboard.document.number) || input.jobId;
   const outputFile = `/tmp/${slug}.mp4`;
   const outputPath = `legal-video/renders/${input.jobId}/${slug}.mp4`;
+  const state = renderStateFiles(input.jobId);
   try {
     const command = await sandbox.runCommand({
-      cmd: "node",
-      args: ["render-video.mjs", JSON.stringify(renderConfig({outputFile, storyboard: input.storyboard}))],
+      cmd: "sh",
+      args: [
+        "-lc",
+        detachedRenderScript(),
+        "legal-video-render",
+        JSON.stringify(renderConfig({outputFile, storyboard: input.storyboard})),
+        state.logFile,
+        state.exitFile,
+      ],
       detached: true,
     });
     return {
@@ -169,8 +224,10 @@ export async function legalVideoRenderProgress(input: {
     throw error;
   }
 
-  const command = await sandbox.getCommand(input.commandId);
-  if (command.exitCode === null) {
+  const state = renderStateFiles(input.jobId);
+  const exitBytes = await readOptionalSandboxFile(sandbox, state.exitFile);
+  if (!exitBytes) {
+    const command = await sandbox.getCommand(input.commandId);
     return {
       stage: "render-progress" as const,
       overallProgress: estimatedProgress(command.startedAt),
@@ -180,19 +237,17 @@ export async function legalVideoRenderProgress(input: {
     };
   }
 
-  if (command.exitCode !== 0) {
-    const [stderr, stdout] = await Promise.all([
-      command.stderr().catch(() => ""),
-      command.stdout().catch(() => ""),
-    ]);
+  const exitCode = renderExitCode(exitBytes);
+  if (exitCode !== 0) {
+    const log = await readOptionalSandboxFile(sandbox, state.logFile);
     await sandbox.stop().catch(() => undefined);
-    const detail = `${stderr}\n${stdout}`.trim().slice(-2_000);
+    const detail = log ? decoder.decode(log).trim().slice(-2_000) : "";
     return {
       stage: "error" as const,
       overallProgress: 0,
       url: null,
       pathname: null,
-      error: detail ? `Render thất bại: ${detail}` : `Render thất bại với mã ${command.exitCode}.`,
+      error: detail ? `Render thất bại: ${detail}` : `Render thất bại với mã ${exitCode}.`,
     };
   }
 
