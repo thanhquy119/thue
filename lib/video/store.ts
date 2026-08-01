@@ -1,5 +1,6 @@
 import type {DocumentDetail} from "@/lib/legal/types";
-import {get, put, storageConfigured} from "@/lib/storage/r2-blob-compat";
+import {put, storageConfigured} from "@/lib/storage/r2-blob-compat";
+import {readR2Object} from "./r2-media";
 import type {
   LegalVideoJob,
   LegalVideoPublicJob,
@@ -7,6 +8,7 @@ import type {
 } from "./types";
 
 const encoder = new TextEncoder();
+const decoder = new TextDecoder();
 
 function jobPath(jobId: string) {
   return `legal-video/jobs/${jobId}.json`;
@@ -25,9 +27,9 @@ export function storyboardPath(jobId: string) {
 }
 
 async function readJson<T>(pathname: string): Promise<T | null> {
-  const value = await get(pathname, {access: "private", useCache: false});
-  if (!value?.stream) return null;
-  const text = await new Response(value.stream).text();
+  const value = await readR2Object(pathname);
+  if (!value?.byteLength) return null;
+  const text = decoder.decode(value);
   if (!text.trim()) return null;
   return JSON.parse(text) as T;
 }
