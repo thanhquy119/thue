@@ -1,7 +1,11 @@
 import {sleep} from "workflow";
 import {azureVoiceName, AzureTtsError, synthesizeAzureVietnamese} from "@/lib/video/azure-tts";
 import {readCachedTtsAsset, ttsCacheKey, writeTtsAsset} from "@/lib/video/blob-assets";
-import {buildVideoEvidenceSections, splitVietnameseTtsText} from "@/lib/video/chunking";
+import {
+  buildVideoEvidenceSections,
+  splitVietnameseTtsText,
+  videoEvidenceSectionChars,
+} from "@/lib/video/chunking";
 import {legalVideoRenderProgress, startLegalVideoRender} from "@/lib/video/remotion-renderer";
 import {
   patchLegalVideoJob,
@@ -65,7 +69,8 @@ export async function legalVideoGenerationWorkflow(
       error: null,
     });
 
-    const sections = buildVideoEvidenceSections(document);
+    const sectionChars = videoEvidenceSectionChars(document, job.length);
+    const sections = buildVideoEvidenceSections(document, sectionChars);
     if (!sections.length) throw new Error("Toàn văn chưa có đủ nội dung để tạo video.");
     const points: LegalVideoEvidencePoint[] = [];
     for (let index = 0; index < sections.length; index += 1) {
