@@ -8,9 +8,10 @@ import {
   splitVietnameseTtsText,
   validateGroundedScene,
 } from "../lib/video/chunking.ts";
+import {repairVideoEvidenceCoverage} from "../lib/video/coverage-repair.ts";
 import {wavDurationSeconds} from "../lib/video/azure-tts.ts";
 import type {DocumentDetail} from "../lib/legal/types.ts";
-import type {LegalVideoScene} from "../lib/video/types.ts";
+import type {LegalVideoEvidencePoint, LegalVideoScene} from "../lib/video/types.ts";
 
 function wav(seconds: number, sampleRate = 24_000) {
   const channels = 1;
@@ -57,6 +58,7 @@ const document: DocumentDetail = {
   provisions: [
     {id: "p1", type: "article", identifier: "Điều 1", article: "1", heading: "Phạm vi áp dụng", official_text: "Nghị định áp dụng đối với người nộp thuế.", order_index: 0},
     {id: "p2", type: "article", identifier: "Điều 2", article: "2", heading: "Hồ sơ", official_text: "Hồ sơ được gửi trong thời hạn 10 ngày làm việc. Mức xử lý là 5% số tiền chậm nộp.", order_index: 1},
+    {id: "p3", type: "article", identifier: "Điều 3", article: "3", heading: "Hiệu lực", official_text: "Nghị định có hiệu lực từ ngày 01 tháng 7 năm 2025.", order_index: 2},
   ],
 };
 
@@ -70,6 +72,10 @@ test("chia giọng đọc theo ranh giới câu và không vượt giới hạn"
 
 test("đọc đúng thời lượng WAV PCM", () => {
   assert.equal(wavDurationSeconds(wav(2.5)), 2.5);
+});
+
+test("từ chối WAV có phần fmt bị cắt", () => {
+  assert.throws(() => wavDurationSeconds(wav(1).slice(0, 27)));
 });
 
 test("chỉ chấp nhận trích đoạn có trong nguồn", () => {
@@ -103,9 +109,28 @@ test("nhận diện các nhóm ý chính hiện diện trong văn bản", () => 
   assert.ok(coverage.includes("effective"));
 });
 
+test("tự bù nhóm ý chính mà lượt tóm tắt ban đầu bỏ sót", () => {
+  const initial: LegalVideoEvidencePoint[] = [{
+    id: "overview-1",
+    category: "overview",
+    importance: 4,
+    claim: "Văn bản quy định về quản lý thuế.",
+    sourceExcerpt: "Quy định thử nghiệm về quản lý thuế",
+    sectionId: "section-1",
+    provisionIds: [],
+  }];
+  const repaired = repairVideoEvidenceCoverage(document, initial);
+  const categories = new Set(repaired.map((point) => point.category));
+  assert.ok(categories.has("scope"));
+  assert.ok(categories.has("deadline"));
+  assert.ok(categories.has("numbers"));
+  assert.ok(categories.has("effective"));
+  assert.ok(repaired.every((point) => point.sourceExcerpt.length > 0));
+});
+
 test("chia toàn văn theo provision mà không làm mất thứ tự", () => {
   const sections = buildVideoEvidenceSections(document, 90);
   assert.ok(sections.length >= 2);
   assert.equal(sections[0].provisionIds[0], "p1");
-  assert.equal(sections.at(-1)?.provisionIds.at(-1), "p2");
+  assert.equal(sections.at(-1)?.provisionIds.at(-1), "p3");
 });
