@@ -118,8 +118,8 @@ export type LegalVideoJob = {
   sceneCount: number;
   ttsChunkCount: number;
   completedTtsChunks: number;
-  renderId: string | null;
-  renderBucket: string | null;
+  renderSandboxId: string | null;
+  renderCommandId: string | null;
   videoUrl: string | null;
   error: string | null;
   createdAt: string;
@@ -128,7 +128,7 @@ export type LegalVideoJob = {
 
 export type LegalVideoPublicJob = Omit<
   LegalVideoJob,
-  "fingerprint" | "documentSnapshotPath" | "storyboardPath" | "renderBucket"
+  "fingerprint" | "documentSnapshotPath" | "storyboardPath" | "renderSandboxId" | "renderCommandId"
 > & {
   storyboardReady: boolean;
 };
@@ -138,8 +138,8 @@ export type LegalVideoCapabilities = {
   storage: boolean;
   gemini: boolean;
   azureTts: boolean;
-  aws: boolean;
-  remotion: boolean;
+  blob: boolean;
+  sandbox: boolean;
   ready: boolean;
   missing: string[];
   defaultVoice: LegalVideoVoice;
