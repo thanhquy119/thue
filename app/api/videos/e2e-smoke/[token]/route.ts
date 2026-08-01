@@ -30,7 +30,7 @@ export async function GET(request: Request, context: RouteContext) {
       "user-agent": "Thue-Ro-legal-video-e2e-smoke",
       "x-forwarded-for": "127.0.0.1",
     },
-    body: JSON.stringify({query: "178/2024/NĐ-CP", length: "brief", voice: "female"}),
+    body: JSON.stringify({query: "89/2026/TT-BTC", length: "brief", voice: "female"}),
   });
   return startVideo(internal);
 }
