@@ -18,6 +18,9 @@
     "smoke:cron": "tsx tests/live-cron-smoke.ts",
     "smoke:presentation-search": "tsx tests/live-presentation-search-smoke.ts",
     "smoke:exact-documents": "tsx tests/live-exact-document-matrix.ts",
+    "video:demo": "tsx scripts/video-demo.ts",
+    "video:preview": "npm run video:demo && npx -y hyperframes@0.6.62 preview .video-lab/demo/index.html",
+    "video:render": "npm run video:demo && npx -y hyperframes@0.6.62 render .video-lab/demo/index.html --out .video-lab/demo/legal-summary.mp4",
     "verify": "npm run lint && npm run typecheck && npm run build"
   },
   "dependencies": {
@@ -40,7 +43,6 @@
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@types/web-push": "3.6.4",
-    "@types/word-extractor": "1.0.6",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
     "tsx": "4.22.5",
