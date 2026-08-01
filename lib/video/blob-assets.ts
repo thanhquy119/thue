@@ -69,7 +69,7 @@ export async function readCachedTtsAsset(cacheKey: string) {
   return {
     cacheKey,
     durationSeconds: metadata.durationSeconds,
-    url: signedR2MediaUrl(pathname, R2_MEDIA_SIGNED_URL_SECONDS),
+    url: await signedR2MediaUrl(pathname, R2_MEDIA_SIGNED_URL_SECONDS),
     cached: true,
   };
 }
@@ -105,7 +105,7 @@ export async function writeTtsAsset(input: {
   return {
     cacheKey: input.key,
     durationSeconds: input.durationSeconds,
-    url: signedR2MediaUrl(input.key, R2_MEDIA_SIGNED_URL_SECONDS),
+    url: await signedR2MediaUrl(input.key, R2_MEDIA_SIGNED_URL_SECONDS),
     cached: false,
   };
 }
