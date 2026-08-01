@@ -48,7 +48,7 @@ export function legalVideoStoreConfigured() {
   return storageConfigured();
 }
 
-export async function readLegalVideoJob(jobId: string) {
+export async function readLegalVideoJob(jobId: string): Promise<LegalVideoJob | null> {
   const job = await readJson<LegalVideoJob>(jobPath(jobId));
   if (!job || job.status === "ready" || !job.videoPath || !job.videoUrl) return job;
   if (!(await r2MediaObjectExists(job.videoPath))) return job;
