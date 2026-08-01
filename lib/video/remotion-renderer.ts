@@ -1,13 +1,15 @@
 import {Sandbox} from "@vercel/sandbox";
-import {get, put} from "@/lib/storage/r2-blob-compat";
+import {put} from "@/lib/storage/r2-blob-compat";
 import {
   legalVideoR2Configured,
+  readR2Object,
   R2_MEDIA_CACHE_SECONDS,
 } from "./r2-media";
 import type {LegalVideoStoryboard} from "./types";
 
 const BUNDLE_URL = "/vercel/sandbox/remotion-bundle";
 const RENDER_TIMEOUT_MS = 40 * 60 * 1000;
+const decoder = new TextDecoder();
 
 function compositionId() {
   return process.env.REMOTION_COMPOSITION_ID?.trim() || "LegalVideo";
@@ -24,11 +26,11 @@ export function remotionVercelConfigured() {
 async function snapshotId() {
   const configured = process.env.VIDEO_RENDER_SNAPSHOT_ID?.trim();
   if (configured) return configured;
-  const snapshot = await get(videoSnapshotKey(), {access: "private", useCache: false});
-  if (!snapshot?.stream) {
+  const snapshot = await readR2Object(videoSnapshotKey());
+  if (!snapshot?.byteLength) {
     throw new Error("Chưa có snapshot Remotion cho deployment hiện tại. Hãy redeploy sau khi cấu hình R2.");
   }
-  const payload = await new Response(snapshot.stream).json() as {snapshotId?: unknown};
+  const payload = JSON.parse(decoder.decode(snapshot)) as {snapshotId?: unknown};
   if (typeof payload.snapshotId !== "string" || !payload.snapshotId.trim()) {
     throw new Error("Snapshot Remotion trên R2 không hợp lệ.");
   }
