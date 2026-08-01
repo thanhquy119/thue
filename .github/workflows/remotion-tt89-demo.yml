@@ -32,31 +32,33 @@ jobs:
         with:
           node-version: 22
 
+      - name: Use Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Install system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y espeak-ng ffmpeg fonts-dejavu-core
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
 
-      - name: Generate Vietnamese voiceover
-        run: |
-          mkdir -p public/audio out
-          espeak-ng -v vi -s 143 -a 185 -p 42 -w public/audio/scene-01.wav "Thông tư số tám mươi chín năm hai nghìn không trăm hai mươi sáu của Bộ Tài chính có điểm gì đáng chú ý?"
-          espeak-ng -v vi -s 143 -a 185 -p 42 -w public/audio/scene-02.wav "Văn bản được ban hành ngày ba mươi tháng sáu năm hai nghìn không trăm hai mươi sáu, có hiệu lực từ ngày một tháng bảy cùng năm, để hướng dẫn Luật Quản lý thuế và Nghị định hai trăm năm mươi hai."
-          espeak-ng -v vi -s 143 -a 185 -p 42 -w public/audio/scene-03.wav "Điểm mới nổi bật là lần đầu tiên quy định kiểm tra thuế bằng phương thức điện tử."
-          espeak-ng -v vi -s 143 -a 185 -p 42 -w public/audio/scene-04.wav "Người nộp thuế có thể gửi hồ sơ, tài liệu, giải trình và trao đổi với cơ quan thuế trên môi trường số, giúp giảm đi lại, chi phí và tăng tính minh bạch."
-          espeak-ng -v vi -s 143 -a 185 -p 42 -w public/audio/scene-05.wav "Để sẵn sàng, doanh nghiệp nên duy trì chữ ký số còn hiệu lực và lưu trữ hóa đơn, sổ sách, chứng từ điện tử có hệ thống. Video chỉ tóm tắt; khi áp dụng cần đối chiếu toàn văn chính thức."
+      - name: Install Vietnamese neural TTS
+        run: python -m pip install --disable-pip-version-check edge-tts==7.2.8
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Generate voiceover and timeline
+        run: npm run assets
+
       - name: Typecheck
-        run: npx tsc -p tsconfig.json
+        run: npm run typecheck
 
       - name: Ensure Remotion browser
         run: npx remotion browser ensure
 
       - name: Render MP4
-        run: npm run render -- --concurrency=2
+        run: npm run render:only -- --concurrency=2
 
       - name: Inspect output
         run: |
@@ -66,7 +68,7 @@ jobs:
       - name: Upload video artifact
         uses: actions/upload-artifact@v4
         with:
-          name: remotion-thong-tu-89-demo
+          name: remotion-thong-tu-89-demo-v2
           path: experiments/remotion-tt89/out/thong-tu-89-2026.mp4
           if-no-files-found: error
           retention-days: 7
