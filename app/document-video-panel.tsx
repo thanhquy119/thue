@@ -33,9 +33,6 @@ export default function DocumentVideoPanel({documentNumber}: DocumentVideoPanelP
     let timer: ReturnType<typeof setTimeout> | null = null;
     const requestId = requestRef.current + 1;
     requestRef.current = requestId;
-    setJob(null);
-    setLoaded(false);
-    setShowPlayer(false);
 
     const refresh = async () => {
       let nextJob: LegalVideoPublicJob | null = null;
@@ -65,11 +62,6 @@ export default function DocumentVideoPanel({documentNumber}: DocumentVideoPanelP
       if (timer) clearTimeout(timer);
     };
   }, [documentNumber]);
-
-  useEffect(() => {
-    if (job?.status === "ready") return;
-    setShowPlayer(false);
-  }, [job?.status]);
 
   if (!loaded && !job) return null;
   if (!job) return null;
