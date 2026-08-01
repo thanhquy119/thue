@@ -84,14 +84,16 @@ export function wavDurationSeconds(bytes: Uint8Array) {
     const id = readAscii(bytes, offset, 4);
     const size = readUint32(bytes, offset + 4);
     const dataOffset = offset + 8;
-    if (id === "fmt " && size >= 16 && dataOffset + 12 <= bytes.byteLength) {
+    if (id === "fmt " && size >= 16 && dataOffset + 16 <= bytes.byteLength) {
       const channels = readUint16(bytes, dataOffset + 2);
       const sampleRate = readUint32(bytes, dataOffset + 4);
       const bitsPerSample = readUint16(bytes, dataOffset + 14);
       byteRate = sampleRate * channels * Math.max(1, bitsPerSample / 8);
     }
-    if (id === "data") dataSize = Math.min(size, bytes.byteLength - dataOffset);
-    offset = dataOffset + size + (size % 2);
+    if (id === "data") dataSize = Math.min(size, Math.max(0, bytes.byteLength - dataOffset));
+    const nextOffset = dataOffset + size + (size % 2);
+    if (nextOffset <= offset) break;
+    offset = nextOffset;
   }
   if (!byteRate || !dataSize) throw new Error("Không đọc được thời lượng WAV từ Azure TTS.");
   return Number((dataSize / byteRate).toFixed(3));
