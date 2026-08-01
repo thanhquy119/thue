@@ -43,7 +43,7 @@ function renderMessage(stage: string, progress: number) {
   if (stage === "starting") return "Đang khởi động môi trường dựng video…";
   if (stage === "opening-browser") return "Đang mở trình dựng hình…";
   if (stage === "selecting-composition") return "Đang chuẩn bị bố cục video…";
-  if (stage === "uploading") return "Đã dựng xong; đang tải MP4 lên kho lưu trữ…";
+  if (stage === "uploading") return "Đã dựng xong; đang chuyển MP4 vào R2…";
   return `Đang xuất video… ${Math.round(progress * 100)}%`;
 }
 
@@ -166,22 +166,30 @@ export async function legalVideoGenerationWorkflow(
       message: "Đang dựng hình, ghép giọng đọc và xuất MP4 trên Vercel Sandbox…",
       renderSandboxId: render.sandboxId,
       renderCommandId: render.commandId,
+      videoPath: render.outputPath,
     });
 
     for (let poll = 0; poll < RENDER_MAX_POLLS; poll += 1) {
       await sleep("10 seconds");
-      const progress = await renderProgressStep(render.sandboxId, render.commandId);
+      const progress = await renderProgressStep({
+        jobId: job.jobId,
+        sandboxId: render.sandboxId,
+        commandId: render.commandId,
+        outputFile: render.outputFile,
+        outputPath: render.outputPath,
+      });
       if (progress.stage === "error") {
         throw new Error(progress.error || "Vercel Sandbox không thể hoàn tất video.");
       }
       if (progress.stage === "expired") {
         throw new Error("Môi trường render đã hết thời gian trước khi video hoàn tất.");
       }
-      if (progress.stage === "done" && progress.url) {
+      if (progress.stage === "done" && progress.url && progress.pathname) {
         await patchJobStep(job.jobId, {
           status: "ready",
           progress: 100,
           message: "Video tóm tắt đã sẵn sàng.",
+          videoPath: progress.pathname,
           videoUrl: progress.url,
           error: null,
         });
@@ -300,32 +308,7 @@ async function startRenderStep(jobId: string, storyboard: LegalVideoStoryboard) 
   return startLegalVideoRender({jobId, storyboard});
 }
 
-async function renderProgressStep(sandboxId: string, commandId: string) {
+async function renderProgressStep(input: Parameters<typeof legalVideoRenderProgress>[0]) {
   "use step";
-  const progress = await legalVideoRenderProgress({sandboxId, commandId});
-  if (progress.stage === "done") {
-    return {
-      stage: progress.stage,
-      overallProgress: progress.overallProgress,
-      url: progress.url,
-      error: null,
-    };
-  }
-  if (progress.stage === "error") {
-    return {
-      stage: progress.stage,
-      overallProgress: progress.overallProgress,
-      url: null,
-      error: progress.message,
-    };
-  }
-  if (progress.stage === "expired") {
-    return {stage: progress.stage, overallProgress: 0, url: null, error: "Sandbox đã hết hạn."};
-  }
-  return {
-    stage: progress.stage,
-    overallProgress: progress.overallProgress,
-    url: null,
-    error: null,
-  };
+  return legalVideoRenderProgress(input);
 }
