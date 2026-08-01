@@ -1,6 +1,6 @@
 import {Composition} from 'remotion';
 import {ThongTu89} from './ThongTu89';
-import {COMPOSITION_ID, FPS, TOTAL_FRAMES} from './data';
+import {FPS, TOTAL_FRAMES} from './data';
 import {
   LegalVideo,
   calculateLegalVideoMetadata,
@@ -10,7 +10,7 @@ import {
 export const RemotionRoot = () => (
   <>
     <Composition
-      id={COMPOSITION_ID}
+      id="ThongTu89"
       component={ThongTu89}
       durationInFrames={TOTAL_FRAMES}
       fps={FPS}
