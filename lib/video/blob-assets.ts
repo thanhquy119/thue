@@ -1,15 +1,20 @@
-import {head, put as putBlob} from "@vercel/blob";
-import {get as getState, put as putState} from "@/lib/storage/r2-blob-compat";
+import {get, put} from "@/lib/storage/r2-blob-compat";
+import {
+  legalVideoR2Configured,
+  R2_MEDIA_CACHE_SECONDS,
+  R2_MEDIA_SIGNED_URL_SECONDS,
+  r2MediaObjectExists,
+  signedR2MediaUrl,
+} from "./r2-media";
 
 const encoder = new TextEncoder();
 
-function blobToken() {
-  return process.env.BLOB_READ_WRITE_TOKEN?.trim() || "";
+export function videoMediaConfigured() {
+  return legalVideoR2Configured();
 }
 
-export function videoBlobConfigured() {
-  return Boolean(blobToken());
-}
+// Giữ alias trong thời gian chuyển đổi để các import cũ không làm hỏng branch thử nghiệm.
+export const videoBlobConfigured = videoMediaConfigured;
 
 function metadataPath(cacheKey: string) {
   return `legal-video/tts-metadata/${cacheKey.replace(/[^a-z0-9._/-]+/giu, "-")}.json`;
@@ -27,7 +32,7 @@ export async function ttsCacheKey(input: {
   text: string;
 }) {
   const hash = await sha256([
-    "azure-wav-v1",
+    "azure-wav-r2-v1",
     input.voice,
     input.rate,
     input.pitch,
@@ -38,39 +43,32 @@ export async function ttsCacheKey(input: {
 
 type TtsMetadata = {
   cacheKey: string;
+  pathname?: string;
   durationSeconds: number;
-  url: string;
   voice: string;
   createdAt: string;
+  // Dữ liệu cũ trên Vercel Blob có thể còn trường này; không dùng cho lượt mới.
+  url?: string;
 };
 
 async function readMetadata(cacheKey: string) {
-  const value = await getState(metadataPath(cacheKey), {access: "private", useCache: false});
+  const value = await get(metadataPath(cacheKey), {access: "private", useCache: false});
   if (!value?.stream) return null;
   const text = await new Response(value.stream).text();
   if (!text.trim()) return null;
   return JSON.parse(text) as TtsMetadata;
 }
 
-async function metadataBlobExists(url: string) {
-  try {
-    await head(url, {token: blobToken()});
-    return true;
-  } catch (error) {
-    if (error instanceof Error && /not found|BlobNotFound/iu.test(`${error.name} ${error.message}`)) return false;
-    throw error;
-  }
-}
-
 export async function readCachedTtsAsset(cacheKey: string) {
-  if (!videoBlobConfigured()) throw new Error("Vercel Blob chưa được cấu hình cho audio video.");
+  if (!videoMediaConfigured()) throw new Error("R2 chưa được cấu hình cho audio video.");
   const metadata = await readMetadata(cacheKey);
-  if (!metadata || metadata.cacheKey !== cacheKey || metadata.durationSeconds <= 0 || !metadata.url) return null;
-  if (!(await metadataBlobExists(metadata.url))) return null;
+  const pathname = metadata?.pathname || metadata?.cacheKey;
+  if (!metadata || metadata.cacheKey !== cacheKey || metadata.durationSeconds <= 0 || !pathname) return null;
+  if (!(await r2MediaObjectExists(pathname))) return null;
   return {
     cacheKey,
     durationSeconds: metadata.durationSeconds,
-    url: metadata.url,
+    url: signedR2MediaUrl(pathname, R2_MEDIA_SIGNED_URL_SECONDS),
     cached: true,
   };
 }
@@ -81,23 +79,22 @@ export async function writeTtsAsset(input: {
   durationSeconds: number;
   voice: string;
 }) {
-  if (!videoBlobConfigured()) throw new Error("Vercel Blob chưa được cấu hình cho audio video.");
-  const blob = await putBlob(input.key, input.bytes, {
-    access: "public",
-    token: blobToken(),
+  if (!videoMediaConfigured()) throw new Error("R2 chưa được cấu hình cho audio video.");
+  await put(input.key, input.bytes, {
+    access: "private",
     addRandomSuffix: false,
     allowOverwrite: true,
-    cacheControlMaxAge: 31_536_000,
+    cacheControlMaxAge: R2_MEDIA_CACHE_SECONDS,
     contentType: "audio/wav",
   });
   const metadata: TtsMetadata = {
     cacheKey: input.key,
+    pathname: input.key,
     durationSeconds: input.durationSeconds,
-    url: blob.url,
     voice: input.voice,
     createdAt: new Date().toISOString(),
   };
-  await putState(metadataPath(input.key), encoder.encode(JSON.stringify(metadata)), {
+  await put(metadataPath(input.key), encoder.encode(JSON.stringify(metadata)), {
     access: "private",
     addRandomSuffix: false,
     allowOverwrite: true,
@@ -107,7 +104,7 @@ export async function writeTtsAsset(input: {
   return {
     cacheKey: input.key,
     durationSeconds: input.durationSeconds,
-    url: blob.url,
+    url: signedR2MediaUrl(input.key, R2_MEDIA_SIGNED_URL_SECONDS),
     cached: false,
   };
 }
