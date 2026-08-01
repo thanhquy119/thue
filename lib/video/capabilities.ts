@@ -1,7 +1,8 @@
 import {hasGeminiConfig} from "@/lib/legal/gemini";
 import {azureTtsConfigured} from "./azure-tts";
-import {videoBlobConfigured} from "./blob-assets";
+import {videoMediaConfigured} from "./blob-assets";
 import {remotionVercelConfigured} from "./remotion-renderer";
+import {legalVideoR2Configured} from "./r2-media";
 import {legalVideoStoreConfigured} from "./store";
 import type {LegalVideoCapabilities} from "./types";
 
@@ -11,25 +12,28 @@ export function legalVideoExperimentEnabled() {
 
 export function legalVideoCapabilities(): LegalVideoCapabilities {
   const enabled = legalVideoExperimentEnabled();
-  const storage = legalVideoStoreConfigured();
+  const r2 = legalVideoR2Configured();
+  const storage = r2 && legalVideoStoreConfigured();
+  const media = videoMediaConfigured();
   const gemini = hasGeminiConfig();
   const azureTts = azureTtsConfigured();
-  const blob = videoBlobConfigured();
   const sandbox = remotionVercelConfigured();
   const missing = [
     !enabled ? "VIDEO_EXPERIMENT_ENABLED" : "",
-    !storage ? "R2 hoặc Vercel Blob cho trạng thái job" : "",
+    !storage ? "R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID và R2_SECRET_ACCESS_KEY" : "",
     !gemini ? "GEMINI_API_KEY" : "",
     !azureTts ? "AZURE_SPEECH_KEY và AZURE_SPEECH_REGION" : "",
-    !blob ? "BLOB_READ_WRITE_TOKEN" : "",
-    !sandbox ? "Vercel Sandbox" : "",
+    !media ? "R2 cho audio và video" : "",
+    !sandbox ? "Vercel Sandbox và snapshot Remotion trên R2" : "",
   ].filter(Boolean);
   return {
     enabled,
     storage,
+    mediaStorage: r2 ? "r2" : "none",
+    r2,
     gemini,
     azureTts,
-    blob,
+    blob: false,
     sandbox,
     ready: !missing.length,
     missing,
