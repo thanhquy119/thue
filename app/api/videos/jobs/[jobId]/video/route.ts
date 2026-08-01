@@ -20,7 +20,7 @@ export async function GET(_request: Request, context: RouteContext) {
       {status: 409, headers: {"cache-control": "no-store"}},
     );
   }
-  return NextResponse.redirect(signedR2MediaUrl(job.videoPath, 900), {
+  return NextResponse.redirect(await signedR2MediaUrl(job.videoPath, 900), {
     status: 307,
     headers: {"cache-control": "private, no-store, max-age=0"},
   });
