@@ -1,5 +1,5 @@
 import type {DocumentDetail, ProvisionDetail} from "@/lib/legal/types";
-import {detectVideoCoverage, normalizeVideoEvidence} from "./chunking";
+import {detectVideoCoverage, normalizeVideoEvidence} from "./chunking.ts";
 import type {LegalVideoCategory, LegalVideoEvidencePoint} from "./types";
 
 const CATEGORY_PATTERNS: Partial<Record<LegalVideoCategory, RegExp[]>> = {
