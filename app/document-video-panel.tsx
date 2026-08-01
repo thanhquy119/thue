@@ -24,8 +24,8 @@ function progressLabel(job: LegalVideoPublicJob) {
 
 export default function DocumentVideoPanel({documentNumber}: DocumentVideoPanelProps) {
   const [job, setJob] = useState<LegalVideoPublicJob | null>(null);
-  const [loaded, setLoaded] = useState(false);
-  const [showPlayer, setShowPlayer] = useState(false);
+  const [loadedNumber, setLoadedNumber] = useState<string | null>(null);
+  const [openJobId, setOpenJobId] = useState<string | null>(null);
   const requestRef = useRef(0);
 
   useEffect(() => {
@@ -50,7 +50,7 @@ export default function DocumentVideoPanel({documentNumber}: DocumentVideoPanelP
         // Toàn văn vẫn hoạt động bình thường nếu trạng thái video tạm thời chưa đọc được.
       } finally {
         if (cancelled || requestRef.current !== requestId) return;
-        setLoaded(true);
+        setLoadedNumber(documentNumber);
         const delay = nextJob && ACTIVE_STATUSES.has(nextJob.status) ? 7_000 : 20_000;
         timer = setTimeout(refresh, delay);
       }
@@ -63,10 +63,12 @@ export default function DocumentVideoPanel({documentNumber}: DocumentVideoPanelP
     };
   }, [documentNumber]);
 
-  if (!loaded && !job) return null;
-  if (!job) return null;
+  const currentJob = job?.documentNumber === documentNumber ? job : null;
+  if (loadedNumber !== documentNumber && !currentJob) return null;
+  if (!currentJob) return null;
 
-  if (job.status === "ready") {
+  if (currentJob.status === "ready") {
+    const showPlayer = openJobId === currentJob.jobId;
     return (
       <section
         aria-label="Video tóm tắt văn bản"
@@ -80,7 +82,7 @@ export default function DocumentVideoPanel({documentNumber}: DocumentVideoPanelP
       >
         <button
           type="button"
-          onClick={() => setShowPlayer((current) => !current)}
+          onClick={() => setOpenJobId(showPlayer ? null : currentJob.jobId)}
           style={{
             width: "100%",
             border: 0,
@@ -101,7 +103,7 @@ export default function DocumentVideoPanel({documentNumber}: DocumentVideoPanelP
               controls
               playsInline
               preload="metadata"
-              src={`/api/videos/jobs/${encodeURIComponent(job.jobId)}/video`}
+              src={`/api/videos/jobs/${encodeURIComponent(currentJob.jobId)}/video`}
               style={{display: "block", width: "100%", maxHeight: "78vh", borderRadius: 14, background: "#0b1411"}}
             >
               Trình duyệt của em chưa hỗ trợ phát video.
@@ -115,7 +117,7 @@ export default function DocumentVideoPanel({documentNumber}: DocumentVideoPanelP
     );
   }
 
-  if (job.status === "failed") {
+  if (currentJob.status === "failed") {
     return (
       <div
         aria-live="polite"
@@ -148,17 +150,17 @@ export default function DocumentVideoPanel({documentNumber}: DocumentVideoPanelP
     >
       <div style={{display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14}}>
         <div>
-          <strong style={{display: "block"}}>{progressLabel(job)}</strong>
+          <strong style={{display: "block"}}>{progressLabel(currentJob)}</strong>
           <span style={{display: "block", marginTop: 4, fontSize: 13, opacity: 0.76}}>
             Toàn văn đã đọc được ngay; nút xem video sẽ tự mở khi xử lý xong.
           </span>
         </div>
-        <span style={{minWidth: 48, textAlign: "right", fontWeight: 800}}>{Math.max(1, Math.min(99, job.progress))}%</span>
+        <span style={{minWidth: 48, textAlign: "right", fontWeight: 800}}>{Math.max(1, Math.min(99, currentJob.progress))}%</span>
       </div>
       <div style={{height: 5, marginTop: 12, overflow: "hidden", borderRadius: 999, background: "rgba(23, 63, 52, 0.12)"}}>
         <div
           style={{
-            width: `${Math.max(2, Math.min(99, job.progress))}%`,
+            width: `${Math.max(2, Math.min(99, currentJob.progress))}%`,
             height: "100%",
             borderRadius: 999,
             background: "#477c68",
