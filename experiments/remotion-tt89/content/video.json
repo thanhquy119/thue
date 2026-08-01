@@ -1,0 +1,95 @@
+{
+  "slug": "thong-tu-89-2026",
+  "compositionId": "ThongTu89",
+  "fps": 30,
+  "voice": {
+    "name": "vi-VN-HoaiMyNeural",
+    "rate": "-4%",
+    "pitch": "+0Hz",
+    "volume": "+0%"
+  },
+  "scenes": [
+    {
+      "id": "intro",
+      "kind": "intro",
+      "eyebrow": "VĂN BẢN THUẾ MỚI",
+      "title": "Thông tư 89/2026/TT-BTC",
+      "subtitle": "Ba điểm cần biết trong chưa đầy một phút",
+      "badgeTop": "89",
+      "badgeBottom": "TT-BTC · 2026",
+      "narration": "Thông tư số tám mươi chín năm hai nghìn không trăm hai mươi sáu của Bộ Tài chính có điểm gì đáng chú ý?",
+      "captionChunks": [
+        "Thông tư số 89/2026/TT-BTC",
+        "có điểm gì đáng chú ý?"
+      ]
+    },
+    {
+      "id": "timeline",
+      "kind": "timeline",
+      "eyebrow": "MỐC THỜI GIAN",
+      "title": "Có hiệu lực từ 01/07/2026",
+      "subtitle": "Ban hành ngày 30/06/2026",
+      "cards": [
+        {"label": "BAN HÀNH", "value": "30/06/2026"},
+        {"label": "HIỆU LỰC", "value": "01/07/2026"}
+      ],
+      "bullets": [
+        "Hướng dẫn Luật Quản lý thuế số 108/2025/QH15",
+        "Hướng dẫn Nghị định số 252/2026/NĐ-CP"
+      ],
+      "narration": "Văn bản được ban hành ngày ba mươi tháng sáu năm hai nghìn không trăm hai mươi sáu, và có hiệu lực từ ngày một tháng bảy cùng năm. Thông tư hướng dẫn Luật Quản lý thuế và Nghị định hai trăm năm mươi hai.",
+      "captionChunks": [
+        "Ban hành ngày 30/06/2026",
+        "Có hiệu lực từ 01/07/2026",
+        "Hướng dẫn Luật Quản lý thuế và Nghị định 252/2026/NĐ-CP"
+      ]
+    },
+    {
+      "id": "electronic",
+      "kind": "electronic",
+      "eyebrow": "ĐIỂM MỚI NỔI BẬT",
+      "title": "Kiểm tra thuế bằng phương thức điện tử",
+      "subtitle": "Quy trình làm việc trên môi trường số được quy định cụ thể",
+      "tag": "Hồ sơ · giải trình · trao đổi trên môi trường số",
+      "narration": "Điểm mới nổi bật là quy định cụ thể về kiểm tra thuế bằng phương thức điện tử.",
+      "captionChunks": [
+        "Quy định cụ thể về kiểm tra thuế",
+        "bằng phương thức điện tử"
+      ]
+    },
+    {
+      "id": "benefits",
+      "kind": "benefits",
+      "eyebrow": "NGƯỜI NỘP THUẾ ĐƯỢC GÌ?",
+      "title": "Trao đổi hồ sơ trực tuyến",
+      "bullets": [
+        "Gửi hồ sơ, tài liệu và giải trình điện tử",
+        "Giảm đi lại và chi phí chuẩn bị hồ sơ",
+        "Tăng công khai, minh bạch trong kiểm tra thuế"
+      ],
+      "narration": "Người nộp thuế có thể gửi hồ sơ, tài liệu, giải trình và trao đổi với cơ quan thuế trên môi trường số. Cách làm này giúp giảm đi lại, giảm chi phí và tăng tính minh bạch.",
+      "captionChunks": [
+        "Gửi hồ sơ, tài liệu và giải trình điện tử",
+        "Giảm đi lại và chi phí",
+        "Tăng tính minh bạch"
+      ]
+    },
+    {
+      "id": "prepare",
+      "kind": "prepare",
+      "eyebrow": "NÊN CHUẨN BỊ",
+      "title": "Sẵn sàng cho quy trình điện tử",
+      "bullets": [
+        "Duy trì chữ ký số còn hiệu lực",
+        "Lưu trữ hóa đơn, sổ sách và chứng từ điện tử có hệ thống",
+        "Phân loại và sao lưu dữ liệu theo từng kỳ"
+      ],
+      "narration": "Doanh nghiệp nên duy trì chữ ký số còn hiệu lực, lưu trữ hóa đơn, sổ sách và chứng từ điện tử có hệ thống, đồng thời phân loại và sao lưu dữ liệu theo từng kỳ.",
+      "captionChunks": [
+        "Duy trì chữ ký số còn hiệu lực",
+        "Lưu trữ chứng từ điện tử có hệ thống",
+        "Phân loại và sao lưu dữ liệu theo từng kỳ"
+      ]
+    }
+  ]
+}
