@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import sys
+import unicodedata
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -90,6 +91,50 @@ def ollama_plan(text: str, model: str, endpoint: str) -> dict[str, Any]:
     with urllib.request.urlopen(request, timeout=180) as response:
         payload = json.load(response)
     return json.loads(payload["message"]["content"])
+
+
+def comparable(value: str) -> str:
+    text = unicodedata.normalize("NFKC", value).lower().strip().rstrip("…")
+    text = re.sub(r"[^\w\s]", " ", text, flags=re.UNICODE)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def numeric_claims(value: str) -> set[str]:
+    return set(re.findall(r"\d+(?:[.,:/-]\d+)*", unicodedata.normalize("NFKC", value)))
+
+
+def verify_plan(plan: dict[str, Any], source: str) -> list[str]:
+    normalized_source = comparable(source)
+    source_numbers = numeric_claims(source)
+    scenes = plan.get("scenes")
+    if not isinstance(scenes, list) or not 3 <= len(scenes) <= 8:
+        return ["Storyboard phải có từ 3 đến 8 cảnh."]
+
+    errors: list[str] = []
+    for index, scene in enumerate(scenes, 1):
+        if not isinstance(scene, dict):
+            errors.append(f"Cảnh {index} không phải object.")
+            continue
+        scene_id = str(scene.get("id", ""))
+        heading = str(scene.get("heading", ""))
+        narration = str(scene.get("narration", ""))
+        bullets = scene.get("bullets")
+        excerpt = comparable(str(scene.get("sourceExcerpt", "")))
+        closing = scene_id == "ket-thuc" or (
+            index == len(scenes)
+            and re.search(r"trước\s+khi\s+áp\s+dụng|đối\s+chiếu\s+toàn\s+văn|cảnh\s+báo", f"{heading} {narration}", re.I)
+        )
+        if not closing:
+            if len(excerpt) < 12:
+                errors.append(f"Cảnh {index}: dẫn chứng quá ngắn.")
+            elif excerpt not in normalized_source:
+                errors.append(f"Cảnh {index}: sourceExcerpt không tìm thấy trong nguồn.")
+
+        bullet_text = " ".join(str(item) for item in bullets) if isinstance(bullets, list) else ""
+        unsupported = sorted(numeric_claims(f"{heading} {narration} {bullet_text}") - source_numbers)
+        if unsupported:
+            errors.append(f"Cảnh {index}: số liệu không có trong nguồn ({', '.join(unsupported)}).")
+    return errors
 
 
 def fallback_plan(text: str) -> dict[str, Any]:
@@ -192,10 +237,13 @@ def write_html(plan: dict[str, Any], output: Path, include_audio: bool) -> None:
     for index, scene in enumerate(plan["scenes"], 1):
         duration = float(scene["durationSeconds"])
         bullets = "".join(f"<li>{html_escape(item)}</li>" for item in scene["bullets"])
+        diagram_path = output / f"diagram-{index:02d}.svg"
+        diagram = f'<img class="diagram" src="{diagram_path.name}" alt="Sơ đồ minh họa">' if diagram_path.exists() else ""
+        scene_class = "scene has-diagram" if diagram else "scene"
         scene_html.append(
-            f'<section class="scene" data-start="{cursor:.3f}" data-duration="{duration:.3f}" data-track-index="1" data-fade="in">'
+            f'<section class="{scene_class}" data-start="{cursor:.3f}" data-duration="{duration:.3f}" data-track-index="1" data-fade="in">'
             f'<small>{index:02d}</small><p>THUẾ RÕ · Ý CHÍNH</p><h2>{html_escape(scene["heading"])}</h2>'
-            f'<ul>{bullets}</ul><div class="caption">{html_escape(scene["narration"])}</div></section>'
+            f'{diagram}<ul>{bullets}</ul><div class="caption">{html_escape(scene["narration"])}</div></section>'
         )
         cursor += duration
     audio = f'<audio src="narration.wav" data-start="0" data-duration="{cursor:.3f}" data-track-index="3"></audio>' if include_audio else ""
@@ -206,6 +254,8 @@ def write_html(plan: dict[str, Any], output: Path, include_audio: bool) -> None:
 .scene{{position:absolute;inset:170px 80px 90px;display:flex;flex-direction:column;justify-content:center;padding:70px 62px 210px;border-radius:44px;background:rgba(255,255,255,.88)}}
 .scene small{{position:absolute;right:52px;top:44px;font-size:28px;opacity:.4}}.scene p{{font-size:22px;font-weight:800;letter-spacing:.12em;color:#416a59}}
 h2{{font-size:76px;line-height:1.05;letter-spacing:-.045em;margin:0 0 42px}}ul{{font-size:38px;line-height:1.3;display:grid;gap:22px}}li::marker{{color:#db5b35}}
+.diagram{{display:block;width:100%;max-height:510px;object-fit:contain;margin:0 auto 28px;padding:18px;border-radius:24px;background:#f7faf8}}
+.has-diagram h2{{font-size:62px;margin-bottom:26px}}.has-diagram ul{{font-size:31px;gap:14px}}
 .caption{{position:absolute;left:44px;right:44px;bottom:40px;padding:24px 28px;border-radius:22px;background:#102a21;color:white;font-size:29px;line-height:1.35;text-align:center}}
 </style></head><body><div id="stage" data-composition-id="legal-summary" data-width="{width}" data-height="{height}" data-duration="{cursor:.3f}" data-fps="30">
 <div class="brand" data-start="0" data-duration="{cursor:.3f}" data-track-index="4">Thuế<b>.</b></div>{''.join(scene_html)}{audio}</div></body></html>'''
@@ -248,9 +298,12 @@ def main() -> int:
     text = extract_text(args.source)
     try:
         plan = ollama_plan(text, args.model, args.ollama)
-        print(f"[plan] Ollama {args.model}")
+        evidence_errors = verify_plan(plan, text)
+        if evidence_errors:
+            raise RuntimeError(" ".join(evidence_errors[:3]))
+        print(f"[plan] Ollama {args.model}; kiểm chứng nguồn đạt.")
     except Exception as exc:
-        print(f"[plan] Ollama không sẵn sàng ({exc}); dùng fallback trích xuất.")
+        print(f"[plan] Ollama không sẵn sàng hoặc không bám nguồn ({exc}); dùng fallback trích xuất.")
         plan = fallback_plan(text)
 
     if args.dry_run:
