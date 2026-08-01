@@ -162,6 +162,7 @@ export async function POST(request: Request) {
     completedTtsChunks: 0,
     renderSandboxId: null,
     renderCommandId: null,
+    videoPath: null,
     videoUrl: null,
     error: null,
     createdAt,
