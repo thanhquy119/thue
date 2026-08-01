@@ -7,12 +7,6 @@ on:
     paths:
       - experiments/remotion-tt89/**
       - .github/workflows/remotion-tt89-demo.yml
-  pull_request:
-    branches:
-      - main
-    paths:
-      - experiments/remotion-tt89/**
-      - .github/workflows/remotion-tt89-demo.yml
   workflow_dispatch:
 
 jobs:
