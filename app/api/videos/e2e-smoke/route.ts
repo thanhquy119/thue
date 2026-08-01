@@ -26,7 +26,7 @@ export async function GET(request: Request) {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "user-agent": "Thuế Rõ legal-video e2e smoke",
+      "user-agent": "Thue-Ro-legal-video-e2e-smoke",
       "x-forwarded-for": "127.0.0.1",
     },
     body: JSON.stringify({query, length: "brief", voice: "female"}),
