@@ -1,6 +1,6 @@
 import {sleep} from "workflow";
 import {azureVoiceName, AzureTtsError, synthesizeAzureVietnamese} from "@/lib/video/azure-tts";
-import {readCachedTtsAsset, ttsCacheKey, writeTtsAsset} from "@/lib/video/aws-assets";
+import {readCachedTtsAsset, ttsCacheKey, writeTtsAsset} from "@/lib/video/blob-assets";
 import {buildVideoEvidenceSections, splitVietnameseTtsText} from "@/lib/video/chunking";
 import {legalVideoRenderProgress, startLegalVideoRender} from "@/lib/video/remotion-renderer";
 import {
@@ -13,6 +13,7 @@ import {
 import {createLegalVideoStoryboard, summarizeVideoEvidenceSection} from "@/lib/video/storyboard";
 import type {
   LegalVideoAudioChunk,
+  LegalVideoEvidencePoint,
   LegalVideoJob,
   LegalVideoScene,
   LegalVideoStoryboard,
@@ -22,7 +23,7 @@ import type {
 } from "@/lib/video/types";
 
 const TTS_MAX_ATTEMPTS = 5;
-const RENDER_MAX_POLLS = 180;
+const RENDER_MAX_POLLS = 240;
 
 function now() {
   return new Date().toISOString();
@@ -36,6 +37,14 @@ function ttsPacingSeconds() {
 
 function retrySeconds(milliseconds: number) {
   return Math.max(2, Math.min(180, Math.ceil(milliseconds / 1_000)));
+}
+
+function renderMessage(stage: string, progress: number) {
+  if (stage === "starting") return "Đang khởi động môi trường dựng video…";
+  if (stage === "opening-browser") return "Đang mở trình dựng hình…";
+  if (stage === "selecting-composition") return "Đang chuẩn bị bố cục video…";
+  if (stage === "uploading") return "Đã dựng xong; đang tải MP4 lên kho lưu trữ…";
+  return `Đang xuất video… ${Math.round(progress * 100)}%`;
 }
 
 export async function legalVideoGenerationWorkflow(
@@ -58,7 +67,7 @@ export async function legalVideoGenerationWorkflow(
 
     const sections = buildVideoEvidenceSections(document);
     if (!sections.length) throw new Error("Toàn văn chưa có đủ nội dung để tạo video.");
-    const points = [];
+    const points: LegalVideoEvidencePoint[] = [];
     for (let index = 0; index < sections.length; index += 1) {
       const sectionPoints = await summarizeSectionStep(document, sections[index]);
       points.push(...sectionPoints);
@@ -154,34 +163,37 @@ export async function legalVideoGenerationWorkflow(
     await patchJobStep(job.jobId, {
       status: "rendering",
       progress: 78,
-      message: "Đang dựng hình, ghép giọng đọc và xuất MP4…",
-      renderId: render.renderId,
-      renderBucket: render.bucketName,
+      message: "Đang dựng hình, ghép giọng đọc và xuất MP4 trên Vercel Sandbox…",
+      renderSandboxId: render.sandboxId,
+      renderCommandId: render.commandId,
     });
 
     for (let poll = 0; poll < RENDER_MAX_POLLS; poll += 1) {
       await sleep("10 seconds");
-      const progress = await renderProgressStep(render.renderId, render.bucketName);
-      if (progress.fatalErrorEncountered) {
-        throw new Error(progress.error || "Remotion Lambda không thể hoàn tất video.");
+      const progress = await renderProgressStep(render.sandboxId, render.commandId);
+      if (progress.stage === "error") {
+        throw new Error(progress.error || "Vercel Sandbox không thể hoàn tất video.");
       }
-      if (progress.done && progress.outputFile) {
+      if (progress.stage === "expired") {
+        throw new Error("Môi trường render đã hết thời gian trước khi video hoàn tất.");
+      }
+      if (progress.stage === "done" && progress.url) {
         await patchJobStep(job.jobId, {
           status: "ready",
           progress: 100,
           message: "Video tóm tắt đã sẵn sàng.",
-          videoUrl: progress.outputFile,
+          videoUrl: progress.url,
           error: null,
         });
-        return {jobId: job.jobId, status: "ready", videoUrl: progress.outputFile, error: null};
+        return {jobId: job.jobId, status: "ready", videoUrl: progress.url, error: null};
       }
       await patchJobStep(job.jobId, {
         status: "rendering",
         progress: Math.max(78, Math.min(98, 78 + Math.round(progress.overallProgress * 20))),
-        message: `Đang xuất video… ${Math.round(progress.overallProgress * 100)}%`,
+        message: renderMessage(progress.stage, progress.overallProgress),
       });
     }
-    throw new Error("Quá thời gian chờ Remotion Lambda hoàn tất video.");
+    throw new Error("Quá thời gian chờ Vercel Sandbox hoàn tất video.");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Tạo video thất bại.";
     await patchJobStep(input.jobId, {
@@ -253,7 +265,7 @@ async function synthesizeTtsChunkStep(input: {
   const voiceName = azureVoiceName(input.voice);
   const rate = process.env.VIDEO_TTS_RATE?.trim() || "-4%";
   const pitch = process.env.VIDEO_TTS_PITCH?.trim() || "+0Hz";
-  const cacheKey = ttsCacheKey({voice: voiceName, rate, pitch, text: input.text});
+  const cacheKey = await ttsCacheKey({voice: voiceName, rate, pitch, text: input.text});
   const cached = await readCachedTtsAsset(cacheKey);
   if (cached) return {ok: true, id: input.id, ...cached};
   try {
@@ -288,14 +300,32 @@ async function startRenderStep(jobId: string, storyboard: LegalVideoStoryboard) 
   return startLegalVideoRender({jobId, storyboard});
 }
 
-async function renderProgressStep(renderId: string, bucketName: string) {
+async function renderProgressStep(sandboxId: string, commandId: string) {
   "use step";
-  const progress = await legalVideoRenderProgress({renderId, bucketName});
+  const progress = await legalVideoRenderProgress({sandboxId, commandId});
+  if (progress.stage === "done") {
+    return {
+      stage: progress.stage,
+      overallProgress: progress.overallProgress,
+      url: progress.url,
+      error: null,
+    };
+  }
+  if (progress.stage === "error") {
+    return {
+      stage: progress.stage,
+      overallProgress: progress.overallProgress,
+      url: null,
+      error: progress.message,
+    };
+  }
+  if (progress.stage === "expired") {
+    return {stage: progress.stage, overallProgress: 0, url: null, error: "Sandbox đã hết hạn."};
+  }
   return {
-    done: progress.done,
+    stage: progress.stage,
     overallProgress: progress.overallProgress,
-    outputFile: progress.outputFile,
-    fatalErrorEncountered: progress.fatalErrorEncountered,
-    error: progress.errors?.[0]?.message || null,
+    url: null,
+    error: null,
   };
 }
