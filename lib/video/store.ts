@@ -98,7 +98,8 @@ export function publicLegalVideoJob(job: LegalVideoJob): LegalVideoPublicJob {
     fingerprint: _fingerprint,
     documentSnapshotPath: _documentSnapshotPath,
     storyboardPath: internalStoryboardPath,
-    renderBucket: _renderBucket,
+    renderSandboxId: _renderSandboxId,
+    renderCommandId: _renderCommandId,
     ...publicFields
   } = job;
   return {...publicFields, storyboardReady: Boolean(internalStoryboardPath)};
