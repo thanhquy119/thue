@@ -1,6 +1,7 @@
-import {get, put} from "@/lib/storage/r2-blob-compat";
+import {put} from "@/lib/storage/r2-blob-compat";
 import {
   legalVideoR2Configured,
+  readR2Object,
   R2_MEDIA_CACHE_SECONDS,
   R2_MEDIA_SIGNED_URL_SECONDS,
   r2MediaObjectExists,
@@ -8,6 +9,7 @@ import {
 } from "./r2-media";
 
 const encoder = new TextEncoder();
+const decoder = new TextDecoder();
 
 export function videoMediaConfigured() {
   return legalVideoR2Configured();
@@ -47,14 +49,13 @@ type TtsMetadata = {
   durationSeconds: number;
   voice: string;
   createdAt: string;
-  // Dữ liệu cũ trên Vercel Blob có thể còn trường này; không dùng cho lượt mới.
   url?: string;
 };
 
 async function readMetadata(cacheKey: string) {
-  const value = await get(metadataPath(cacheKey), {access: "private", useCache: false});
-  if (!value?.stream) return null;
-  const text = await new Response(value.stream).text();
+  const value = await readR2Object(metadataPath(cacheKey));
+  if (!value?.byteLength) return null;
+  const text = decoder.decode(value);
   if (!text.trim()) return null;
   return JSON.parse(text) as TtsMetadata;
 }
