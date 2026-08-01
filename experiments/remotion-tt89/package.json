@@ -1,11 +1,14 @@
 {
   "name": "remotion-thong-tu-89-demo",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "studio": "remotion studio src/index.ts --no-open",
-    "render": "remotion render src/index.ts ThongTu89 out/thong-tu-89-2026.mp4 --codec=h264 --crf=22 --audio-codec=aac"
+    "assets": "python scripts/generate-assets.py --spec content/video.json",
+    "studio": "npm run assets && remotion studio src/index.ts --no-open",
+    "typecheck": "tsc -p tsconfig.json",
+    "render:only": "remotion render src/index.ts ThongTu89 out/thong-tu-89-2026.mp4 --codec=h264 --crf=22 --audio-codec=aac",
+    "render": "npm run assets && npm run typecheck && npm run render:only"
   },
   "dependencies": {
     "@remotion/captions": "4.0.503",
