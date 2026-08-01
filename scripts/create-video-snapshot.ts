@@ -1,10 +1,25 @@
 import {execFileSync} from "node:child_process";
 import {rmSync} from "node:fs";
+import {setTimeout as delay} from "node:timers/promises";
 import {addBundleToSandbox, createSandbox} from "@remotion/vercel";
 import {put, r2Configured} from "@/lib/storage/r2-blob-compat";
 import {VIDEO_TEMPLATE_VERSION} from "@/lib/video/chunking";
-import {readR2Object} from "@/lib/video/r2-media";
-import {videoSnapshotKey} from "@/lib/video/remotion-renderer";
+import {
+  legalVideoRenderProgress,
+  startLegalVideoRender,
+  videoSnapshotKey,
+} from "@/lib/video/remotion-renderer";
+import {
+  readR2Object,
+  R2_MEDIA_SIGNED_URL_SECONDS,
+  signedR2MediaUrl,
+} from "@/lib/video/r2-media";
+import {
+  patchLegalVideoJob,
+  readLegalVideoJob,
+  readLegalVideoStoryboard,
+} from "@/lib/video/store";
+import type {LegalVideoStoryboard} from "@/lib/video/types";
 
 const bundleDir = ".remotion-video";
 const sandboxBundleDir = "/vercel/sandbox/remotion-bundle";
@@ -12,6 +27,8 @@ const reusableKey = `legal-video/snapshots/by-template/${VIDEO_TEMPLATE_VERSION}
 const enabled = process.env.VIDEO_EXPERIMENT_ENABLED === "true" || process.env.VERCEL_ENV !== "production";
 const decoder = new TextDecoder();
 const temporarySmokeJobId = "6e3c154f-3390-49d2-8ee3-fb42701e1b75";
+const renderSmokeEnabled = process.env.RUN_VIDEO_RENDER_SMOKE === "true"
+  || /\[video-render-smoke\]/iu.test(process.env.VERCEL_GIT_COMMIT_MESSAGE || "");
 
 if (!enabled) {
   console.log("[video-snapshot] Bỏ qua vì VIDEO_EXPERIMENT_ENABLED chưa bật trên production.");
@@ -69,6 +86,91 @@ async function writeSnapshot(pathname: string, payload: Record<string, unknown>)
   });
 }
 
+async function refreshStoryboardAudio(storyboard: LegalVideoStoryboard) {
+  return {
+    ...storyboard,
+    scenes: await Promise.all(storyboard.scenes.map(async (scene) => ({
+      ...scene,
+      audioChunks: await Promise.all((scene.audioChunks ?? []).map(async (chunk) => ({
+        ...chunk,
+        url: await signedR2MediaUrl(chunk.cacheKey, R2_MEDIA_SIGNED_URL_SECONDS),
+      }))),
+    }))),
+  };
+}
+
+async function runTemporaryRenderSmoke() {
+  if (!renderSmokeEnabled) {
+    console.log("[video-render-smoke] Bỏ qua; thêm [video-render-smoke] vào commit hoặc bật RUN_VIDEO_RENDER_SMOKE.");
+    return;
+  }
+
+  const job = await readLegalVideoJob(temporarySmokeJobId);
+  if (!job?.storyboardPath) {
+    throw new Error(`[video-render-smoke] Job ${temporarySmokeJobId} chưa có storyboard trên R2.`);
+  }
+  const storedStoryboard = await readLegalVideoStoryboard(job.storyboardPath);
+  if (!storedStoryboard) {
+    throw new Error(`[video-render-smoke] Không đọc được storyboard ${job.storyboardPath} trên R2.`);
+  }
+  const storyboard = await refreshStoryboardAudio(storedStoryboard);
+  const render = await startLegalVideoRender({jobId: job.jobId, storyboard});
+  await patchLegalVideoJob(job.jobId, {
+    status: "rendering",
+    progress: 78,
+    message: "Đang chạy lại smoke Remotion bằng tín hiệu trạng thái bền vững…",
+    renderSandboxId: render.sandboxId,
+    renderCommandId: render.commandId,
+    videoPath: render.outputPath,
+    videoUrl: null,
+    error: null,
+  });
+
+  for (let poll = 0; poll < 240; poll += 1) {
+    await delay(5_000);
+    const progress = await legalVideoRenderProgress({
+      jobId: job.jobId,
+      sandboxId: render.sandboxId,
+      commandId: render.commandId,
+      outputFile: render.outputFile,
+      outputPath: render.outputPath,
+    });
+    console.log(`[video-render-smoke] ${JSON.stringify({
+      poll: poll + 1,
+      stage: progress.stage,
+      progress: Math.round(progress.overallProgress * 100),
+      error: progress.error,
+    })}`);
+    if (progress.stage === "error" || progress.stage === "expired") {
+      await patchLegalVideoJob(job.jobId, {
+        status: "failed",
+        message: "Smoke render Remotion thất bại.",
+        error: progress.error || "Sandbox không hoàn tất render.",
+      });
+      throw new Error(progress.error || "[video-render-smoke] Sandbox không hoàn tất render.");
+    }
+    if (progress.stage === "done" && progress.url && progress.pathname) {
+      await patchLegalVideoJob(job.jobId, {
+        status: "ready",
+        progress: 100,
+        message: "Video smoke đã được dựng và lưu trên R2.",
+        videoPath: progress.pathname,
+        videoUrl: progress.url,
+        error: null,
+      });
+      console.log(`[video-render-smoke] READY ${progress.pathname}`);
+      return;
+    }
+  }
+
+  await patchLegalVideoJob(job.jobId, {
+    status: "failed",
+    message: "Smoke render Remotion quá thời gian.",
+    error: "Quá thời gian chờ Sandbox hoàn tất render.",
+  });
+  throw new Error("[video-render-smoke] Quá thời gian chờ Sandbox hoàn tất render.");
+}
+
 await reportTemporarySmokeJob();
 
 const reusableSnapshotId = await readSnapshot(reusableKey);
@@ -81,6 +183,7 @@ if (reusableSnapshotId) {
     createdAt: new Date().toISOString(),
   });
   console.log(`[video-snapshot] Tái sử dụng snapshot ${reusableSnapshotId} của ${VIDEO_TEMPLATE_VERSION}.`);
+  await runTemporaryRenderSmoke();
   process.exit(0);
 }
 
@@ -132,3 +235,5 @@ try {
 } finally {
   rmSync(bundleDir, {recursive: true, force: true});
 }
+
+await runTemporaryRenderSmoke();
