@@ -7,9 +7,15 @@ import {searchTaxLawRobust} from "@/lib/legal/robust-search";
 import {consumeMemoryRateLimit, requestFingerprint} from "@/lib/legal/security";
 import type {DocumentDetail, SearchCandidate, TaxSearchResponse} from "@/lib/legal/types";
 import {legalVideoCapabilities} from "@/lib/video/capabilities";
-import {documentSnapshotPath, findReusableLegalVideoJob, publicLegalVideoJob, writeLegalVideoDocument, writeLegalVideoJob} from "@/lib/video/store";
+import {videoFingerprint} from "@/lib/video/fingerprint";
+import {
+  documentSnapshotPath,
+  findReusableLegalVideoJob,
+  publicLegalVideoJob,
+  writeLegalVideoDocument,
+  writeLegalVideoJob,
+} from "@/lib/video/store";
 import type {LegalVideoJob, LegalVideoLength, LegalVideoVoice} from "@/lib/video/types";
-import {videoFingerprint} from "@/lib/video/chunking";
 import {legalVideoGenerationWorkflow} from "@/workflows/legal-video-generation";
 
 export const runtime = "nodejs";
@@ -64,7 +70,7 @@ function candidatePayload(candidates: SearchCandidate[] | undefined) {
 }
 
 export async function POST(request: Request) {
-  const limit = consumeMemoryRateLimit(`video:${requestFingerprint(request)}`, 5, 60_000);
+  const limit = consumeMemoryRateLimit(`video:${requestFingerprint(request)}`);
   if (!limit.allowed) {
     return NextResponse.json(
       {error: `Em thao tác hơi nhanh. Vui lòng thử lại sau ${limit.retryAfter} giây.`},
@@ -154,8 +160,8 @@ export async function POST(request: Request) {
     sceneCount: 0,
     ttsChunkCount: 0,
     completedTtsChunks: 0,
-    renderId: null,
-    renderBucket: null,
+    renderSandboxId: null,
+    renderCommandId: null,
     videoUrl: null,
     error: null,
     createdAt,
