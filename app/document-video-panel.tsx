@@ -108,9 +108,6 @@ export default function DocumentVideoPanel({documentNumber}: DocumentVideoPanelP
             >
               Trình duyệt của em chưa hỗ trợ phát video.
             </video>
-            <p style={{margin: "10px 2px 0", fontSize: 13, lineHeight: 1.5, opacity: 0.72}}>
-              Video giúp nắm nhanh nội dung; toàn văn chính thức vẫn nằm ngay bên dưới để đối chiếu.
-            </p>
           </div>
         ) : null}
       </section>
