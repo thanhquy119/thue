@@ -50,6 +50,15 @@ jobs:
             -i video-audit/tt94-v4/frame-%02d.jpg \
             -vf "tile=3x4:padding=8:margin=8" \
             -frames:v 1 -q:v 2 video-audit/tt94-v4/contact-sheet.jpg
+          printf '%s\n' "$GITHUB_RUN_ID" > video-audit/tt94-v4/run-id.txt
+
+      - name: Upload frame audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tt94-v4-frame-audit
+          path: video-audit/tt94-v4
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Commit temporary audit frames
         run: |
