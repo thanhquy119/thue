@@ -44,9 +44,10 @@ test("câu pháp lý dài được tách thành các cụm hình ảnh hoàn ch�
 });
 
 test("Remotion có hệ hình ảnh ngữ nghĩa thay vì một icon cạnh danh sách text", () => {
+  assert.ok(templateSource.includes("function KeywordGlyph"), "Thiếu KeywordGlyph");
   for (const component of [
-    "SceneBackdrop", "KeywordGlyph", "DocumentVisual", "TimelineVisual", "NetworkVisual",
-    "FlowVisual", "ContrastVisual", "MetricVisual", "ChecklistVisual", "DecisionVisual", "TakeawayVisual",
+    "SceneBackdrop", "DocumentVisual", "TimelineVisual", "NetworkVisual", "FlowVisual",
+    "ContrastVisual", "MetricVisual", "ChecklistVisual", "DecisionVisual", "TakeawayVisual",
   ]) assert.ok(templateSource.includes(`const ${component}`), `Thiếu ${component}`);
   assert.ok(templateSource.includes("strokeDashoffset={-frame * .7}"));
   assert.ok(templateSource.includes('pathLength="1"'));
