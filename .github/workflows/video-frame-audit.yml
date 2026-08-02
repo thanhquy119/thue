@@ -7,9 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  issues: write
-  pull-requests: write
+  contents: write
 
 jobs:
   audit:
@@ -17,6 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Checkout audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: improve/video-storytelling-v4
+          fetch-depth: 0
+
       - name: Install FFmpeg
         run: |
           if ! command -v ffmpeg >/dev/null 2>&1; then
@@ -34,28 +38,23 @@ jobs:
 
       - name: Extract evenly spaced frames
         run: |
-          mkdir -p frames
+          rm -rf video-audit/tt94-v4
+          mkdir -p video-audit/tt94-v4
           DURATION="$(ffprobe -v error -show_entries format=duration -of csv=p=0 video.mp4)"
           INTERVAL="$(awk -v duration="$DURATION" 'BEGIN { printf "%.6f", duration / 12 }')"
           ffmpeg -hide_banner -loglevel error -i video.mp4 \
             -vf "fps=1/${INTERVAL},scale=540:-2" \
-            -frames:v 12 -q:v 2 frames/frame-%02d.jpg
-          test "$(find frames -name 'frame-*.jpg' | wc -l)" -ge 10
+            -frames:v 12 -q:v 2 video-audit/tt94-v4/frame-%02d.jpg
+          test "$(find video-audit/tt94-v4 -name 'frame-*.jpg' | wc -l)" -ge 10
           ffmpeg -hide_banner -loglevel error -framerate 1 \
-            -i frames/frame-%02d.jpg \
+            -i video-audit/tt94-v4/frame-%02d.jpg \
             -vf "tile=3x4:padding=8:margin=8" \
-            -frames:v 1 -q:v 2 frames/contact-sheet.jpg
+            -frames:v 1 -q:v 2 video-audit/tt94-v4/contact-sheet.jpg
 
-      - name: Upload frame audit
-        uses: actions/upload-artifact@v4
-        with:
-          name: tt94-v4-frame-audit
-          path: frames
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Publish audit run in PR
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Commit temporary audit frames
         run: |
-          gh pr comment 47 --body "Frame audit v4 đã sẵn sàng: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} — artifact: tt94-v4-frame-audit"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add video-audit/tt94-v4
+          git commit -m "Lưu khung hình audit video v4 [skip frame audit]"
+          git push origin HEAD:improve/video-storytelling-v4
