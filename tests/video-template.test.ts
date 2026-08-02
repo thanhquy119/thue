@@ -23,6 +23,7 @@ test("template và pipeline v4 buộc tạo lại video theo hướng visual-fir
   assert.match(chunkingSource, /VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v4"/u);
   assert.match(templateSource, /VIDEO GIẢI THÍCH/u);
   assert.match(storyboardSource, /visualMode: "takeaways"/u);
+  assert.match(storyboardSource, /visualKeywords:/u);
 });
 
 test("phụ đề được chia theo câu, mệnh đề và từ mà không chèn dấu ba chấm", () => {
