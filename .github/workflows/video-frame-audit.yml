@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: read
+  issues: write
+  pull-requests: write
 
 jobs:
   audit:
@@ -51,3 +53,9 @@ jobs:
           path: frames
           if-no-files-found: error
           retention-days: 7
+
+      - name: Publish audit run in PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment 47 --body "Frame audit v4 đã sẵn sàng: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }} — artifact: tt94-v4-frame-audit"
