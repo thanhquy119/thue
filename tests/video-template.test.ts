@@ -26,16 +26,14 @@ test("template và pipeline v4 buộc tạo lại video theo hướng visual-fir
 });
 
 test("phụ đề được chia theo câu, mệnh đề và từ mà không chèn dấu ba chấm", () => {
-  assert.match(storyboardSource, /export function captionChunksFromNarration/u);
-  assert.match(storyboardSource, /splitMeaningfulPhrases\(sentence, maxChars\)/u);
-  assert.match(storyboardSource, /splitWords\(piece, maxChars\)/u);
-  assert.doesNotMatch(
-    storyboardSource.slice(
-      storyboardSource.indexOf("export function captionChunksFromNarration"),
-      storyboardSource.indexOf("function normalizedTokens"),
-    ),
-    /`${[^}]+}…`|slice\(0,\s*maxChars\)/u,
-  );
+  const start = storyboardSource.indexOf("export function captionChunksFromNarration");
+  const end = storyboardSource.indexOf("function normalizedTokens", start);
+  assert.ok(start >= 0 && end > start, "Không tìm thấy thuật toán chia phụ đề");
+  const source = storyboardSource.slice(start, end);
+  assert.match(source, /splitMeaningfulPhrases\(sentence, maxChars\)/u);
+  assert.match(source, /splitWords\(piece, maxChars\)/u);
+  assert.doesNotMatch(source, /…/u);
+  assert.doesNotMatch(source, /slice\(0,\s*maxChars\)/u);
 });
 
 test("câu pháp lý dài được tách thành các cụm hình ảnh hoàn chỉnh", () => {
