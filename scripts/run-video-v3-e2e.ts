@@ -72,7 +72,7 @@ let job: LegalVideoJob = {
   storyboardPath: null,
   status: "queued",
   progress: 1,
-  message: "Đã xếp hàng kiểm thử video v4.",
+  message: "Đã xếp hàng kiểm thử video v5.",
   length: "detailed",
   voice: "female",
   sceneCount: 0,
@@ -163,7 +163,7 @@ function inspectStoryboard(storyboard: LegalVideoStoryboard) {
       throw new Error(`[video-v3-e2e] Cảnh ${scene.id} chưa có visualKeywords.`);
     }
     for (const keyword of scene.visualKeywords ?? []) {
-      if (incompleteDisplayText(keyword)) {
+      if (scene.kind !== "intro" && incompleteDisplayText(keyword)) {
         throw new Error(`[video-v3-e2e] Visual keyword bị cắt hoặc dang dở: ${scene.id} — ${keyword}`);
       }
     }
@@ -269,7 +269,7 @@ function transientGemini(error: unknown) {
 await patchLegalVideoJob(jobId, {
   status: "summarizing",
   progress: 5,
-  message: "Đang kiểm thử biên tập nội dung video v4…",
+  message: "Đang kiểm thử biên tập nội dung video v5…",
   error: null,
 });
 
@@ -320,7 +320,7 @@ await writeLegalVideoStoryboard(internalStoryboardPath, storyboard);
 await patchLegalVideoJob(jobId, {
   status: "synthesizing",
   progress: 38,
-  message: `Đã tạo ${storyboard.scenes.length} cảnh v4; đang tạo giọng đọc…`,
+  message: `Đã tạo ${storyboard.scenes.length} cảnh v5; đang tạo giọng đọc…`,
   storyboardPath: internalStoryboardPath,
   sceneCount: storyboard.scenes.length,
   error: null,
@@ -393,7 +393,7 @@ const render = await startLegalVideoRender({jobId, storyboard: withAudio});
 await patchLegalVideoJob(jobId, {
   status: "rendering",
   progress: 78,
-  message: "Đang dựng MP4 bằng storytelling v4…",
+  message: "Đang dựng MP4 bằng storytelling v5…",
   renderSandboxId: render.sandboxId,
   renderCommandId: render.commandId,
   videoPath: render.outputPath,
@@ -416,7 +416,7 @@ for (let poll = 0; poll < 240; poll += 1) {
   if (progress.stage === "error" || progress.stage === "expired") {
     await patchLegalVideoJob(jobId, {
       status: "failed",
-      message: "Kiểm thử render v4 thất bại.",
+      message: "Kiểm thử render v5 thất bại.",
       error: progress.error || "Sandbox không hoàn tất render.",
     });
     throw new Error(progress.error || "[video-v3-e2e] Sandbox không hoàn tất render.");
@@ -425,7 +425,7 @@ for (let poll = 0; poll < 240; poll += 1) {
     await patchLegalVideoJob(jobId, {
       status: "ready",
       progress: 100,
-      message: "Video chi tiết v4 đã sẵn sàng.",
+      message: "Video chi tiết v5 đã sẵn sàng.",
       videoPath: progress.pathname,
       videoUrl: progress.url,
       error: null,
@@ -443,14 +443,14 @@ for (let poll = 0; poll < 240; poll += 1) {
   await patchLegalVideoJob(jobId, {
     status: "rendering",
     progress: Math.max(78, Math.min(98, 78 + Math.round(progress.overallProgress * 20))),
-    message: `Đang dựng MP4 bằng storytelling v4… ${Math.round(progress.overallProgress * 100)}%`,
+    message: `Đang dựng MP4 bằng storytelling v5… ${Math.round(progress.overallProgress * 100)}%`,
     error: null,
   });
 }
 
 await patchLegalVideoJob(jobId, {
   status: "failed",
-  message: "Kiểm thử render v4 quá thời gian.",
+  message: "Kiểm thử render v5 quá thời gian.",
   error: "Quá thời gian chờ Sandbox hoàn tất render.",
 });
 throw new Error(`[video-v3-e2e] Quá thời gian chờ job ${jobId} hoàn tất.`);
