@@ -6,6 +6,8 @@ const panelSource = readFileSync(new URL("../app/document-video-panel.tsx", impo
 const templateSource = readFileSync(new URL("../experiments/remotion-tt89/src/LegalVideo.tsx", import.meta.url), "utf8");
 const chunkingSource = readFileSync(new URL("../lib/video/chunking.ts", import.meta.url), "utf8");
 const storyboardSource = readFileSync(new URL("../lib/video/storyboard.ts", import.meta.url), "utf8");
+const captionsV6Source = readFileSync(new URL("../lib/video/storyboard-v6.ts", import.meta.url), "utf8");
+const tsconfigSource = readFileSync(new URL("../tsconfig.json", import.meta.url), "utf8");
 
 function captionSource() {
   const start = templateSource.indexOf("const CaptionBar");
@@ -18,23 +20,21 @@ test("không còn dòng chú thích dư dưới trình phát video", () => {
   assert.doesNotMatch(panelSource, /Video giúp nắm nhanh nội dung; toàn văn chính thức vẫn nằm ngay bên dưới để đối chiếu\./u);
 });
 
-test("template và pipeline v4 buộc tạo lại video theo hướng visual-first", () => {
-  assert.match(chunkingSource, /VIDEO_TEMPLATE_VERSION = "legal-video-v5"/u);
-  assert.match(chunkingSource, /VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v5"/u);
+test("template và pipeline v6 buộc tạo lại video theo hướng visual-first", () => {
+  assert.match(chunkingSource, /VIDEO_TEMPLATE_VERSION = "legal-video-v6"/u);
+  assert.match(chunkingSource, /VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v6"/u);
   assert.match(templateSource, /VIDEO GIẢI THÍCH/u);
   assert.match(storyboardSource, /visualMode: "takeaways"/u);
   assert.match(storyboardSource, /visualKeywords:/u);
+  assert.match(tsconfigSource, /"@\/lib\/video\/storyboard": \["\.\/lib\/video\/storyboard-v6\.ts"\]/u);
 });
 
-test("phụ đề được chia theo câu, mệnh đề và từ mà không chèn dấu ba chấm", () => {
-  const start = storyboardSource.indexOf("export function captionChunksFromNarration");
-  const end = storyboardSource.indexOf("function normalizedTokens", start);
-  assert.ok(start >= 0 && end > start, "Không tìm thấy thuật toán chia phụ đề");
-  const source = storyboardSource.slice(start, end);
-  assert.match(source, /splitMeaningfulPhrases\(sentence, maxChars, true\)/u);
-  assert.match(source, /rebalanceWordChunks\(chunks\.filter\(Boolean\), maxChars\)/u);
-  assert.doesNotMatch(source, /…/u);
-  assert.doesNotMatch(source, /slice\(0,\s*maxChars\)/u);
+test("phụ đề v6 khóa theo từng câu và không kéo đầu câu sau vào caption trước", () => {
+  assert.match(captionsV6Source, /split\(\/\(\?<=\[\.!\?\]\)\\s\+\/gu\)/u);
+  assert.match(captionsV6Source, /sentences\.length \? sentences : \[normalized\]\)\.flatMap/u);
+  assert.match(captionsV6Source, /rebalanceSentenceChunks/u);
+  assert.doesNotMatch(captionsV6Source, /let current = "";[\s\S]*for \(const sentence/u);
+  assert.doesNotMatch(captionsV6Source, /…/u);
 });
 
 test("câu pháp lý chỉ tách ở ranh giới ý mạnh, không chặt tại mọi dấu phẩy", () => {
@@ -47,11 +47,11 @@ test("câu pháp lý chỉ tách ở ranh giới ý mạnh, không chặt tại 
   assert.doesNotMatch(source, /\?<=\[,;:\]/u);
 });
 
-test("phần đuôi phụ đề ngắn được cân bằng lại thay vì còn mảnh như rủi hoặc ro", () => {
-  assert.match(storyboardSource, /function rebalanceWordChunks/u);
-  assert.match(storyboardSource, /minimumTail = 34/u);
-  assert.match(storyboardSource, /candidateTail/u);
-  assert.match(storyboardSource, /maxChars \+ tolerance/u);
+test("phần đuôi phụ đề chỉ được cân bằng bên trong cùng một câu", () => {
+  assert.match(captionsV6Source, /minimumTail = 34/u);
+  assert.match(captionsV6Source, /candidateTail/u);
+  assert.match(captionsV6Source, /maxChars \+ tolerance/u);
+  assert.match(captionsV6Source, /splitSentenceByWords\(sentence, maxChars\)/u);
 });
 
 test("Remotion có hệ hình ảnh ngữ nghĩa thay vì một icon cạnh danh sách text", () => {
