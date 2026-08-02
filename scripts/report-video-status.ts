@@ -21,6 +21,7 @@ for (const jobId of jobIds) {
 
   console.log(`[video-status] ${JSON.stringify({
     jobId: job.jobId,
+    workflowRunId: job.workflowRunId,
     found: true,
     documentNumber: job.documentNumber,
     length: job.length,
@@ -32,6 +33,7 @@ for (const jobId of jobIds) {
     ttsChunkCount: job.ttsChunkCount,
     completedTtsChunks: job.completedTtsChunks,
     storyboardReady: Boolean(job.storyboardPath),
+    renderStarted: Boolean(job.renderSandboxId || job.renderCommandId),
     videoReady: Boolean(job.videoUrl),
     videoPath: job.videoPath || null,
     error: job.error,
