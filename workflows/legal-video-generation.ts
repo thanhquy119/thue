@@ -1,0 +1,365 @@
+import {sleep} from "workflow";
+import {azureVoiceName, AzureTtsError, synthesizeAzureVietnamese} from "@/lib/video/azure-tts";
+import {readCachedTtsAsset, ttsCacheKey, writeTtsAsset} from "@/lib/video/blob-assets";
+import {
+  buildVideoEvidenceSections,
+  splitVietnameseTtsText,
+  videoEvidenceSectionChars,
+} from "@/lib/video/chunking";
+import {legalVideoRenderProgress, startLegalVideoRender} from "@/lib/video/remotion-renderer";
+import {
+  patchLegalVideoJob,
+  readLegalVideoDocument,
+  readLegalVideoJob,
+  storyboardPath,
+  writeLegalVideoStoryboard,
+} from "@/lib/video/store";
+import {createLegalVideoStoryboard, summarizeVideoEvidenceSection} from "@/lib/video/storyboard";
+import type {
+  LegalVideoAudioChunk,
+  LegalVideoEvidencePoint,
+  LegalVideoJob,
+  LegalVideoScene,
+  LegalVideoStoryboard,
+  LegalVideoWorkflowInput,
+  LegalVideoWorkflowResult,
+  LegalVideoVoice,
+} from "@/lib/video/types";
+
+const GEMINI_MAX_ATTEMPTS = 24;
+const TTS_MAX_ATTEMPTS = 20;
+const RENDER_MAX_POLLS = 240;
+
+function now() {
+  return new Date().toISOString();
+}
+
+function geminiPacingSeconds() {
+  const configured = Number(process.env.VIDEO_GEMINI_MIN_INTERVAL_MS || 5_000);
+  const milliseconds = Number.isFinite(configured) ? Math.max(4_200, configured) : 5_000;
+  return Math.max(5, Math.ceil(milliseconds / 1_000));
+}
+
+function geminiRetrySeconds(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const explicit = message.match(/retry(?:\s+in|\s+after)?\s+(\d+(?:\.\d+)?)\s*s/iu);
+  const explicitSeconds = explicit ? Math.ceil(Number(explicit[1])) + 2 : 0;
+  if (/429|quota|rate.?limit|resource.?exhausted|too many requests/iu.test(message)) {
+    return Math.max(65, explicitSeconds || 0);
+  }
+  if (/500|502|503|504|timeout|timed out|abort|temporar/iu.test(message)) {
+    return Math.max(12, explicitSeconds || 0);
+  }
+  return 0;
+}
+
+function ttsPacingSeconds() {
+  const configured = Number(process.env.VIDEO_TTS_MIN_INTERVAL_MS || 4_000);
+  const milliseconds = Number.isFinite(configured) ? Math.max(3_200, configured) : 4_000;
+  return Math.max(4, Math.ceil(milliseconds / 1_000));
+}
+
+function retrySeconds(milliseconds: number) {
+  return Math.max(2, Math.min(300, Math.ceil(milliseconds / 1_000)));
+}
+
+function renderMessage(stage: string, progress: number) {
+  if (stage === "starting") return "Đang khởi động môi trường dựng video…";
+  if (stage === "opening-browser") return "Đang mở trình dựng hình…";
+  if (stage === "selecting-composition") return "Đang chuẩn bị bố cục video…";
+  if (stage === "uploading") return "Đã dựng xong; đang chuyển MP4 vào R2…";
+  return `Đang xuất video… ${Math.round(progress * 100)}%`;
+}
+
+export async function legalVideoGenerationWorkflow(
+  input: LegalVideoWorkflowInput,
+): Promise<LegalVideoWorkflowResult> {
+  "use workflow";
+
+  try {
+    const job = await readJobStep(input.jobId);
+    if (!job) throw new Error(`Không tìm thấy job video ${input.jobId}.`);
+    const document = await readDocumentStep(job.documentSnapshotPath);
+    if (!document) throw new Error("Bản chụp toàn văn dùng để tạo video không còn tồn tại.");
+
+    await patchJobStep(job.jobId, {
+      status: "summarizing",
+      progress: 5,
+      message: "Đang đọc cấu trúc và chọn các ý chính của văn bản…",
+      error: null,
+    });
+
+    const sectionChars = videoEvidenceSectionChars(document, job.length);
+    const sections = buildVideoEvidenceSections(document, sectionChars);
+    if (!sections.length) throw new Error("Toàn văn chưa có đủ nội dung để tạo video.");
+    const points: LegalVideoEvidencePoint[] = [];
+    for (let index = 0; index < sections.length; index += 1) {
+      let sectionPoints: LegalVideoEvidencePoint[] | null = null;
+      for (let attempt = 1; attempt <= GEMINI_MAX_ATTEMPTS; attempt += 1) {
+        try {
+          sectionPoints = await summarizeSectionStep(document, sections[index]);
+          break;
+        } catch (error) {
+          const waitSeconds = geminiRetrySeconds(error);
+          if (!waitSeconds || attempt === GEMINI_MAX_ATTEMPTS) throw error;
+          await patchJobStep(job.jobId, {
+            status: "summarizing",
+            message: `Đang chờ hạn mức AI rồi tiếp tục phần ${index + 1}/${sections.length}; tiến độ hiện tại được giữ nguyên…`,
+            error: null,
+          });
+          await sleep(`${waitSeconds} seconds`);
+        }
+      }
+      if (!sectionPoints) throw new Error("Chưa phân tích được một phần của văn bản.");
+      points.push(...sectionPoints);
+      const progress = 6 + Math.round(((index + 1) / sections.length) * 28);
+      await patchJobStep(job.jobId, {
+        status: "summarizing",
+        progress,
+        message: `Đã phân tích ${index + 1}/${sections.length} phần của văn bản…`,
+        error: null,
+      });
+      if (index < sections.length - 1) {
+        await sleep(`${geminiPacingSeconds()} seconds`);
+      }
+    }
+    if (!points.length) throw new Error("Chưa trích xuất được ý chính có dẫn chứng từ toàn văn.");
+
+    await sleep(`${geminiPacingSeconds()} seconds`);
+    const storyboard = await createStoryboardStep({
+      document,
+      points,
+      length: job.length,
+      voice: job.voice,
+    });
+    const internalStoryboardPath = storyboardPath(job.jobId);
+    await writeStoryboardStep(internalStoryboardPath, storyboard);
+    await patchJobStep(job.jobId, {
+      status: "synthesizing",
+      progress: 38,
+      message: `Đã tạo ${storyboard.scenes.length} cảnh; đang chuẩn bị giọng đọc tiếng Việt…`,
+      storyboardPath: internalStoryboardPath,
+      sceneCount: storyboard.scenes.length,
+      error: null,
+    });
+
+    const speechChunks = storyboard.scenes.flatMap((scene) =>
+      splitVietnameseTtsText(scene.narration).map((text, index) => ({
+        sceneId: scene.id,
+        chunkIndex: index,
+        text,
+      })),
+    );
+    if (!speechChunks.length) throw new Error("Storyboard chưa có lời đọc.");
+    await patchJobStep(job.jobId, {ttsChunkCount: speechChunks.length});
+
+    const audioByScene = new Map<string, LegalVideoAudioChunk[]>();
+    for (let index = 0; index < speechChunks.length; index += 1) {
+      const chunk = speechChunks[index];
+      let completed: Awaited<ReturnType<typeof synthesizeTtsChunkStep>> | null = null;
+      for (let attempt = 1; attempt <= TTS_MAX_ATTEMPTS; attempt += 1) {
+        const result = await synthesizeTtsChunkStep({
+          text: chunk.text,
+          voice: job.voice,
+          id: `${chunk.sceneId}-audio-${chunk.chunkIndex + 1}`,
+        });
+        if (result.ok) {
+          completed = result;
+          if (!result.cached && index < speechChunks.length - 1) {
+            await sleep(`${ttsPacingSeconds()} seconds`);
+          }
+          break;
+        }
+        if (!result.retryable || attempt === TTS_MAX_ATTEMPTS) {
+          throw new Error(result.error || "Tạo giọng đọc thất bại.");
+        }
+        await patchJobStep(job.jobId, {
+          status: "synthesizing",
+          message: `Dịch vụ giọng đọc đang bận; giữ nguyên tiến độ và thử lại đoạn ${index + 1}/${speechChunks.length}…`,
+          error: null,
+        });
+        await sleep(`${retrySeconds(result.retryAfterMs)} seconds`);
+      }
+      if (!completed?.ok) throw new Error("Không hoàn tất được một đoạn giọng đọc.");
+      const current = audioByScene.get(chunk.sceneId) ?? [];
+      current.push({
+        id: completed.id,
+        text: chunk.text,
+        url: completed.url,
+        durationSeconds: completed.durationSeconds,
+        cacheKey: completed.cacheKey,
+      });
+      audioByScene.set(chunk.sceneId, current);
+      await patchJobStep(job.jobId, {
+        status: "synthesizing",
+        completedTtsChunks: index + 1,
+        progress: 40 + Math.round(((index + 1) / speechChunks.length) * 35),
+        message: `Đã tạo giọng đọc ${index + 1}/${speechChunks.length} đoạn…`,
+        error: null,
+      });
+    }
+
+    const withAudio: LegalVideoStoryboard = {
+      ...storyboard,
+      scenes: storyboard.scenes.map((scene): LegalVideoScene => ({
+        ...scene,
+        audioChunks: audioByScene.get(scene.id) ?? [],
+      })),
+    };
+    await writeStoryboardStep(internalStoryboardPath, withAudio);
+
+    const render = await startRenderStep(job.jobId, withAudio);
+    await patchJobStep(job.jobId, {
+      status: "rendering",
+      progress: 78,
+      message: "Đang dựng hình, ghép giọng đọc và xuất MP4 trên Vercel Sandbox…",
+      renderSandboxId: render.sandboxId,
+      renderCommandId: render.commandId,
+      videoPath: render.outputPath,
+      error: null,
+    });
+
+    for (let poll = 0; poll < RENDER_MAX_POLLS; poll += 1) {
+      await sleep("10 seconds");
+      const progress = await renderProgressStep({
+        jobId: job.jobId,
+        sandboxId: render.sandboxId,
+        commandId: render.commandId,
+        outputFile: render.outputFile,
+        outputPath: render.outputPath,
+      });
+      if (progress.stage === "error") {
+        throw new Error(progress.error || "Vercel Sandbox không thể hoàn tất video.");
+      }
+      if (progress.stage === "expired") {
+        throw new Error("Môi trường render đã hết thời gian trước khi video hoàn tất.");
+      }
+      if (progress.stage === "done" && progress.url && progress.pathname) {
+        await patchJobStep(job.jobId, {
+          status: "ready",
+          progress: 100,
+          message: "Video tóm tắt đã sẵn sàng.",
+          videoPath: progress.pathname,
+          videoUrl: progress.url,
+          error: null,
+        });
+        return {jobId: job.jobId, status: "ready", videoUrl: progress.url, error: null};
+      }
+      await patchJobStep(job.jobId, {
+        status: "rendering",
+        progress: Math.max(78, Math.min(98, 78 + Math.round(progress.overallProgress * 20))),
+        message: renderMessage(progress.stage, progress.overallProgress),
+        error: null,
+      });
+    }
+    throw new Error("Quá thời gian chờ Vercel Sandbox hoàn tất video.");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Tạo video thất bại.";
+    await patchJobStep(input.jobId, {
+      status: "failed",
+      message: "Video chưa thể hoàn tất; toàn văn vẫn sử dụng bình thường.",
+      error: message,
+    }).catch(() => undefined);
+    return {jobId: input.jobId, status: "failed", videoUrl: null, error: message};
+  }
+}
+
+async function readJobStep(jobId: string) {
+  "use step";
+  return readLegalVideoJob(jobId);
+}
+
+async function readDocumentStep(pathname: string) {
+  "use step";
+  return readLegalVideoDocument(pathname);
+}
+
+async function patchJobStep(jobId: string, patch: Partial<LegalVideoJob>) {
+  "use step";
+  return patchLegalVideoJob(jobId, {...patch, updatedAt: now()});
+}
+
+async function summarizeSectionStep(
+  document: Parameters<typeof summarizeVideoEvidenceSection>[0],
+  section: Parameters<typeof summarizeVideoEvidenceSection>[1],
+) {
+  "use step";
+  return summarizeVideoEvidenceSection(document, section);
+}
+
+async function createStoryboardStep(
+  input: Parameters<typeof createLegalVideoStoryboard>[0],
+) {
+  "use step";
+  return createLegalVideoStoryboard(input);
+}
+
+async function writeStoryboardStep(pathname: string, storyboard: LegalVideoStoryboard) {
+  "use step";
+  await writeLegalVideoStoryboard(pathname, storyboard);
+}
+
+type TtsStepResult =
+  | {
+      ok: true;
+      id: string;
+      url: string;
+      durationSeconds: number;
+      cacheKey: string;
+      cached: boolean;
+    }
+  | {
+      ok: false;
+      error: string;
+      retryable: boolean;
+      retryAfterMs: number;
+    };
+
+async function synthesizeTtsChunkStep(input: {
+  id: string;
+  text: string;
+  voice: LegalVideoVoice;
+}): Promise<TtsStepResult> {
+  "use step";
+  const voiceName = azureVoiceName(input.voice);
+  const rate = process.env.VIDEO_TTS_RATE?.trim() || "-4%";
+  const pitch = process.env.VIDEO_TTS_PITCH?.trim() || "+0Hz";
+  const cacheKey = await ttsCacheKey({voice: voiceName, rate, pitch, text: input.text});
+  const cached = await readCachedTtsAsset(cacheKey);
+  if (cached) return {ok: true, id: input.id, ...cached};
+  try {
+    const generated = await synthesizeAzureVietnamese({text: input.text, voice: input.voice});
+    const stored = await writeTtsAsset({
+      key: cacheKey,
+      bytes: generated.bytes,
+      durationSeconds: generated.durationSeconds,
+      voice: generated.voice,
+    });
+    return {ok: true, id: input.id, ...stored};
+  } catch (error) {
+    if (error instanceof AzureTtsError) {
+      return {
+        ok: false,
+        error: error.message,
+        retryable: error.retryable,
+        retryAfterMs: error.retryAfterMs,
+      };
+    }
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Tạo giọng đọc thất bại.",
+      retryable: true,
+      retryAfterMs: 5_000,
+    };
+  }
+}
+
+async function startRenderStep(jobId: string, storyboard: LegalVideoStoryboard) {
+  "use step";
+  return startLegalVideoRender({jobId, storyboard});
+}
+
+async function renderProgressStep(input: Parameters<typeof legalVideoRenderProgress>[0]) {
+  "use step";
+  return legalVideoRenderProgress(input);
+}

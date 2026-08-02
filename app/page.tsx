@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadReadingStates, putReadingState, type ReadingStateRecord } from "./client-storage";
+import DocumentVideoPanel from "./document-video-panel";
 import type { EffectiveStatus, TaxSearchResponse } from "@/lib/legal/types";
 import { splitLegalBlocks, type LegalBlock } from "@/lib/legal/format";
 
@@ -85,6 +86,7 @@ export default function Home() {
   const speechSessionRef = useRef(0);
   const searchRequestRef = useRef(0);
   const searchAbortRef = useRef<AbortController | null>(null);
+  const initialDocumentQueryRef = useRef(false);
 
   const detail = result?.document ?? null;
   const candidates = result?.candidates ?? [];
@@ -356,6 +358,15 @@ export default function Home() {
     }
   }
 
+  useEffect(() => {
+    if (initialDocumentQueryRef.current) return;
+    initialDocumentQueryRef.current = true;
+    const requestedDocument = new URLSearchParams(window.location.search).get("document")?.trim();
+    if (!requestedDocument) return;
+    setQuery(requestedDocument);
+    void runSearch(requestedDocument);
+  }, []);
+
   async function submitSearch(event: React.FormEvent) {
     event.preventDefault();
     await runSearch(query);
@@ -457,6 +468,7 @@ export default function Home() {
                   <button className="listenButton" type="button" onClick={startOrResume} disabled={!readerItems.length}><span>▶</span>{currentRecord?.progress.provisionId ? "Nghe tiếp" : "Nghe từ đầu"}</button>
                   <a className="sourceLink" href={result.document.source_url} target="_blank" rel="noreferrer">Mở nguồn chính thức ↗</a>
                 </div>
+                <DocumentVideoPanel documentNumber={result.document.number} />
               </header>
 
               <section className="readerBlock">

@@ -1,0 +1,369 @@
+.video-maker-page {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 92% 5%, rgba(103, 179, 144, 0.2), transparent 31rem),
+    radial-gradient(circle at 0 70%, rgba(227, 106, 62, 0.11), transparent 28rem),
+    #edf5f0;
+  color: #102a21;
+  padding: 42px 20px 72px;
+}
+
+.video-maker-shell {
+  width: min(1240px, 100%);
+  margin: 0 auto;
+}
+
+.video-maker-header {
+  max-width: 850px;
+  padding: 18px 4px 34px;
+}
+
+.video-maker-brand {
+  display: inline-block;
+  color: #102a21;
+  font-size: 34px;
+  font-weight: 950;
+  letter-spacing: -0.07em;
+  text-decoration: none;
+  margin-bottom: 30px;
+}
+
+.video-maker-brand span { color: #e36a3e; }
+
+.video-maker-kicker {
+  color: #1f6b50;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.17em;
+  margin-bottom: 14px;
+}
+
+.video-maker-header h1 {
+  margin: 0;
+  max-width: 780px;
+  font-size: clamp(38px, 6vw, 68px);
+  line-height: 1.02;
+  letter-spacing: -0.055em;
+}
+
+.video-maker-header > p {
+  max-width: 720px;
+  margin: 22px 0 0;
+  color: #536d62;
+  font-size: 18px;
+  line-height: 1.65;
+}
+
+.video-maker-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(340px, 0.88fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.video-maker-card {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(31, 107, 80, 0.13);
+  border-radius: 30px;
+  box-shadow: 0 26px 80px rgba(16, 42, 33, 0.09);
+  backdrop-filter: blur(18px);
+  padding: 30px;
+}
+
+.video-maker-status { position: sticky; top: 20px; }
+
+.video-maker-section-heading {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.video-maker-section-heading > span {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: #e4f0ea;
+  color: #1f6b50;
+  font-weight: 900;
+  font-size: 13px;
+}
+
+.video-maker-section-heading h2 {
+  margin: 0 0 6px;
+  font-size: 21px;
+  letter-spacing: -0.025em;
+}
+
+.video-maker-section-heading p {
+  margin: 0;
+  color: #677d73;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.video-maker-search {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.video-maker-search input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #cadbd3;
+  border-radius: 16px;
+  background: #fbfdfc;
+  color: #102a21;
+  font: inherit;
+  font-size: 16px;
+  padding: 15px 17px;
+  outline: none;
+}
+
+.video-maker-search input:focus {
+  border-color: #1f6b50;
+  box-shadow: 0 0 0 4px rgba(31, 107, 80, 0.1);
+}
+
+.video-maker-search button,
+.video-maker-create {
+  border: 0;
+  border-radius: 16px;
+  background: #102a21;
+  color: #fff;
+  font: inherit;
+  font-weight: 850;
+  padding: 0 20px;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 9px;
+  align-items: center;
+  justify-content: center;
+}
+
+.video-maker-search button:disabled,
+.video-maker-create:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.video-maker-spinner {
+  width: 17px;
+  height: 17px;
+  border: 2px solid rgba(255,255,255,.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: video-maker-spin .75s linear infinite;
+}
+
+@keyframes video-maker-spin { to { rotate: 360deg; } }
+
+.video-maker-notice,
+.video-maker-config-warning,
+.video-maker-error {
+  margin-top: 14px;
+  padding: 13px 15px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.video-maker-notice { background: #fff5ec; color: #7d3d24; }
+.video-maker-error { background: #fff0f0; color: #9b2727; }
+
+.video-maker-candidates {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  max-height: 310px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.video-maker-candidates button {
+  display: grid;
+  gap: 5px;
+  text-align: left;
+  border: 1px solid #d5e2dc;
+  border-radius: 16px;
+  background: #fff;
+  color: #102a21;
+  padding: 14px 16px;
+  cursor: pointer;
+}
+
+.video-maker-candidates button:hover { border-color: #1f6b50; translate: 0 -1px; }
+.video-maker-candidates span { color: #4e665b; line-height: 1.4; }
+.video-maker-candidates small { color: #788a82; }
+
+.video-maker-document {
+  margin-top: 18px;
+  border-radius: 22px;
+  border: 1px solid #cfe1d8;
+  background: linear-gradient(145deg, #f8fcfa, #eef6f2);
+  padding: 21px;
+}
+
+.video-maker-document-tag {
+  width: fit-content;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: #dceee5;
+  color: #1f6b50;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+
+.video-maker-document h3 { margin: 13px 0 7px; font-size: 25px; }
+.video-maker-document > p { margin: 0; color: #526a5f; line-height: 1.5; }
+.video-maker-document dl { margin: 17px 0 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+.video-maker-document dl div { background: rgba(255,255,255,.75); border-radius: 13px; padding: 10px; }
+.video-maker-document dt { color: #7a8d84; font-size: 11px; text-transform: uppercase; font-weight: 800; }
+.video-maker-document dd { margin: 5px 0 0; font-size: 13px; font-weight: 750; }
+
+.video-maker-options-heading { margin-top: 30px; }
+
+.video-maker-option-group {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 9px;
+  margin-top: 18px;
+}
+
+.video-maker-option-group label {
+  border: 1px solid #d5e2dc;
+  border-radius: 16px;
+  padding: 14px;
+  cursor: pointer;
+  display: grid;
+  gap: 5px;
+  background: #fff;
+}
+
+.video-maker-option-group label.is-selected {
+  border-color: #1f6b50;
+  background: #edf7f2;
+  box-shadow: inset 0 0 0 1px #1f6b50;
+}
+
+.video-maker-option-group input { position: absolute; opacity: 0; pointer-events: none; }
+.video-maker-option-group strong { font-size: 14px; }
+.video-maker-option-group small { color: #71847b; line-height: 1.35; }
+
+.video-maker-voice-row {
+  margin-top: 17px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  color: #566e63;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.video-maker-voice-row > div { display: flex; gap: 7px; }
+.video-maker-voice-row button {
+  border: 1px solid #d3e0da;
+  background: #fff;
+  color: #304c40;
+  border-radius: 999px;
+  padding: 9px 13px;
+  cursor: pointer;
+  font-weight: 750;
+}
+.video-maker-voice-row button.is-selected { background: #1f6b50; color: #fff; border-color: #1f6b50; }
+
+.video-maker-config-warning {
+  background: #fff8e7;
+  color: #795716;
+  display: grid;
+  gap: 4px;
+}
+
+.video-maker-create {
+  width: 100%;
+  min-height: 54px;
+  margin-top: 20px;
+  background: linear-gradient(135deg, #1f6b50, #164b39);
+  font-size: 16px;
+  box-shadow: 0 16px 32px rgba(31, 107, 80, 0.2);
+}
+
+.video-maker-empty {
+  min-height: 470px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  text-align: center;
+  gap: 8px;
+  color: #647b70;
+}
+
+.video-maker-empty strong { color: #102a21; font-size: 19px; }
+
+.video-maker-orbit {
+  width: 140px;
+  height: 140px;
+  position: relative;
+  margin-bottom: 20px;
+  border-radius: 50%;
+  border: 1px solid #bdd6ca;
+  animation: video-maker-orbit 8s linear infinite;
+}
+.video-maker-orbit::after { content: "▶"; position: absolute; inset: 33px; display: grid; place-items: center; border-radius: 35px; color: #fff; background: #1f6b50; font-size: 27px; padding-left: 4px; }
+.video-maker-orbit i { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: #e36a3e; }
+.video-maker-orbit i:nth-child(1) { top: -7px; left: 63px; }
+.video-maker-orbit i:nth-child(2) { bottom: 10px; left: 9px; }
+.video-maker-orbit i:nth-child(3) { right: 0; bottom: 27px; }
+@keyframes video-maker-orbit { to { rotate: 360deg; } }
+
+.video-maker-job { padding-top: 24px; }
+.video-maker-job-topline { display: flex; justify-content: space-between; align-items: center; }
+.video-maker-status-pill { border-radius: 999px; padding: 7px 11px; background: #eaf1ed; color: #4c665a; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
+.video-maker-status-pill.is-ready { background: #dff2e7; color: #17623e; }
+.video-maker-status-pill.is-failed { background: #ffe1e1; color: #9b2727; }
+.video-maker-status-pill.is-rendering { background: #e7edff; color: #3955a5; }
+.video-maker-job h3 { margin: 22px 0 8px; font-size: 29px; }
+.video-maker-job > p { margin: 0; color: #60766c; min-height: 46px; line-height: 1.5; }
+.video-maker-progress { height: 11px; border-radius: 999px; background: #e4ede8; overflow: hidden; margin-top: 20px; }
+.video-maker-progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #1f6b50, #e36a3e); transition: width .35s ease; }
+.video-maker-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 17px; }
+.video-maker-metrics div { background: #f3f7f5; border-radius: 16px; padding: 15px; display: grid; gap: 4px; }
+.video-maker-metrics strong { font-size: 22px; }
+.video-maker-metrics span { color: #71847b; font-size: 12px; }
+
+.video-maker-working { height: 190px; margin-top: 30px; border-radius: 22px; background: linear-gradient(155deg, #eaf4ef, #f7faf8); display: flex; align-items: flex-end; justify-content: center; gap: 9px; padding-bottom: 55px; }
+.video-maker-working span { width: 12px; border-radius: 99px; background: #1f6b50; animation: video-maker-wave 1.1s ease-in-out infinite alternate; }
+.video-maker-working span:nth-child(1) { height: 28px; }
+.video-maker-working span:nth-child(2) { height: 55px; animation-delay: .12s; }
+.video-maker-working span:nth-child(3) { height: 78px; animation-delay: .24s; }
+.video-maker-working span:nth-child(4) { height: 42px; animation-delay: .36s; }
+@keyframes video-maker-wave { to { scale: 1 1.55; opacity: .55; } }
+
+.video-maker-result { margin-top: 22px; display: grid; gap: 12px; }
+.video-maker-result video { width: min(100%, 320px); aspect-ratio: 9 / 16; border-radius: 22px; background: #102a21; margin: 0 auto; }
+.video-maker-result a { text-align: center; color: #1f6b50; font-weight: 850; }
+
+@media (max-width: 900px) {
+  .video-maker-grid { grid-template-columns: 1fr; }
+  .video-maker-status { position: static; }
+}
+
+@media (max-width: 620px) {
+  .video-maker-page { padding: 24px 12px 50px; }
+  .video-maker-card { border-radius: 23px; padding: 20px; }
+  .video-maker-search { grid-template-columns: 1fr; }
+  .video-maker-search button { min-height: 48px; }
+  .video-maker-option-group { grid-template-columns: 1fr; }
+  .video-maker-document dl { grid-template-columns: 1fr; }
+  .video-maker-voice-row { align-items: flex-start; flex-direction: column; }
+  .video-maker-header h1 { font-size: 43px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .video-maker-spinner,
+  .video-maker-orbit,
+  .video-maker-working span { animation: none; }
+}

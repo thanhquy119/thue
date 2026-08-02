@@ -5,7 +5,7 @@
   "engines": { "node": "22.x" },
   "scripts": {
     "dev": "next dev",
-    "build": "npm test && npm run smoke:business && npm run smoke:live && npm run smoke:questions && npm run smoke:grounding && npm run smoke:persistent && npm run smoke:cron && npm run smoke:presentation-search && npm run smoke:exact-documents && next build",
+    "build": "npm test && npm run smoke:business && npm run smoke:live && npm run smoke:questions && npm run smoke:grounding && npm run smoke:persistent && npm run smoke:cron && npm run smoke:presentation-search && npm run smoke:exact-documents && next build && npm run video:snapshot",
     "start": "next start",
     "lint": "eslint . --ignore-pattern .next",
     "typecheck": "tsc --noEmit",
@@ -18,12 +18,17 @@
     "smoke:cron": "tsx tests/live-cron-smoke.ts",
     "smoke:presentation-search": "tsx tests/live-presentation-search-smoke.ts",
     "smoke:exact-documents": "tsx tests/live-exact-document-matrix.ts",
+    "video:snapshot": "tsx scripts/report-video-status.ts && tsx scripts/create-video-snapshot.ts && tsx scripts/render-existing-video-smoke.ts",
     "verify": "npm run lint && npm run typecheck && npm run build"
   },
   "dependencies": {
     "@e965/xlsx": "0.20.3",
     "@napi-rs/canvas": "0.1.80",
+    "@remotion/cli": "4.0.503",
+    "@remotion/media": "4.0.503",
+    "@remotion/vercel": "4.0.503",
     "@vercel/blob": "2.6.1",
+    "@vercel/sandbox": "1.6.0",
     "jszip": "3.10.1",
     "mammoth": "1.10.0",
     "next": "16.2.6",
@@ -31,6 +36,7 @@
     "qrcode.react": "4.2.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
+    "remotion": "4.0.503",
     "web-push": "3.6.7",
     "word-extractor": "1.0.4",
     "workflow": "4.6.0"
