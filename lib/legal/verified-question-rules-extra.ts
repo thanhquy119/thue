@@ -8,7 +8,11 @@ function normalize(value: string) {
     .toLocaleLowerCase("vi")
     .replace(/[^a-z0-9%/_.-]+/g, " ")
     .replace(/\s+/g, " ")
-    .trim();
+    .trim()
+    .replace(/\bmax so thue\b/g, "ma so thue")
+    .replace(/\bma so thuee\b/g, "ma so thue")
+    .replace(/\btrang tai\b/g, "trang thai")
+    .replace(/\bkhong hoat dong tai dia chi kinh doanh\b/g, "khong hoat dong tai dia chi dang ky");
 }
 
 function officialCandidate(
@@ -28,7 +32,9 @@ function officialCandidate(
     issuer,
     issued_date: issuedDate,
     source_url: sourceUrl,
-    source_label: "Cổng Thông tin điện tử Chính phủ",
+    source_label: sourceUrl.includes("congbao.chinhphu.vn")
+      ? "Công báo điện tử Chính phủ"
+      : "Cổng Thông tin điện tử Chính phủ",
   };
 }
 
@@ -41,6 +47,66 @@ function registrationCandidate() {
     "Bộ Tài chính",
     "2026-06-30",
     "https://xaydungchinhsach.chinhphu.vn/mot-so-diem-moi-cua-thong-tu-90-2026-tt-btc-ve-dang-ky-thue-11926071714240164.htm",
+  );
+}
+
+function taxAdministrationLawCandidate() {
+  return officialCandidate(
+    "verified-extra-108-2025-qh15",
+    "108/2025/QH15",
+    "Luật Quản lý thuế, có hiệu lực từ ngày 01/07/2026",
+    "Luật",
+    "Quốc hội",
+    "2025-12-10",
+    "https://xaydungchinhsach.chinhphu.vn/toan-van-luat-quan-ly-thue-co-hieu-luc-tu-1-7-2026-119260626174633402.htm",
+  );
+}
+
+function taxAdministrationDecreeCandidate() {
+  return officialCandidate(
+    "verified-extra-252-2026-nd-cp",
+    "252/2026/NĐ-CP",
+    "Quy định chi tiết và biện pháp tổ chức thi hành Luật Quản lý thuế",
+    "Nghị định",
+    "Chính phủ",
+    "2026-06-30",
+    "https://xaydungchinhsach.chinhphu.vn/toan-van-nghi-dinh-252-2026-nd-cp-huong-dan-thi-hanh-luat-quan-ly-thue-119260715155021635.htm",
+  );
+}
+
+function vatLawCandidate() {
+  return officialCandidate(
+    "verified-extra-48-2024-qh15",
+    "48/2024/QH15",
+    "Luật Thuế giá trị gia tăng, có hiệu lực từ ngày 01/07/2025",
+    "Luật",
+    "Quốc hội",
+    "2024-11-26",
+    "https://congbao.chinhphu.vn/van-ban/luat-so-48-2024-qh15-43576/53720.htm",
+  );
+}
+
+function vatDecreeCandidate() {
+  return officialCandidate(
+    "verified-extra-181-2025-nd-cp",
+    "181/2025/NĐ-CP",
+    "Quy định chi tiết thi hành Luật Thuế giá trị gia tăng",
+    "Nghị định",
+    "Chính phủ",
+    "2025-07-01",
+    "https://xaydungchinhsach.chinhphu.vn/nghi-dinh-181-2025-nd-cp-quy-dinh-chi-tiet-thi-hanh-mot-so-dieu-cua-luat-thue-gia-tri-gia-tang-119250707172930626.htm",
+  );
+}
+
+function vatAmendmentCandidate() {
+  return officialCandidate(
+    "verified-extra-144-2026-nd-cp",
+    "144/2026/NĐ-CP",
+    "Sửa đổi Nghị định 181/2025/NĐ-CP về thuế giá trị gia tăng, sau khi đã được sửa đổi bởi Nghị định 359/2025/NĐ-CP",
+    "Nghị định",
+    "Chính phủ",
+    "2026-06-20",
+    "https://congbao.chinhphu.vn/van-ban/nghi-dinh-so-144-2026-nd-cp-469482.htm",
   );
 }
 
@@ -92,14 +158,20 @@ function thresholdCandidate() {
   );
 }
 
-function answer(query: string, directAnswer: string, candidates: SearchCandidate[], confidence = 0.98): TaxSearchResponse {
+function answer(
+  query: string,
+  directAnswer: string,
+  candidates: SearchCandidate[],
+  confidence = 0.98,
+  warnings: string[] = [],
+): TaxSearchResponse {
   return {
     query_normalized: normalize(query),
     query_kind: "question",
     direct_answer: directAnswer,
     document: null,
     candidates,
-    warnings: [],
+    warnings,
     confidence,
     retrieved_at: new Date().toISOString(),
   };
@@ -118,10 +190,70 @@ function revenueInVnd(query: string) {
   return Number.isFinite(value) ? value * (match[2] === "ty" ? 1_000_000_000 : 1_000_000) : null;
 }
 
+function importedGoodsInputVatResponse(query: string) {
+  return answer(
+    query,
+    "Có, nếu đáp ứng đủ điều kiện khấu trừ. Doanh nghiệp áp dụng phương pháp khấu trừ được khấu trừ thuế GTGT đã nộp ở khâu nhập khẩu khi hàng hóa nhập khẩu được sử dụng cho hoạt động sản xuất, kinh doanh hàng hóa hoặc dịch vụ chịu thuế GTGT.\n\n" +
+      "Điều kiện cần kiểm tra gồm: có tờ khai hải quan và chứng từ nộp thuế GTGT khâu nhập khẩu hợp pháp; hạch toán, kê khai đúng kỳ; đáp ứng yêu cầu về chứng từ thanh toán không dùng tiền mặt đối với giao dịch thuộc diện phải áp dụng; và hàng hóa không thuộc trường hợp pháp luật loại khỏi khấu trừ. Nghị định số 181/2025/NĐ-CP quy định nguyên tắc khấu trừ tại Điều 23, chứng từ nộp thuế tại Điều 25, thanh toán không dùng tiền mặt tại Điều 26 và các trường hợp đặc thù tại Điều 28; khi áp dụng phải đọc cùng các nội dung đã được sửa đổi bởi Nghị định số 359/2025/NĐ-CP và Nghị định số 144/2026/NĐ-CP.\n\n" +
+      "Nếu hàng nhập khẩu dùng đồng thời cho hoạt động chịu thuế và không chịu thuế thì chỉ phần thuế đầu vào gắn với hoạt động chịu thuế được khấu trừ; phần không tách riêng được phải phân bổ theo quy định. Nếu hàng dùng cho hoạt động không chịu thuế, cho mục đích cá nhân hoặc hồ sơ thanh toán/chứng từ nộp thuế không hợp lệ thì không được khấu trừ tương ứng.\n\n" +
+      "Hồ sơ nên đối chiếu tối thiểu: hợp đồng và chứng từ thanh toán, tờ khai hải quan, giấy nộp tiền hoặc chứng từ điện tử xác nhận đã nộp thuế GTGT khâu nhập khẩu, chứng từ nhập kho và tài liệu chứng minh mục đích sử dụng hàng hóa.",
+    [vatLawCandidate(), vatDecreeCandidate(), vatAmendmentCandidate()],
+    0.98,
+    [
+      "Kết luận cụ thể còn phụ thuộc phương pháp tính thuế của doanh nghiệp, mục đích sử dụng hàng nhập khẩu và tính hợp lệ của bộ chứng từ.",
+    ],
+  );
+}
+
+function unfinishedTaxIdCessationResponse(query: string) {
+  return answer(
+    query,
+    "Không nên từ chối với lý do “còn nợ thuế” nếu dữ liệu xác định người nộp thuế thực tế không còn số tiền thuế nợ. Tuy nhiên, số dư nợ bằng 0 cũng chưa đủ để xác nhận người nộp thuế đã hoàn thành toàn bộ nghĩa vụ thuế hoặc đã hoàn tất thủ tục chấm dứt hiệu lực mã số thuế.\n\n" +
+      "Theo cơ chế đăng ký thuế hiện hành từ ngày 01/07/2026, trước khi mã số thuế được chấm dứt hiệu lực, người nộp thuế còn phải hoàn thành các việc liên quan như hồ sơ khai thuế, hóa đơn, tiền thuế và tiền chậm nộp nếu có, xử lý khoản nộp thừa hoặc số thuế GTGT đầu vào chưa khấu trừ hết, đồng thời hoàn tất nghĩa vụ của đơn vị phụ thuộc theo từng trường hợp. Căn cứ cần đối chiếu là Luật Quản lý thuế số 108/2025/QH15, Nghị định số 252/2026/NĐ-CP và các điều về chấm dứt hiệu lực mã số thuế tại Thông tư số 90/2026/TT-BTC.\n\n" +
+      "Vì vậy, nếu cơ quan thuế chưa xác nhận thì văn bản trả lời phải chỉ rõ thủ tục hoặc nghĩa vụ nào còn thiếu, chẳng hạn chưa nộp đủ hồ sơ khai thuế, chưa xử lý hóa đơn, chưa hoàn tất nghĩa vụ của đơn vị phụ thuộc hoặc chưa nộp hồ sơ chấm dứt hợp lệ; không nên dùng lý do chung chung “còn nợ” khi số tiền nợ đã bằng 0.\n\n" +
+      "Cần phân biệt hai loại đề nghị: xác nhận riêng số tiền thuế nợ tại một thời điểm và xác nhận đã hoàn thành toàn bộ nghĩa vụ để chấm dứt hiệu lực mã số thuế. Hai kết quả này không đồng nhất.",
+    [registrationCandidate(), taxAdministrationDecreeCandidate(), taxAdministrationLawCandidate()],
+    0.97,
+    [
+      "Muốn xác định chính xác căn cứ từ chối cần biết tên thủ tục hoặc mẫu xác nhận mà người nộp thuế đã đề nghị.",
+    ],
+  );
+}
+
+function inactiveRegisteredAddressDebtConfirmationResponse(query: string) {
+  return answer(
+    query,
+    "Không thể mặc nhiên kết luận có nợ hoặc từ chối xác nhận chỉ vì người nộp thuế đang ở trạng thái “không hoạt động tại địa chỉ đã đăng ký”. Đây là trạng thái quản lý thuế và dấu hiệu cần xác minh, nhưng bản thân trạng thái này không chứng minh người nộp thuế còn số tiền thuế nợ.\n\n" +
+      "Cơ quan thuế cần kiểm tra tách biệt: số tiền thuế, tiền chậm nộp và tiền phạt còn phải nộp; hồ sơ khai thuế còn thiếu; tình trạng sử dụng hóa đơn; quyết định xử phạt hoặc cưỡng chế; và thủ tục khôi phục trạng thái hoạt động hoặc chấm dứt hiệu lực mã số thuế. Thông tư số 90/2026/TT-BTC là căn cứ đăng ký thuế hiện hành từ ngày 01/07/2026; việc quản lý nghĩa vụ và trạng thái phải đọc cùng Luật Quản lý thuế số 108/2025/QH15 và Nghị định số 252/2026/NĐ-CP.\n\n" +
+      "Nếu người nộp thuế chỉ yêu cầu xác nhận số dư nợ, kết quả nên phản ánh đúng số liệu nợ và ghi chú trạng thái địa chỉ. Nếu yêu cầu xác nhận đã hoàn thành toàn bộ nghĩa vụ hoặc phục vụ chấm dứt hiệu lực mã số thuế thì chưa nên xác nhận hoàn tất cho đến khi các hồ sơ, hóa đơn, vi phạm và thủ tục trạng thái còn tồn tại đã được xử lý. Quyết định hoặc thông báo từ chối phải nêu đúng nghĩa vụ chưa hoàn thành, không chỉ ghi chung chung trạng thái địa chỉ.",
+    [registrationCandidate(), taxAdministrationDecreeCandidate(), taxAdministrationLawCandidate()],
+    0.96,
+    [
+      "Cần xác định rõ người nộp thuế đang xin xác nhận số dư nợ, xác nhận hoàn thành nghĩa vụ hay xác nhận để làm thủ tục chấm dứt mã số thuế.",
+    ],
+  );
+}
+
 export function verifiedExtraQuestionResponse(query: string): TaxSearchResponse | null {
   const normalized = normalize(query);
   const years = normalized.match(/\b20\d{2}\b/g) ?? [];
   if (years.some((year) => Number(year) <= 2025)) return null;
+
+  const asksImportedInputVatDeduction =
+    /\b(?:hang hoa )?nhap khau\b/.test(normalized) &&
+    /\b(?:khau tru|thue dau vao|gtgt dau vao|gia tri gia tang dau vao|thue gtgt)\b/.test(normalized);
+  if (asksImportedInputVatDeduction) return importedGoodsInputVatResponse(query);
+
+  const asksUnfinishedTaxIdCessationConfirmation =
+    /\b(?:khong con no thue|khong no thue|so du no bang 0|het no thue)\b/.test(normalized) &&
+    /\b(?:cham dut hieu luc ma so thue|chua hoan thanh thu tuc cham dut|thu tuc cham dut ma so thue)\b/.test(normalized) &&
+    /\b(?:xac nhan|tu choi|khong xac nhan|hoan thanh nghia vu)\b/.test(normalized);
+  if (asksUnfinishedTaxIdCessationConfirmation) return unfinishedTaxIdCessationResponse(query);
+
+  const asksInactiveAddressDebtConfirmation =
+    /\b(?:khong hoat dong tai dia chi dang ky|khong hoat dong tai dia chi da dang ky|bo dia chi kinh doanh)\b/.test(normalized) &&
+    /\b(?:no thue|xac nhan|khong xac nhan|hoan thanh nghia vu|tu choi)\b/.test(normalized);
+  if (asksInactiveAddressDebtConfirmation) return inactiveRegisteredAddressDebtConfirmationResponse(query);
 
   const asksCircular97Repeal =
     /\b97\s*\/\s*2026\s*\/\s*tt-btc\b/.test(normalized) &&
