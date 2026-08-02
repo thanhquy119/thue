@@ -32,16 +32,26 @@ test("phụ đề được chia theo câu, mệnh đề và từ mà không chè
   assert.ok(start >= 0 && end > start, "Không tìm thấy thuật toán chia phụ đề");
   const source = storyboardSource.slice(start, end);
   assert.match(source, /splitMeaningfulPhrases\(sentence, maxChars\)/u);
-  assert.match(source, /splitWords\(piece, maxChars\)/u);
+  assert.match(source, /splitWords\(piece, maxChars, true\)/u);
   assert.doesNotMatch(source, /…/u);
   assert.doesNotMatch(source, /slice\(0,\s*maxChars\)/u);
 });
 
-test("câu pháp lý dài được tách thành các cụm hình ảnh hoàn chỉnh", () => {
-  assert.match(storyboardSource, /export function splitMeaningfulPhrases/u);
-  assert.match(storyboardSource, /hoặc\|đồng thời\|nếu\|khi\|trường hợp\|sau khi\|trước khi/u);
-  assert.match(storyboardSource, /splitWords\(clause, maxChars\)/u);
-  assert.match(storyboardSource, /Không dùng dấu ba chấm và không cắt câu giữa chừng/u);
+test("câu pháp lý chỉ tách ở ranh giới ý mạnh, không chặt tại mọi dấu phẩy", () => {
+  const start = storyboardSource.indexOf("export function splitMeaningfulPhrases");
+  const end = storyboardSource.indexOf("function displayPhrasesFromPoint", start);
+  assert.ok(start >= 0 && end > start, "Không tìm thấy thuật toán tách cụm ý");
+  const source = storyboardSource.slice(start, end);
+  assert.match(source, /\?<=\[;:\.!\?\]/u);
+  assert.match(source, /hoặc\|đồng thời\|nếu\|khi\|trường hợp\|sau khi\|trước khi/u);
+  assert.doesNotMatch(source, /\?<=\[,;:\]/u);
+});
+
+test("phần đuôi phụ đề ngắn được cân bằng lại thay vì còn mảnh như rủi hoặc ro", () => {
+  assert.match(storyboardSource, /function rebalanceWordChunks/u);
+  assert.match(storyboardSource, /minimumTail = 34/u);
+  assert.match(storyboardSource, /candidateTail/u);
+  assert.match(storyboardSource, /maxChars \+ tolerance/u);
 });
 
 test("Remotion có hệ hình ảnh ngữ nghĩa thay vì một icon cạnh danh sách text", () => {
@@ -71,11 +81,28 @@ test("kết luận nêu tác động hoặc việc cần kiểm tra, không dùn
   assert.match(storyboardSource, /KẾT LUẬN THỰC TẾ/u);
 });
 
+test("pipeline từ chối tiếng Việt không dấu và bullet kết thúc dang dở", () => {
+  assert.match(storyboardSource, /function validVietnameseText/u);
+  assert.match(storyboardSource, /hasVietnameseMarks/u);
+  assert.match(storyboardSource, /Toàn bộ title, bullet và narration phải viết bằng tiếng Việt có dấu/u);
+  assert.match(storyboardSource, /completeDisplayPhrase/u);
+  assert.match(storyboardSource, /không kết thúc bullet bằng dấu phẩy/iu);
+  assert.match(storyboardSource, /quản\)\$\/iu/u);
+});
+
 test("pipeline loại bỏ title lặp bullet và từ chối nội dung bị cắt", () => {
   assert.match(storyboardSource, /removeTitleRepeats/u);
   assert.match(storyboardSource, /textSimilarity\(title, bullet\) >= 0\.72/u);
   assert.match(storyboardSource, /Không dùng dấu ba chấm, không cắt câu/u);
   assert.match(chunkingSource, /truncated_content/u);
+});
+
+test("mốc hiệu lực chỉ xuất hiện ở timeline nhưng vẫn giữ tác động thay thế văn bản", () => {
+  assert.match(storyboardSource, /function removeRepeatedEffectiveFacts/u);
+  assert.match(storyboardSource, /function isEffectiveOnly/u);
+  assert.match(storyboardSource, /thay thế\|sửa đổi\|bổ sung\|bãi bỏ\|hết hiệu lực/u);
+  assert.match(storyboardSource, /Văn bản thay thế/u);
+  assert.match(storyboardSource, /bodyScenes = removeRepeatedEffectiveFacts/u);
 });
 
 test("ngày ban hành trùng ngày hiệu lực chỉ tạo một mốc", () => {
