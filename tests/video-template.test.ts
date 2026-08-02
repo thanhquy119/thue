@@ -88,7 +88,7 @@ test("pipeline từ chối tiếng Việt không dấu và bullet kết thúc da
   assert.match(storyboardSource, /Toàn bộ title, bullet và narration phải viết bằng tiếng Việt có dấu/u);
   assert.match(storyboardSource, /completeDisplayPhrase/u);
   assert.match(storyboardSource, /Không kết thúc bullet bằng dấu phẩy/iu);
-  assert.match(storyboardSource, /quản\)\$\/iu/u);
+  assert.match(storyboardSource, /quản\|trụ\)\$\/iu/u);
 });
 
 test("pipeline loại bỏ title lặp bullet và từ chối nội dung bị cắt", () => {
