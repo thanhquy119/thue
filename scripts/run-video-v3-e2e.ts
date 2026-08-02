@@ -72,7 +72,7 @@ let job: LegalVideoJob = {
   storyboardPath: null,
   status: "queued",
   progress: 1,
-  message: "Đã xếp hàng kiểm thử video v3.",
+  message: "Đã xếp hàng kiểm thử video v5.",
   length: "detailed",
   voice: "female",
   sceneCount: 0,
@@ -101,6 +101,43 @@ function normalize(value: string) {
   return value.replace(/\s+/gu, " ").trim().toLocaleLowerCase("vi");
 }
 
+function hasVietnameseMarks(value: string) {
+  return /[ăâđêôơưà-ỹ]/iu.test(value);
+}
+
+function requiresVietnameseMarks(value: string) {
+  const text = value.trim();
+  if (text.length < 20 || /^[A-Z0-9/ .:–—-]+$/u.test(text)) return false;
+  return /[a-z]/iu.test(text);
+}
+
+function incompleteDisplayText(value: string) {
+  const text = value.trim();
+  const words = text.split(/\s+/gu).filter(Boolean);
+  return /…|\.{3,}|[,;:]$/u.test(text)
+    || /\b(?:và|hoặc|đồng thời|tại|trong|của|với|theo|để|do|bởi|từ|quản|trụ)$/iu.test(text)
+    || (!/\d/u.test(text) && words.length <= 2 && text.length < 24);
+}
+
+function lowValueForViewer(value: string) {
+  return /(?:kết quả (?:phân tích|đánh giá|phân loại).*(?:chỉ là|là) căn cứ hỗ trợ|không thay thế trách nhiệm ban hành quyết định hành chính|trách nhiệm ban hành quyết định hành chính|căn cứ hỗ trợ cơ quan thuế nhưng không thay thế)/iu.test(value);
+}
+
+function tokenSimilarity(left: string, right: string) {
+  const tokens = (value: string) => new Set(
+    normalize(value)
+      .replace(/[^a-z0-9à-ỹđ%]+/giu, " ")
+      .split(/\s+/gu)
+      .filter((token) => token.length > 2),
+  );
+  const leftTokens = tokens(left);
+  const rightTokens = tokens(right);
+  if (!leftTokens.size || !rightTokens.size) return 0;
+  let intersection = 0;
+  for (const token of leftTokens) if (rightTokens.has(token)) intersection += 1;
+  return intersection / Math.max(leftTokens.size, rightTokens.size);
+}
+
 function inspectStoryboard(storyboard: LegalVideoStoryboard) {
   if (storyboard.templateVersion !== VIDEO_TEMPLATE_VERSION) {
     throw new Error(`[video-v3-e2e] Sai template: ${storyboard.templateVersion}`);
@@ -108,18 +145,68 @@ function inspectStoryboard(storyboard: LegalVideoStoryboard) {
   if (storyboard.scenes.length < 8) {
     throw new Error(`[video-v3-e2e] Storyboard quá ngắn: ${storyboard.scenes.length} cảnh.`);
   }
+
   for (const scene of storyboard.scenes) {
     if (!scene.title.trim() || scene.title.length > 92) {
       throw new Error(`[video-v3-e2e] Tiêu đề cảnh không đạt: ${scene.id} (${scene.title.length} ký tự).`);
     }
+    if (requiresVietnameseMarks(scene.title) && !hasVietnameseMarks(scene.title)) {
+      throw new Error(`[video-v3-e2e] Tiêu đề thiếu dấu tiếng Việt: ${scene.id} — ${scene.title}`);
+    }
+    if (incompleteDisplayText(scene.title)) {
+      throw new Error(`[video-v3-e2e] Tiêu đề bị cắt hoặc dang dở: ${scene.id} — ${scene.title}`);
+    }
+    if (scene.kind !== "intro" && !scene.visualMode) {
+      throw new Error(`[video-v3-e2e] Cảnh ${scene.id} chưa có visualMode.`);
+    }
+    if (scene.kind !== "intro" && !(scene.visualKeywords?.length)) {
+      throw new Error(`[video-v3-e2e] Cảnh ${scene.id} chưa có visualKeywords.`);
+    }
+    for (const keyword of scene.visualKeywords ?? []) {
+      if (scene.kind !== "intro" && incompleteDisplayText(keyword)) {
+        throw new Error(`[video-v3-e2e] Visual keyword bị cắt hoặc dang dở: ${scene.id} — ${keyword}`);
+      }
+    }
+    if (lowValueForViewer([scene.title, ...scene.bullets, scene.narration].join(" "))) {
+      throw new Error(`[video-v3-e2e] Cảnh ${scene.id} chứa nội dung nội bộ hoặc ít giá trị với người xem.`);
+    }
+    if (scene.category === "forms" && /chấm điểm|học máy|phân tích dữ liệu|mô hình rủi ro/iu.test([scene.title, ...scene.bullets].join(" ")) && !/hồ sơ|biểu mẫu|mẫu số|tờ khai|chứng từ/iu.test([scene.title, ...scene.bullets].join(" "))) {
+      throw new Error(`[video-v3-e2e] Cảnh ${scene.id} bị gắn nhãn hồ sơ/dữ liệu không đúng ngữ nghĩa.`);
+    }
     if (scene.bullets.length > 3) {
       throw new Error(`[video-v3-e2e] Cảnh ${scene.id} có quá 3 gạch đầu dòng.`);
     }
-    if (scene.bullets.some((bullet) => bullet.length > 140)) {
-      throw new Error(`[video-v3-e2e] Cảnh ${scene.id} có gạch đầu dòng quá dài.`);
+    for (const bullet of scene.bullets) {
+      if (bullet.length > 140) {
+        throw new Error(`[video-v3-e2e] Cảnh ${scene.id} có gạch đầu dòng quá dài.`);
+      }
+      if (requiresVietnameseMarks(bullet) && !hasVietnameseMarks(bullet)) {
+        throw new Error(`[video-v3-e2e] Bullet thiếu dấu tiếng Việt: ${scene.id} — ${bullet}`);
+      }
+      if (incompleteDisplayText(bullet)) {
+        throw new Error(`[video-v3-e2e] Bullet bị cắt hoặc dang dở: ${scene.id} — ${bullet}`);
+      }
+      if (tokenSimilarity(scene.title, bullet) >= 0.72) {
+        throw new Error(`[video-v3-e2e] Title và bullet bị lặp: ${scene.id}`);
+      }
     }
-    if (scene.captionChunks.some((caption) => caption.length > 150)) {
-      throw new Error(`[video-v3-e2e] Cảnh ${scene.id} có phụ đề quá dài.`);
+    if (requiresVietnameseMarks(scene.narration) && !hasVietnameseMarks(scene.narration)) {
+      throw new Error(`[video-v3-e2e] Lời đọc thiếu dấu tiếng Việt: ${scene.id}`);
+    }
+    if (/…|\.{2,}/u.test(scene.narration)) {
+      throw new Error(`[video-v3-e2e] Lời đọc có dấu câu hoặc đoạn bị cắt: ${scene.id}`);
+    }
+    for (const caption of scene.captionChunks) {
+      if (caption.length > 150) {
+        throw new Error(`[video-v3-e2e] Cảnh ${scene.id} có phụ đề quá dài.`);
+      }
+      const words = caption.trim().split(/\s+/gu).filter(Boolean);
+      if (scene.captionChunks.length > 1 && words.length <= 2 && caption.length < 22 && !/\d/u.test(caption)) {
+        throw new Error(`[video-v3-e2e] Phụ đề đuôi quá ngắn: ${scene.id} — ${caption}`);
+      }
+      if (/…|\.{3,}/u.test(caption)) {
+        throw new Error(`[video-v3-e2e] Phụ đề bị cắt bằng dấu ba chấm: ${scene.id}`);
+      }
     }
   }
 
@@ -135,6 +222,24 @@ function inspectStoryboard(storyboard: LegalVideoStoryboard) {
     if (!timeline || timeline.bullets.length !== 1 || !/ban hành và có hiệu lực/iu.test(timeline.bullets[0])) {
       throw new Error("[video-v3-e2e] Ngày ban hành trùng ngày hiệu lực nhưng chưa được gộp thành một mốc.");
     }
+    const displayedDate = effective.split("-").reverse().join("/");
+    const duplicateDateScenes = storyboard.scenes.filter((scene) =>
+      scene.category !== "effective"
+      && [scene.title, ...scene.bullets, scene.narration].join(" ").includes(displayedDate),
+    );
+    if (duplicateDateScenes.length) {
+      throw new Error(`[video-v3-e2e] Mốc hiệu lực bị lặp ở cảnh: ${duplicateDateScenes.map((scene) => scene.id).join(", ")}`);
+    }
+  }
+
+  const finalScene = storyboard.scenes.at(-1);
+  if (
+    !finalScene
+    || finalScene.visualMode !== "takeaways"
+    || finalScene.bullets.length < 2
+    || /những điểm cần nhớ|giữ lại những ý quan trọng/iu.test(`${finalScene.title} ${finalScene.narration}`)
+  ) {
+    throw new Error("[video-v3-e2e] Cảnh kết luận chưa nêu tác động hoặc việc cần kiểm tra cụ thể.");
   }
 
   console.log(`[video-v3-e2e] ${JSON.stringify({
@@ -146,6 +251,8 @@ function inspectStoryboard(storyboard: LegalVideoStoryboard) {
     scenes: storyboard.scenes.map((scene) => ({
       id: scene.id,
       kind: scene.kind,
+      visualMode: scene.visualMode,
+      visualKeywords: scene.visualKeywords,
       title: scene.title,
       bullets: scene.bullets,
       narration: scene.narration,
@@ -162,14 +269,11 @@ function transientGemini(error: unknown) {
 await patchLegalVideoJob(jobId, {
   status: "summarizing",
   progress: 5,
-  message: "Đang kiểm thử biên tập nội dung video v3…",
+  message: "Đang kiểm thử biên tập nội dung video v5…",
   error: null,
 });
 
-const sections = buildVideoEvidenceSections(
-  document,
-  videoEvidenceSectionChars(document, "detailed"),
-);
+const sections = buildVideoEvidenceSections(document, videoEvidenceSectionChars(document, "detailed"));
 if (!sections.length) throw new Error("[video-v3-e2e] Không chia được toàn văn thành các phần evidence.");
 
 const points: LegalVideoEvidencePoint[] = [];
@@ -201,12 +305,7 @@ for (let index = 0; index < sections.length; index += 1) {
 let storyboard: LegalVideoStoryboard | null = null;
 for (let attempt = 1; attempt <= 12; attempt += 1) {
   try {
-    storyboard = await createLegalVideoStoryboard({
-      document,
-      points,
-      length: "detailed",
-      voice: "female",
-    });
+    storyboard = await createLegalVideoStoryboard({document, points, length: "detailed", voice: "female"});
     break;
   } catch (error) {
     if (!transientGemini(error) || attempt === 12) throw error;
@@ -221,18 +320,14 @@ await writeLegalVideoStoryboard(internalStoryboardPath, storyboard);
 await patchLegalVideoJob(jobId, {
   status: "synthesizing",
   progress: 38,
-  message: `Đã tạo ${storyboard.scenes.length} cảnh v3; đang tạo giọng đọc…`,
+  message: `Đã tạo ${storyboard.scenes.length} cảnh v5; đang tạo giọng đọc…`,
   storyboardPath: internalStoryboardPath,
   sceneCount: storyboard.scenes.length,
   error: null,
 });
 
 const speechChunks = storyboard.scenes.flatMap((scene) =>
-  splitVietnameseTtsText(scene.narration).map((text, index) => ({
-    sceneId: scene.id,
-    chunkIndex: index,
-    text,
-  })),
+  splitVietnameseTtsText(scene.narration).map((text, index) => ({sceneId: scene.id, chunkIndex: index, text})),
 );
 if (!speechChunks.length) throw new Error("[video-v3-e2e] Storyboard chưa có lời đọc.");
 await patchLegalVideoJob(jobId, {ttsChunkCount: speechChunks.length});
@@ -246,17 +341,12 @@ for (let index = 0; index < speechChunks.length; index += 1) {
   const chunk = speechChunks[index];
   const cacheKey = await ttsCacheKey({voice: voiceName, rate, pitch, text: chunk.text});
   let asset = await readCachedTtsAsset(cacheKey);
-  let cached = Boolean(asset);
+  const cached = Boolean(asset);
   if (!asset) {
     for (let attempt = 1; attempt <= 20; attempt += 1) {
       try {
         const generated = await synthesizeAzureVietnamese({text: chunk.text, voice: "female"});
-        asset = await writeTtsAsset({
-          key: cacheKey,
-          bytes: generated.bytes,
-          durationSeconds: generated.durationSeconds,
-          voice: generated.voice,
-        });
+        asset = await writeTtsAsset({key: cacheKey, bytes: generated.bytes, durationSeconds: generated.durationSeconds, voice: generated.voice});
         break;
       } catch (error) {
         const retryable = error instanceof AzureTtsError ? error.retryable : true;
@@ -303,7 +393,7 @@ const render = await startLegalVideoRender({jobId, storyboard: withAudio});
 await patchLegalVideoJob(jobId, {
   status: "rendering",
   progress: 78,
-  message: "Đang dựng MP4 bằng template pastel v3…",
+  message: "Đang dựng MP4 bằng storytelling v5…",
   renderSandboxId: render.sandboxId,
   renderCommandId: render.commandId,
   videoPath: render.outputPath,
@@ -321,18 +411,12 @@ for (let poll = 0; poll < 240; poll += 1) {
     outputPath: render.outputPath,
   });
   if (poll === 0 || (poll + 1) % 5 === 0 || progress.stage !== "render-progress") {
-    console.log(`[video-v3-e2e] ${JSON.stringify({
-      event: "render",
-      poll: poll + 1,
-      stage: progress.stage,
-      progress: Math.round(progress.overallProgress * 100),
-      error: progress.error,
-    })}`);
+    console.log(`[video-v3-e2e] ${JSON.stringify({event: "render", poll: poll + 1, stage: progress.stage, progress: Math.round(progress.overallProgress * 100), error: progress.error})}`);
   }
   if (progress.stage === "error" || progress.stage === "expired") {
     await patchLegalVideoJob(jobId, {
       status: "failed",
-      message: "Kiểm thử render v3 thất bại.",
+      message: "Kiểm thử render v5 thất bại.",
       error: progress.error || "Sandbox không hoàn tất render.",
     });
     throw new Error(progress.error || "[video-v3-e2e] Sandbox không hoàn tất render.");
@@ -341,7 +425,7 @@ for (let poll = 0; poll < 240; poll += 1) {
     await patchLegalVideoJob(jobId, {
       status: "ready",
       progress: 100,
-      message: "Video chi tiết v3 đã sẵn sàng.",
+      message: "Video chi tiết v5 đã sẵn sàng.",
       videoPath: progress.pathname,
       videoUrl: progress.url,
       error: null,
@@ -359,14 +443,14 @@ for (let poll = 0; poll < 240; poll += 1) {
   await patchLegalVideoJob(jobId, {
     status: "rendering",
     progress: Math.max(78, Math.min(98, 78 + Math.round(progress.overallProgress * 20))),
-    message: `Đang dựng MP4 bằng template pastel v3… ${Math.round(progress.overallProgress * 100)}%`,
+    message: `Đang dựng MP4 bằng storytelling v5… ${Math.round(progress.overallProgress * 100)}%`,
     error: null,
   });
 }
 
 await patchLegalVideoJob(jobId, {
   status: "failed",
-  message: "Kiểm thử render v3 quá thời gian.",
+  message: "Kiểm thử render v5 quá thời gian.",
   error: "Quá thời gian chờ Sandbox hoàn tất render.",
 });
 throw new Error(`[video-v3-e2e] Quá thời gian chờ job ${jobId} hoàn tất.`);

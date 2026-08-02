@@ -26,6 +26,17 @@ export type LegalVideoSceneKind =
   | "prepare"
   | "summary";
 
+export type LegalVideoVisualMode =
+  | "document"
+  | "timeline"
+  | "network"
+  | "contrast"
+  | "flow"
+  | "metric"
+  | "checklist"
+  | "decision"
+  | "takeaways";
+
 export type LegalVideoEvidenceSection = {
   id: string;
   heading: string;
@@ -64,6 +75,8 @@ export type LegalVideoScene = {
   captionChunks: string[];
   evidencePointIds: string[];
   sourceExcerpt: string;
+  visualMode?: LegalVideoVisualMode;
+  visualKeywords?: string[];
   audioChunks?: LegalVideoAudioChunk[];
 };
 
