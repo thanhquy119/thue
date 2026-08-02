@@ -22,6 +22,11 @@ function speechRegion() {
   return process.env.AZURE_SPEECH_REGION?.trim() || "";
 }
 
+function requestTimeoutMs() {
+  const configured = Number(process.env.VIDEO_TTS_REQUEST_TIMEOUT_MS || 45_000);
+  return Number.isFinite(configured) ? Math.max(10_000, Math.min(90_000, configured)) : 45_000;
+}
+
 export function azureTtsConfigured() {
   return Boolean(speechKey() && speechRegion());
 }
@@ -116,14 +121,12 @@ export async function synthesizeAzureVietnamese(input: {
     throw new AzureTtsError("Azure Speech chưa được cấu hình.", {status: 503});
   }
   const voice = azureVoiceName(input.voice);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 55_000);
   try {
     const response = await fetch(
       `https://${encodeURIComponent(speechRegion())}.tts.speech.microsoft.com/cognitiveservices/v1`,
       {
         method: "POST",
-        signal: controller.signal,
+        signal: AbortSignal.timeout(requestTimeoutMs()),
         headers: {
           "Ocp-Apim-Subscription-Key": speechKey(),
           "Content-Type": "application/ssml+xml",
@@ -145,19 +148,17 @@ export async function synthesizeAzureVietnamese(input: {
     return {bytes, durationSeconds: wavDurationSeconds(bytes), voice};
   } catch (error) {
     if (error instanceof AzureTtsError) throw error;
-    if (error instanceof Error && error.name === "AbortError") {
+    if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
       throw new AzureTtsError("Azure TTS phản hồi quá chậm.", {
         status: 504,
-        retryAfterMs: 5_000,
+        retryAfterMs: 10_000,
         retryable: true,
       });
     }
     throw new AzureTtsError(error instanceof Error ? error.message : "Không kết nối được Azure TTS.", {
       status: 502,
-      retryAfterMs: 5_000,
+      retryAfterMs: 10_000,
       retryable: true,
     });
-  } finally {
-    clearTimeout(timer);
   }
 }
