@@ -49,15 +49,20 @@ export type LegalVideoProps = {
 };
 
 const COLORS = {
-  ink: '#102d24',
-  deep: '#123c31',
-  green: '#267159',
-  greenSoft: '#dceee6',
-  pale: '#eef6f2',
-  card: '#ffffff',
-  orange: '#e36a3e',
-  line: '#c9dfd5',
-  muted: '#587268',
+  ink: '#18372f',
+  deep: '#255247',
+  green: '#477f6f',
+  mint: '#dcebe5',
+  mintLight: '#edf5f1',
+  sky: '#e5eef4',
+  peach: '#f4e5dc',
+  cream: '#f6f1e8',
+  pale: '#f5f8f6',
+  card: '#fffefd',
+  line: '#cadbd4',
+  muted: '#61786f',
+  white: '#ffffff',
+  yellow: '#e6c66b',
 };
 
 const clamp = {
@@ -65,10 +70,12 @@ const clamp = {
   extrapolateRight: 'clamp' as const,
 };
 
-const justified = {
-  textAlign: 'justify' as const,
-  textAlignLast: 'left' as const,
-};
+function readableAlign(text: string, justifyFrom = 160) {
+  return {
+    textAlign: text.length >= justifyFrom ? ('justify' as const) : ('left' as const),
+    textAlignLast: 'left' as const,
+  };
+}
 
 export const defaultLegalVideoProps: LegalVideoProps = {
   storyboard: {
@@ -137,46 +144,135 @@ export const calculateLegalVideoMetadata: CalculateMetadataFunction<LegalVideoPr
   height: props.storyboard.height || 1920,
 });
 
-const CheckIcon = ({size = 52}: {size?: number}) => (
-  <svg width={size} height={size} viewBox="0 0 64 64" fill="none" aria-hidden="true">
-    <circle cx="32" cy="32" r="29" fill={COLORS.greenSoft} stroke={COLORS.green} strokeWidth="3.5" />
-    <path d="M18 33.5 27.5 43 47 22" stroke={COLORS.green} strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+const DocumentIcon = ({size = 150}: {size?: number}) => (
+  <svg width={size} height={size} viewBox="0 0 160 160" fill="none" aria-hidden="true">
+    <rect x="32" y="18" width="96" height="124" rx="20" fill={COLORS.card} stroke={COLORS.deep} strokeWidth="5" />
+    <path d="M100 18v30h28" fill={COLORS.sky} stroke={COLORS.deep} strokeWidth="5" strokeLinejoin="round" />
+    <path d="M52 70h56M52 91h56M52 112h37" stroke={COLORS.green} strokeWidth="7" strokeLinecap="round" />
+    <circle cx="111" cy="116" r="22" fill={COLORS.peach} stroke={COLORS.deep} strokeWidth="4" />
+    <path d="m102 116 7 7 13-15" stroke={COLORS.deep} strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
+
+const CalendarIcon = ({size = 92}: {size?: number}) => (
+  <svg width={size} height={size} viewBox="0 0 100 100" fill="none" aria-hidden="true">
+    <rect x="11" y="18" width="78" height="70" rx="17" fill={COLORS.card} stroke={COLORS.deep} strokeWidth="5" />
+    <path d="M11 40h78" stroke={COLORS.deep} strokeWidth="5" />
+    <path d="M31 11v18M69 11v18" stroke={COLORS.green} strokeWidth="7" strokeLinecap="round" />
+    <circle cx="34" cy="60" r="6" fill={COLORS.peach} />
+    <circle cx="51" cy="60" r="6" fill={COLORS.mint} />
+    <circle cx="68" cy="60" r="6" fill={COLORS.sky} />
+    <circle cx="34" cy="76" r="6" fill={COLORS.mint} />
+    <circle cx="51" cy="76" r="6" fill={COLORS.peach} />
+  </svg>
+);
+
+const PeopleIcon = ({size = 142}: {size?: number}) => (
+  <svg width={size} height={size} viewBox="0 0 160 160" fill="none" aria-hidden="true">
+    <circle cx="80" cy="48" r="23" fill={COLORS.peach} stroke={COLORS.deep} strokeWidth="5" />
+    <circle cx="35" cy="66" r="17" fill={COLORS.sky} stroke={COLORS.deep} strokeWidth="4" />
+    <circle cx="125" cy="66" r="17" fill={COLORS.mint} stroke={COLORS.deep} strokeWidth="4" />
+    <path d="M44 132c2-30 15-48 36-48s34 18 36 48" fill={COLORS.mint} stroke={COLORS.deep} strokeWidth="5" strokeLinecap="round" />
+    <path d="M10 132c2-22 11-35 26-35 12 0 22 8 26 22M98 119c4-14 14-22 26-22 15 0 24 13 26 35" stroke={COLORS.deep} strokeWidth="5" strokeLinecap="round" />
+  </svg>
+);
+
+const ArrowsIcon = ({size = 126}: {size?: number}) => (
+  <svg width={size} height={size} viewBox="0 0 140 140" fill="none" aria-hidden="true">
+    <rect x="12" y="24" width="44" height="92" rx="16" fill={COLORS.peach} stroke={COLORS.deep} strokeWidth="4" />
+    <rect x="84" y="24" width="44" height="92" rx="16" fill={COLORS.mint} stroke={COLORS.deep} strokeWidth="4" />
+    <path d="M58 53h23m-8-9 9 9-9 9M82 88H59m8 9-9-9 9-9" stroke={COLORS.deep} strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+const StepsIcon = ({size = 126}: {size?: number}) => (
+  <svg width={size} height={size} viewBox="0 0 140 140" fill="none" aria-hidden="true">
+    <rect x="14" y="84" width="34" height="38" rx="10" fill={COLORS.peach} stroke={COLORS.deep} strokeWidth="4" />
+    <rect x="53" y="58" width="34" height="64" rx="10" fill={COLORS.sky} stroke={COLORS.deep} strokeWidth="4" />
+    <rect x="92" y="30" width="34" height="92" rx="10" fill={COLORS.mint} stroke={COLORS.deep} strokeWidth="4" />
+    <path d="m31 72 30-25 24 4 27-23" stroke={COLORS.green} strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="m102 24 13 3-4 13" stroke={COLORS.green} strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+const PercentIcon = ({size = 124}: {size?: number}) => (
+  <svg width={size} height={size} viewBox="0 0 140 140" fill="none" aria-hidden="true">
+    <circle cx="70" cy="70" r="57" fill={COLORS.cream} stroke={COLORS.deep} strokeWidth="5" />
+    <circle cx="48" cy="48" r="13" fill={COLORS.sky} stroke={COLORS.deep} strokeWidth="4" />
+    <circle cx="92" cy="92" r="13" fill={COLORS.peach} stroke={COLORS.deep} strokeWidth="4" />
+    <path d="m45 99 50-58" stroke={COLORS.deep} strokeWidth="8" strokeLinecap="round" />
+  </svg>
+);
+
+const ClipboardIcon = ({size = 132}: {size?: number}) => (
+  <svg width={size} height={size} viewBox="0 0 150 150" fill="none" aria-hidden="true">
+    <rect x="24" y="20" width="102" height="116" rx="20" fill={COLORS.card} stroke={COLORS.deep} strokeWidth="5" />
+    <rect x="52" y="11" width="46" height="24" rx="10" fill={COLORS.sky} stroke={COLORS.deep} strokeWidth="4" />
+    <path d="m42 64 8 8 13-16M72 65h32M42 96l8 8 13-16M72 97h32" stroke={COLORS.green} strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+const LightbulbIcon = ({size = 126}: {size?: number}) => (
+  <svg width={size} height={size} viewBox="0 0 140 140" fill="none" aria-hidden="true">
+    <path d="M70 15c-27 0-46 19-46 44 0 18 10 30 23 40 5 4 8 10 8 16h30c0-6 3-12 8-16 13-10 23-22 23-40 0-25-19-44-46-44Z" fill={COLORS.cream} stroke={COLORS.deep} strokeWidth="5" />
+    <path d="M54 115h32M58 127h24" stroke={COLORS.deep} strokeWidth="6" strokeLinecap="round" />
+    <path d="M70 0v8M18 22l7 7M122 22l-7 7M3 66h10M127 66h10" stroke={COLORS.yellow} strokeWidth="6" strokeLinecap="round" />
+    <path d="m53 60 12 12 23-27" stroke={COLORS.green} strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+const CheckIcon = ({size = 49}: {size?: number}) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" fill="none" aria-hidden="true">
+    <circle cx="32" cy="32" r="28" fill={COLORS.mint} stroke={COLORS.green} strokeWidth="3.5" />
+    <path d="M18 33.5 27.5 43 47 22" stroke={COLORS.deep} strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+function SceneIcon({kind, size = 88}: {kind: LegalVideoScene['kind']; size?: number}) {
+  if (kind === 'timeline') return <CalendarIcon size={size} />;
+  if (kind === 'audience') return <PeopleIcon size={size} />;
+  if (kind === 'change') return <ArrowsIcon size={size} />;
+  if (kind === 'process') return <StepsIcon size={size} />;
+  if (kind === 'numbers') return <PercentIcon size={size} />;
+  if (kind === 'prepare') return <ClipboardIcon size={size} />;
+  if (kind === 'summary') return <LightbulbIcon size={size} />;
+  return <DocumentIcon size={size} />;
+}
 
 const BulletList = ({items}: {items: string[]}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   return (
-    <div style={{display: 'grid', gap: 22, width: '100%'}}>
+    <div style={{display: 'grid', gap: 20, width: '100%'}}>
       {items.slice(0, 3).map((item, index) => {
         const appear = spring({frame: frame - 8 - index * 7, fps, config: {damping: 24, stiffness: 105}});
         const fontSize = item.length > 220 ? 28 : item.length > 140 ? 31 : 35;
+        const backgrounds = [COLORS.card, COLORS.cream, COLORS.sky];
         return (
           <div
             key={`${item}-${index}`}
             style={{
               display: 'grid',
-              gridTemplateColumns: '58px 1fr',
+              gridTemplateColumns: '54px 1fr',
               alignItems: 'center',
-              gap: 22,
-              minHeight: 126,
-              padding: '25px 29px',
+              gap: 20,
+              minHeight: 122,
+              padding: '24px 28px',
               borderRadius: 28,
-              background: index === 0 ? 'rgba(255,255,255,.98)' : 'rgba(250,253,251,.96)',
+              backgroundColor: backgrounds[index % backgrounds.length],
               border: `2px solid ${COLORS.line}`,
-              boxShadow: '0 18px 48px rgba(16,45,36,.075)',
+              boxShadow: '0 16px 38px rgba(37,82,71,.07)',
               opacity: interpolate(appear, [0, 1], [0, 1], clamp),
-              transform: `translateY(${interpolate(appear, [0, 1], [26, 0], clamp)}px)`,
+              transform: `translateY(${interpolate(appear, [0, 1], [24, 0], clamp)}px)`,
             }}
           >
             <CheckIcon />
             <div
               style={{
-                ...justified,
+                ...readableAlign(item),
                 fontSize,
                 lineHeight: 1.31,
-                fontWeight: 750,
+                fontWeight: 760,
                 color: COLORS.ink,
                 letterSpacing: '-0.012em',
               }}
@@ -199,45 +295,48 @@ const SceneShell = ({scene, durationInFrames, children}: {scene: LegalVideoScene
     easing: Easing.bezier(0.4, 0, 1, 1),
   });
   const titleSize = scene.kind === 'intro'
-    ? 78
+    ? 76
     : scene.title.length > 95
-      ? 51
+      ? 49
       : scene.title.length > 65
-        ? 57
-        : 64;
+        ? 55
+        : 62;
 
   return (
     <AbsoluteFill
       style={{
-        padding: '188px 64px 306px',
+        padding: '186px 64px 286px',
         opacity: interpolate(enter, [0, 1], [0, 1], clamp) * exit,
-        transform: `translateY(${interpolate(enter, [0, 1], [22, 0], clamp)}px)`,
+        transform: `translateY(${interpolate(enter, [0, 1], [20, 0], clamp)}px)`,
       }}
     >
       <div style={{height: '100%', display: 'flex', flexDirection: 'column'}}>
-        <div
-          style={{
-            alignSelf: 'flex-start',
-            marginBottom: 24,
-            padding: '11px 17px',
-            borderRadius: 999,
-            border: `2px solid ${COLORS.line}`,
-            background: 'rgba(255,255,255,.78)',
-            color: COLORS.green,
-            fontSize: 22,
-            fontWeight: 900,
-            letterSpacing: '0.12em',
-          }}
-        >
-          {scene.eyebrow}
+        <div style={{display: 'flex', alignItems: 'center', gap: 18, marginBottom: 24}}>
+          <div style={{width: 72, height: 72, borderRadius: 24, display: 'grid', placeItems: 'center', backgroundColor: COLORS.mint, border: `2px solid ${COLORS.line}`}}>
+            <SceneIcon kind={scene.kind} size={52} />
+          </div>
+          <div
+            style={{
+              padding: '11px 17px',
+              borderRadius: 999,
+              border: `2px solid ${COLORS.line}`,
+              backgroundColor: COLORS.card,
+              color: COLORS.green,
+              fontSize: 21,
+              fontWeight: 900,
+              letterSpacing: '0.105em',
+            }}
+          >
+            {scene.eyebrow}
+          </div>
         </div>
         <h1
           style={{
             margin: 0,
             maxWidth: 940,
             fontSize: titleSize,
-            lineHeight: 1.08,
-            letterSpacing: '-0.044em',
+            lineHeight: 1.09,
+            letterSpacing: '-0.042em',
             fontWeight: 950,
             color: COLORS.ink,
           }}
@@ -247,10 +346,10 @@ const SceneShell = ({scene, durationInFrames, children}: {scene: LegalVideoScene
         {scene.subtitle ? (
           <p
             style={{
-              ...justified,
-              margin: '24px 0 0',
+              ...readableAlign(scene.subtitle, 190),
+              margin: '22px 0 0',
               maxWidth: 915,
-              fontSize: 31,
+              fontSize: 30,
               lineHeight: 1.4,
               fontWeight: 620,
               color: COLORS.muted,
@@ -259,15 +358,7 @@ const SceneShell = ({scene, durationInFrames, children}: {scene: LegalVideoScene
             {scene.subtitle}
           </p>
         ) : null}
-        <div
-          style={{
-            flex: 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            paddingTop: 34,
-          }}
-        >
+        <div style={{flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 32}}>
           {children}
         </div>
       </div>
@@ -285,24 +376,28 @@ const IntroVisual = ({document}: {document: LegalVideoProps['storyboard']['docum
       style={{
         width: '100%',
         minHeight: 520,
-        padding: '62px 54px',
-        borderRadius: 52,
+        padding: '52px 48px',
+        borderRadius: 48,
         display: 'grid',
-        placeItems: 'center',
-        textAlign: 'center',
-        background: `linear-gradient(145deg, ${COLORS.deep} 0%, #1c604b 100%)`,
-        border: '2px solid rgba(255,255,255,.24)',
-        color: '#fff',
-        boxShadow: '0 38px 90px rgba(16,45,36,.22)',
+        gridTemplateColumns: '230px 1fr',
+        alignItems: 'center',
+        gap: 42,
+        backgroundColor: COLORS.mint,
+        border: `3px solid ${COLORS.line}`,
+        color: COLORS.ink,
+        boxShadow: '0 30px 72px rgba(37,82,71,.12)',
         opacity: interpolate(appear, [0, 1], [0, 1], clamp),
-        transform: `translateY(${interpolate(appear, [0, 1], [30, 0], clamp)}px) scale(${interpolate(appear, [0, 1], [.97, 1], clamp)})`,
+        transform: `translateY(${interpolate(appear, [0, 1], [26, 0], clamp)}px) scale(${interpolate(appear, [0, 1], [.98, 1], clamp)})`,
       }}
     >
-      <div style={{width: '100%'}}>
-        <div style={{fontSize: main.length <= 4 ? 174 : 110, lineHeight: .92, fontWeight: 950, letterSpacing: '-0.075em'}}>{main}</div>
-        <div style={{marginTop: 28, fontSize: 34, lineHeight: 1.25, fontWeight: 850}}>{document.number}</div>
-        <div style={{width: 110, height: 5, margin: '30px auto 24px', borderRadius: 99, background: COLORS.orange}} />
-        <div style={{fontSize: 27, lineHeight: 1.35, fontWeight: 650, opacity: .88}}>
+      <div style={{width: 210, height: 210, borderRadius: 54, display: 'grid', placeItems: 'center', backgroundColor: COLORS.card, border: `2px solid ${COLORS.line}`}}>
+        <DocumentIcon size={168} />
+      </div>
+      <div>
+        <div style={{fontSize: main.length <= 4 ? 132 : 94, lineHeight: .94, fontWeight: 950, letterSpacing: '-0.07em', color: COLORS.deep}}>{main}</div>
+        <div style={{marginTop: 26, fontSize: 35, lineHeight: 1.25, fontWeight: 880}}>{document.number}</div>
+        <div style={{width: 104, height: 6, margin: '28px 0 22px', borderRadius: 99, backgroundColor: COLORS.peach}} />
+        <div style={{fontSize: 27, lineHeight: 1.35, fontWeight: 680, color: COLORS.muted}}>
           {document.type} · {document.issuer}
         </div>
       </div>
@@ -310,81 +405,67 @@ const IntroVisual = ({document}: {document: LegalVideoProps['storyboard']['docum
   );
 };
 
-const TimelineVisual = ({scene}: {scene: LegalVideoScene}) => (
-  <div style={{width: '100%', display: 'grid', gap: 22}}>
-    <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20}}>
-      {scene.bullets.slice(0, 2).map((item, index) => (
-        <div
-          key={`${item}-${index}`}
-          style={{
-            minHeight: 242,
-            borderRadius: 34,
-            background: index === 0 ? COLORS.deep : '#fff',
-            color: index === 0 ? '#fff' : COLORS.ink,
-            border: `2px solid ${index === 0 ? COLORS.deep : COLORS.line}`,
-            padding: '38px 32px',
-            boxShadow: '0 20px 55px rgba(16,45,36,.09)',
-          }}
-        >
-          <div style={{fontSize: 21, fontWeight: 900, letterSpacing: '0.1em', color: index === 0 ? 'rgba(255,255,255,.7)' : COLORS.muted, marginBottom: 24}}>
-            {index === 0 ? 'MỐC 1' : 'MỐC 2'}
+const TimelineVisual = ({scene}: {scene: LegalVideoScene}) => {
+  const items = scene.bullets.slice(0, 2);
+  return (
+    <div style={{width: '100%'}}>
+      <div style={{height: 6, margin: '0 88px -3px', borderRadius: 99, backgroundColor: COLORS.line}} />
+      <div style={{display: 'grid', gridTemplateColumns: items.length > 1 ? '1fr 1fr' : '1fr', gap: 22}}>
+        {items.map((item, index) => (
+          <div key={`${item}-${index}`} style={{position: 'relative', paddingTop: 34}}>
+            <div style={{position: 'absolute', top: -11, left: '50%', width: 28, height: 28, borderRadius: '50%', transform: 'translateX(-50%)', backgroundColor: index === 0 ? COLORS.peach : COLORS.sky, border: `5px solid ${COLORS.pale}`}} />
+            <div
+              style={{
+                minHeight: items.length > 1 ? 250 : 220,
+                borderRadius: 34,
+                backgroundColor: index === 0 ? COLORS.cream : COLORS.card,
+                color: COLORS.ink,
+                border: `2px solid ${COLORS.line}`,
+                padding: '32px 30px',
+                boxShadow: '0 18px 46px rgba(37,82,71,.08)',
+              }}
+            >
+              <CalendarIcon size={75} />
+              <div style={{fontSize: 20, fontWeight: 900, letterSpacing: '0.09em', color: COLORS.muted, margin: '18px 0 16px'}}>
+                {items.length === 1 ? 'MỐC THỜI GIAN' : `MỐC ${index + 1}`}
+              </div>
+              <div style={{...readableAlign(item, 180), fontSize: item.length > 100 ? 33 : 39, fontWeight: 880, lineHeight: 1.22}}>{item}</div>
+            </div>
           </div>
-          <div style={{...justified, fontSize: item.length > 100 ? 34 : 40, fontWeight: 870, lineHeight: 1.22}}>{item}</div>
-        </div>
-      ))}
+        ))}
+      </div>
+      {scene.bullets.length > 2 ? <div style={{marginTop: 22}}><BulletList items={scene.bullets.slice(2)} /></div> : null}
     </div>
-    {scene.bullets.length > 2 ? <BulletList items={scene.bullets.slice(2)} /> : null}
-  </div>
-);
+  );
+};
 
 const ProcessVisual = ({scene}: {scene: LegalVideoScene}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   return (
-    <div style={{display: 'grid', gap: 19, width: '100%'}}>
+    <div style={{display: 'grid', gap: 16, width: '100%'}}>
       {scene.bullets.slice(0, 3).map((item, index) => {
         const appear = spring({frame: frame - index * 9, fps, config: {damping: 23, stiffness: 100}});
         return (
-          <div
-            key={`${item}-${index}`}
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '86px 1fr',
-              gap: 20,
-              alignItems: 'stretch',
-              opacity: appear,
-              transform: `translateY(${interpolate(appear, [0, 1], [24, 0], clamp)}px)`,
-            }}
-          >
+          <div key={`${item}-${index}`}>
             <div
               style={{
-                minHeight: 100,
-                borderRadius: 28,
                 display: 'grid',
-                placeItems: 'center',
-                background: index === 0 ? COLORS.orange : COLORS.green,
-                color: '#fff',
-                fontSize: 34,
-                fontWeight: 950,
+                gridTemplateColumns: '92px 1fr',
+                gap: 20,
+                alignItems: 'stretch',
+                opacity: appear,
+                transform: `translateY(${interpolate(appear, [0, 1], [22, 0], clamp)}px)`,
               }}
             >
-              {index + 1}
+              <div style={{minHeight: 104, borderRadius: 28, display: 'grid', placeItems: 'center', backgroundColor: index === 0 ? COLORS.peach : index === 1 ? COLORS.sky : COLORS.mint, color: COLORS.deep, border: `2px solid ${COLORS.line}`, fontSize: 34, fontWeight: 950}}>
+                {index + 1}
+              </div>
+              <div style={{...readableAlign(item), borderRadius: 28, backgroundColor: COLORS.card, border: `2px solid ${COLORS.line}`, padding: '27px 30px', fontSize: item.length > 180 ? 28 : item.length > 110 ? 31 : 35, lineHeight: 1.31, fontWeight: 750, boxShadow: '0 14px 36px rgba(37,82,71,.06)'}}>
+                {item}
+              </div>
             </div>
-            <div
-              style={{
-                ...justified,
-                borderRadius: 28,
-                background: '#fff',
-                border: `2px solid ${COLORS.line}`,
-                padding: '27px 30px',
-                fontSize: item.length > 180 ? 28 : item.length > 110 ? 31 : 35,
-                lineHeight: 1.31,
-                fontWeight: 750,
-                boxShadow: '0 16px 42px rgba(16,45,36,.07)',
-              }}
-            >
-              {item}
-            </div>
+            {index < Math.min(2, scene.bullets.length - 1) ? <div style={{width: 5, height: 18, margin: '0 0 0 43px', backgroundColor: COLORS.line}} /> : null}
           </div>
         );
       })}
@@ -392,40 +473,76 @@ const ProcessVisual = ({scene}: {scene: LegalVideoScene}) => {
   );
 };
 
+function numberParts(item: string) {
+  const match = item.match(/\b\d+(?:[.,/]\d+)*(?:\s*%|\s*(?:đồng|triệu|tỷ))?/iu);
+  if (!match) return {number: '', description: item};
+  return {number: match[0], description: item.replace(match[0], '').replace(/^\s*[:–—-]?\s*/u, '').trim()};
+}
+
 const NumberVisual = ({scene}: {scene: LegalVideoScene}) => (
   <div style={{width: '100%', display: 'grid', gridTemplateColumns: scene.bullets.length > 1 ? '1fr 1fr' : '1fr', gap: 22}}>
-    {scene.bullets.slice(0, 3).map((item, index) => (
-      <div
-        key={`${item}-${index}`}
-        style={{
-          minHeight: 292,
-          display: 'grid',
-          placeItems: 'center',
-          textAlign: item.length > 90 ? 'justify' : 'center',
-          textAlignLast: item.length > 90 ? 'center' : 'auto',
-          borderRadius: 40,
-          padding: 38,
-          background: index === 0 ? `linear-gradient(145deg, ${COLORS.deep}, ${COLORS.green})` : '#fff',
-          color: index === 0 ? '#fff' : COLORS.ink,
-          border: `2px solid ${index === 0 ? COLORS.deep : COLORS.line}`,
-          boxShadow: '0 25px 65px rgba(16,45,36,.11)',
-          fontSize: item.length > 110 ? 34 : 41,
-          lineHeight: 1.2,
-          fontWeight: 900,
-        }}
-      >
-        {item}
-      </div>
-    ))}
+    {scene.bullets.slice(0, 3).map((item, index) => {
+      const parts = numberParts(item);
+      return (
+        <div key={`${item}-${index}`} style={{minHeight: 292, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', borderRadius: 38, padding: 34, backgroundColor: index === 0 ? COLORS.cream : index === 1 ? COLORS.sky : COLORS.card, color: COLORS.ink, border: `2px solid ${COLORS.line}`, boxShadow: '0 22px 54px rgba(37,82,71,.09)'}}>
+          {parts.number ? <div style={{padding: '12px 18px', borderRadius: 20, backgroundColor: COLORS.mint, color: COLORS.deep, fontSize: parts.number.length > 14 ? 40 : 50, lineHeight: 1, fontWeight: 950, letterSpacing: '-0.04em'}}>{parts.number}</div> : <PercentIcon size={82} />}
+          <div style={{...readableAlign(parts.description || item, 170), marginTop: 22, fontSize: item.length > 120 ? 31 : 36, lineHeight: 1.25, fontWeight: 820}}>
+            {parts.description || item}
+          </div>
+        </div>
+      );
+    })}
+  </div>
+);
+
+const AudienceVisual = ({scene}: {scene: LegalVideoScene}) => (
+  <div style={{width: '100%', display: 'grid', gap: 24}}>
+    <div style={{height: 250, borderRadius: 38, backgroundColor: COLORS.sky, border: `2px solid ${COLORS.line}`, display: 'grid', gridTemplateColumns: '220px 1fr', alignItems: 'center', padding: '28px 42px'}}>
+      <PeopleIcon size={174} />
+      <div style={{fontSize: 39, lineHeight: 1.18, fontWeight: 900, color: COLORS.deep}}>Ai cần quan tâm đến quy định này?</div>
+    </div>
+    <BulletList items={scene.bullets.length ? scene.bullets : [scene.narration]} />
+  </div>
+);
+
+const ChangeVisual = ({scene}: {scene: LegalVideoScene}) => (
+  <div style={{width: '100%', display: 'grid', gap: 24}}>
+    <div style={{height: 210, borderRadius: 38, backgroundColor: COLORS.peach, border: `2px solid ${COLORS.line}`, display: 'grid', gridTemplateColumns: '190px 1fr', alignItems: 'center', padding: '24px 42px'}}>
+      <ArrowsIcon size={150} />
+      <div style={{fontSize: 40, lineHeight: 1.18, fontWeight: 900, color: COLORS.deep}}>Điểm thay đổi hoặc nội dung cần đặc biệt lưu ý</div>
+    </div>
+    <BulletList items={scene.bullets.length ? scene.bullets : [scene.narration]} />
+  </div>
+);
+
+const PrepareVisual = ({scene}: {scene: LegalVideoScene}) => (
+  <div style={{width: '100%', display: 'grid', gridTemplateColumns: '250px 1fr', gap: 28, alignItems: 'center'}}>
+    <div style={{height: 430, borderRadius: 42, backgroundColor: COLORS.mint, border: `2px solid ${COLORS.line}`, display: 'grid', placeItems: 'center'}}>
+      <ClipboardIcon size={188} />
+    </div>
+    <BulletList items={scene.bullets.length ? scene.bullets : [scene.narration]} />
+  </div>
+);
+
+const SummaryVisual = ({scene}: {scene: LegalVideoScene}) => (
+  <div style={{width: '100%', display: 'grid', gap: 24}}>
+    <div style={{height: 225, borderRadius: 40, backgroundColor: COLORS.cream, border: `2px solid ${COLORS.line}`, display: 'grid', gridTemplateColumns: '190px 1fr', alignItems: 'center', padding: '28px 46px'}}>
+      <LightbulbIcon size={150} />
+      <div style={{fontSize: 42, lineHeight: 1.16, fontWeight: 920, color: COLORS.deep}}>Giữ lại những ý quan trọng nhất</div>
+    </div>
+    <BulletList items={scene.bullets.length ? scene.bullets : [scene.narration]} />
   </div>
 );
 
 function SceneVisual({scene, document}: {scene: LegalVideoScene; document: LegalVideoProps['storyboard']['document']}) {
   if (scene.kind === 'intro') return <IntroVisual document={document} />;
   if (scene.kind === 'timeline') return <TimelineVisual scene={scene} />;
+  if (scene.kind === 'audience') return <AudienceVisual scene={scene} />;
+  if (scene.kind === 'change') return <ChangeVisual scene={scene} />;
   if (scene.kind === 'process') return <ProcessVisual scene={scene} />;
   if (scene.kind === 'numbers') return <NumberVisual scene={scene} />;
-  return <BulletList items={scene.bullets.length ? scene.bullets : [scene.narration]} />;
+  if (scene.kind === 'prepare') return <PrepareVisual scene={scene} />;
+  return <SummaryVisual scene={scene} />;
 }
 
 function captionIntervals(scene: LegalVideoScene) {
@@ -449,7 +566,7 @@ const CaptionBar = ({scene}: {scene: LegalVideoScene}) => {
   const intervals = captionIntervals(scene);
   const caption = intervals.find((item) => current >= item.start && current < item.end) ?? intervals.at(-1);
   if (!caption) return null;
-  const fontSize = caption.text.length > 155 ? 27 : caption.text.length > 115 ? 29 : 32;
+  const fontSize = caption.text.length > 175 ? 27 : caption.text.length > 125 ? 30 : 34;
 
   return (
     <div
@@ -457,36 +574,22 @@ const CaptionBar = ({scene}: {scene: LegalVideoScene}) => {
         position: 'absolute',
         left: 52,
         right: 52,
-        bottom: 52,
-        height: 222,
+        bottom: 48,
+        height: 196,
         zIndex: 30,
         boxSizing: 'border-box',
-        padding: '24px 31px 25px',
-        borderRadius: 32,
-        border: '2px solid rgba(255,255,255,.13)',
-        background: 'linear-gradient(145deg, rgba(15,53,43,.985), rgba(20,66,53,.985))',
-        boxShadow: '0 25px 72px rgba(16,45,36,.25)',
-        color: '#fff',
+        padding: '28px 34px',
+        borderRadius: 31,
+        border: `2px solid ${COLORS.line}`,
+        backgroundColor: COLORS.card,
+        boxShadow: '0 22px 58px rgba(37,82,71,.16)',
+        color: COLORS.ink,
         display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
+        alignItems: 'center',
         overflow: 'hidden',
       }}
     >
-      <div style={{display: 'flex', alignItems: 'center', gap: 11, marginBottom: 12, color: 'rgba(255,255,255,.68)', fontSize: 17, fontWeight: 900, letterSpacing: '0.12em'}}>
-        <span style={{display: 'block', width: 28, height: 4, borderRadius: 99, background: COLORS.orange}} />
-        LỜI THUYẾT MINH
-      </div>
-      <div
-        style={{
-          textAlign: caption.text.length >= 72 ? 'justify' : 'center',
-          textAlignLast: 'center',
-          fontSize,
-          lineHeight: 1.34,
-          fontWeight: 720,
-          letterSpacing: '-0.009em',
-        }}
-      >
+      <div style={{...readableAlign(caption.text, 150), width: '100%', fontSize, lineHeight: 1.34, fontWeight: 740, letterSpacing: '-0.009em'}}>
         {caption.text}
       </div>
     </div>
@@ -495,19 +598,20 @@ const CaptionBar = ({scene}: {scene: LegalVideoScene}) => {
 
 const SceneAudio = ({scene}: {scene: LegalVideoScene}) => {
   const {fps} = useVideoConfig();
-  let cursor = 0;
+  let elapsed = 0;
+  const chunks = (scene.audioChunks ?? []).map((chunk) => {
+    const from = Math.round(elapsed * fps);
+    const durationInFrames = Math.max(1, Math.ceil(chunk.durationSeconds * fps));
+    elapsed += chunk.durationSeconds;
+    return {chunk, from, durationInFrames};
+  });
   return (
     <>
-      {(scene.audioChunks ?? []).map((chunk) => {
-        const from = Math.round(cursor * fps);
-        const durationInFrames = Math.max(1, Math.ceil(chunk.durationSeconds * fps));
-        cursor += chunk.durationSeconds;
-        return (
-          <Sequence key={chunk.id} from={from} durationInFrames={durationInFrames} layout="none">
-            <Audio src={chunk.url} volume={.97} />
-          </Sequence>
-        );
-      })}
+      {chunks.map(({chunk, from, durationInFrames}) => (
+        <Sequence key={chunk.id} from={from} durationInFrames={durationInFrames} layout="none">
+          <Audio src={chunk.url} volume={.97} />
+        </Sequence>
+      ))}
     </>
   );
 };
@@ -516,54 +620,23 @@ export const LegalVideo = ({storyboard}: LegalVideoProps) => {
   const frame = useCurrentFrame();
   const {durationInFrames, fps} = useVideoConfig();
   return (
-    <AbsoluteFill
-      style={{
-        overflow: 'hidden',
-        fontFamily: 'Arial, "DejaVu Sans", sans-serif',
-        background: `radial-gradient(circle at 88% 8%, rgba(128,202,169,.34) 0, transparent 31%), radial-gradient(circle at 4% 72%, rgba(227,106,62,.09) 0, transparent 28%), linear-gradient(155deg, #fbfdfc 0%, ${COLORS.pale} 100%)`,
-        color: COLORS.ink,
-      }}
-    >
-      <div style={{position: 'absolute', inset: 0, opacity: .22, backgroundImage: 'linear-gradient(rgba(31,107,80,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(31,107,80,.08) 1px, transparent 1px)', backgroundSize: '72px 72px'}} />
-      <div style={{position: 'absolute', width: 520, height: 520, borderRadius: '50%', background: 'rgba(227,106,62,.07)', left: -260, top: 920, filter: 'blur(2px)'}} />
-      <div style={{position: 'absolute', width: 340, height: 340, borderRadius: '50%', border: '4px solid rgba(31,107,80,.08)', right: -130, top: 390}} />
+    <AbsoluteFill style={{overflow: 'hidden', fontFamily: 'Arial, "DejaVu Sans", sans-serif', backgroundColor: COLORS.pale, color: COLORS.ink}}>
+      <div style={{position: 'absolute', inset: 0, opacity: .24, backgroundImage: 'linear-gradient(rgba(71,127,111,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(71,127,111,.08) 1px, transparent 1px)', backgroundSize: '76px 76px'}} />
+      <div style={{position: 'absolute', width: 430, height: 430, borderRadius: '50%', backgroundColor: COLORS.peach, left: -245, top: 1010, opacity: .56}} />
+      <div style={{position: 'absolute', width: 310, height: 310, borderRadius: '50%', backgroundColor: COLORS.sky, right: -145, top: 350, opacity: .72}} />
+      <div style={{position: 'absolute', width: 170, height: 170, borderRadius: 48, backgroundColor: COLORS.mint, right: 82, top: 1180, transform: 'rotate(12deg)', opacity: .7}} />
 
-      <div
-        style={{
-          position: 'absolute',
-          top: 48,
-          left: 52,
-          right: 52,
-          height: 86,
-          zIndex: 40,
-          padding: '0 26px',
-          borderRadius: 27,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          background: 'rgba(255,255,255,.82)',
-          border: `2px solid ${COLORS.line}`,
-          boxShadow: '0 14px 42px rgba(16,45,36,.07)',
-          backdropFilter: 'blur(14px)',
-        }}
-      >
-        <div style={{fontSize: 33, fontWeight: 950, letterSpacing: '-0.05em', color: COLORS.deep}}>
-          Thuế Rõ<span style={{color: COLORS.orange}}>.</span>
+      <div style={{position: 'absolute', top: 48, left: 52, right: 52, height: 84, zIndex: 40, padding: '0 26px', borderRadius: 27, display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: COLORS.card, border: `2px solid ${COLORS.line}`, boxShadow: '0 13px 38px rgba(37,82,71,.07)'}}>
+        <div style={{fontSize: 27, fontWeight: 920, letterSpacing: '-0.025em', color: COLORS.deep}}>
+          {storyboard.document.number}
         </div>
-        <div style={{maxWidth: 570, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 21, fontWeight: 850, color: COLORS.muted}}>
-          {storyboard.document.number} · VIDEO CHI TIẾT
+        <div style={{fontSize: 20, fontWeight: 900, letterSpacing: '0.11em', color: COLORS.muted}}>
+          VIDEO CHI TIẾT
         </div>
       </div>
 
-      <div style={{position: 'absolute', top: 153, left: 56, right: 56, height: 7, borderRadius: 99, background: 'rgba(31,107,80,.12)', zIndex: 40}}>
-        <div
-          style={{
-            width: `${interpolate(frame, [0, durationInFrames - 1], [0, 100], clamp)}%`,
-            height: '100%',
-            borderRadius: 99,
-            background: `linear-gradient(90deg, ${COLORS.green}, ${COLORS.orange})`,
-          }}
-        />
+      <div style={{position: 'absolute', top: 151, left: 56, right: 56, height: 7, borderRadius: 99, backgroundColor: COLORS.line, zIndex: 40}}>
+        <div style={{width: `${interpolate(frame, [0, durationInFrames - 1], [0, 100], clamp)}%`, height: '100%', borderRadius: 99, backgroundColor: COLORS.green}} />
       </div>
 
       {storyboard.scenes.map((scene, index) => {
