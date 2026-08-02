@@ -9,92 +9,15 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: improve/video-storytelling-v4
-          fetch-depth: 0
-      - name: Sync branch head
-        run: git pull --ff-only origin improve/video-storytelling-v4
-      - name: Patch captions to sentence boundaries
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          storyboard = Path('lib/video/storyboard.ts')
-          source = storyboard.read_text()
-          replacement = r'''export function captionChunksFromNarration(value: string, maxChars = 116) {
-            const normalized = cleanText(value);
-            const sentences = normalized.split(/(?<=[.!?])\s+/gu).map(cleanText).filter(Boolean);
-            return (sentences.length ? sentences : [normalized]).flatMap((sentence) => {
-              if (sentence.length <= maxChars) return [sentence];
-              const pieces = splitMeaningfulPhrases(sentence, maxChars, true).filter(Boolean);
-              return rebalanceWordChunks(pieces, maxChars);
-            });
-          }
-          function normalizedTokens'''
-          pattern = r'export function captionChunksFromNarration\(value: string, maxChars = 116\) \{.*?\n\}\nfunction normalizedTokens'
-          source, count = re.subn(pattern, replacement, source, count=1, flags=re.S)
-          if count != 1:
-            raise SystemExit(f'caption function replacements: {count}')
-          storyboard.write_text(source)
-
-          e2e = Path('scripts/run-video-v3-e2e.ts')
-          source = e2e.read_text()
-          if 'Phụ đề trộn phần đầu câu sau vào câu trước' not in source:
-            needle = '''      if (caption.length > 150) {
-                throw new Error(`[video-v3-e2e] Cảnh ${scene.id} có phụ đề quá dài.`);
-              }
-          '''
-            addition = needle + '''      if (/[.!?]\\s+\\S/u.test(caption)) {
-                throw new Error(`[video-v3-e2e] Phụ đề trộn phần đầu câu sau vào câu trước: ${scene.id} — ${caption}`);
-              }
-          '''
-            if needle not in source:
-              raise SystemExit('caption validation insertion point missing')
-            source = source.replace(needle, addition, 1)
-          e2e.write_text(source)
-
-          chunking = Path('lib/video/chunking.ts')
-          source = chunking.read_text()
-          source = re.sub(r'VIDEO_TEMPLATE_VERSION = "legal-video-v\d+"', 'VIDEO_TEMPLATE_VERSION = "legal-video-v6"', source, count=1)
-          source = re.sub(r'VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v\d+"', 'VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v6"', source, count=1)
-          chunking.write_text(source)
-
-          tests = Path('tests/video-template.test.ts')
-          source = tests.read_text()
-          source = source.replace('VIDEO_TEMPLATE_VERSION = "legal-video-v5"', 'VIDEO_TEMPLATE_VERSION = "legal-video-v6"')
-          source = source.replace('VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v5"', 'VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v6"')
-          if 'phụ đề không ghép phần đầu câu sau vào cuối câu trước' not in source:
-            source += r'''
-
-test("phụ đề không ghép phần đầu câu sau vào cuối câu trước", () => {
-  const start = storyboardSource.indexOf("export function captionChunksFromNarration");
-  const end = storyboardSource.indexOf("function normalizedTokens", start);
-  const source = storyboardSource.slice(start, end);
-  assert.match(source, /sentences\.length \? sentences : \[normalized\]\)\.flatMap/u);
-  assert.doesNotMatch(source, /let current/u);
-  assert.doesNotMatch(source, /rebalanceWordChunks\(chunks/u);
-});
-'''
-          tests.write_text(source)
-          PY
-      - name: Commit caption v6 and restore CI workflow
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git show origin/main:.github/workflows/ocr-preview-check.yml > .github/workflows/ocr-preview-check.yml
-          git add lib/video/storyboard.ts lib/video/chunking.ts scripts/run-video-v3-e2e.ts tests/video-template.test.ts .github/workflows/ocr-preview-check.yml
-          git commit -m "[video-v3-e2e] Khóa phụ đề theo ranh giới từng câu"
-          git push origin HEAD:improve/video-storytelling-v4
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
