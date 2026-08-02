@@ -9,8 +9,8 @@ import type {
 const NUMBER_TOKEN = /\b\d+(?:[.,/]\d+)*(?:\s*%|\s*(?:đồng|triệu|tỷ))?\b/giu;
 const SPACE = /\s+/gu;
 
-export const VIDEO_TEMPLATE_VERSION = "legal-video-v2";
-export const VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v2";
+export const VIDEO_TEMPLATE_VERSION = "legal-video-v3";
+export const VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v3";
 
 export function normalizeVideoEvidence(value: string) {
   return value
