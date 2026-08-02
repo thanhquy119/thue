@@ -18,7 +18,8 @@
     "smoke:cron": "tsx tests/live-cron-smoke.ts",
     "smoke:presentation-search": "tsx tests/live-presentation-search-smoke.ts",
     "smoke:exact-documents": "tsx tests/live-exact-document-matrix.ts",
-    "video:snapshot": "tsx scripts/report-video-status.ts && tsx scripts/create-video-snapshot.ts && tsx scripts/render-existing-video-smoke.ts",
+    "video:v3-e2e": "tsx scripts/run-video-v3-e2e.ts",
+    "video:snapshot": "tsx scripts/report-video-status.ts && tsx scripts/create-video-snapshot.ts && tsx scripts/run-video-v3-e2e.ts && tsx scripts/render-existing-video-smoke.ts",
     "verify": "npm run lint && npm run typecheck && npm run build"
   },
   "dependencies": {
@@ -39,7 +40,8 @@
     "remotion": "4.0.503",
     "web-push": "3.6.7",
     "word-extractor": "1.0.4",
-    "workflow": "4.6.0"
+    "workflow": "4.6.0",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/node": "22.19.19",
