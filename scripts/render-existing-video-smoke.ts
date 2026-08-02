@@ -9,6 +9,7 @@ import {
 } from "@/lib/video/store";
 import type {LegalVideoStoryboard} from "@/lib/video/types";
 
+// Chỉ bật theo commit marker hoặc biến môi trường để build thông thường không render lại video.
 const enabled = process.env.RUN_VIDEO_EXISTING_RENDER_SMOKE === "true"
   || /\[video-render-existing-smoke\]/iu.test(process.env.VERCEL_GIT_COMMIT_MESSAGE || "");
 const jobId = process.env.VIDEO_EXISTING_RENDER_SMOKE_JOB_ID?.trim()
