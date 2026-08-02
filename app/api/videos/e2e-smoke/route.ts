@@ -6,11 +6,22 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+type VideoLength = "brief" | "standard" | "detailed";
+type VideoVoice = "female" | "male";
+
 function expectedToken() {
   return createHash("sha256")
     .update(`legal-video-e2e:${process.env.VERCEL_DEPLOYMENT_ID || "local"}:r2-azure`)
     .digest("hex")
     .slice(0, 24);
+}
+
+function videoLength(value: string | null): VideoLength {
+  return value === "standard" || value === "detailed" ? value : "brief";
+}
+
+function videoVoice(value: string | null): VideoVoice {
+  return value === "male" ? "male" : "female";
 }
 
 export async function GET(request: Request) {
@@ -22,6 +33,8 @@ export async function GET(request: Request) {
     return NextResponse.json({error: "Token smoke không hợp lệ."}, {status: 401});
   }
   const query = url.searchParams.get("query")?.trim() || "178/2024/NĐ-CP";
+  const length = videoLength(url.searchParams.get("length"));
+  const voice = videoVoice(url.searchParams.get("voice"));
   const internal = new Request(new URL("/api/videos/start", request.url), {
     method: "POST",
     headers: {
@@ -29,7 +42,7 @@ export async function GET(request: Request) {
       "user-agent": "Thue-Ro-legal-video-e2e-smoke",
       "x-forwarded-for": "127.0.0.1",
     },
-    body: JSON.stringify({query, length: "brief", voice: "female"}),
+    body: JSON.stringify({query, length, voice}),
   });
   return startVideo(internal);
 }
