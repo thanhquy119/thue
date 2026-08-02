@@ -49,18 +49,25 @@ export type LegalVideoProps = {
 };
 
 const COLORS = {
-  ink: '#102a21',
-  green: '#1f6b50',
-  pale: '#edf6f1',
+  ink: '#102d24',
+  deep: '#123c31',
+  green: '#267159',
+  greenSoft: '#dceee6',
+  pale: '#eef6f2',
   card: '#ffffff',
   orange: '#e36a3e',
-  line: '#cfe2d9',
-  muted: '#587267',
+  line: '#c9dfd5',
+  muted: '#587268',
 };
 
 const clamp = {
   extrapolateLeft: 'clamp' as const,
   extrapolateRight: 'clamp' as const,
+};
+
+const justified = {
+  textAlign: 'justify' as const,
+  textAlignLast: 'left' as const,
 };
 
 export const defaultLegalVideoProps: LegalVideoProps = {
@@ -130,9 +137,9 @@ export const calculateLegalVideoMetadata: CalculateMetadataFunction<LegalVideoPr
   height: props.storyboard.height || 1920,
 });
 
-const CheckIcon = ({size = 54}: {size?: number}) => (
+const CheckIcon = ({size = 52}: {size?: number}) => (
   <svg width={size} height={size} viewBox="0 0 64 64" fill="none" aria-hidden="true">
-    <circle cx="32" cy="32" r="29" fill={COLORS.pale} stroke={COLORS.green} strokeWidth="4" />
+    <circle cx="32" cy="32" r="29" fill={COLORS.greenSoft} stroke={COLORS.green} strokeWidth="3.5" />
     <path d="M18 33.5 27.5 43 47 22" stroke={COLORS.green} strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
@@ -141,9 +148,10 @@ const BulletList = ({items}: {items: string[]}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   return (
-    <div style={{display: 'grid', gap: 24, width: '100%'}}>
+    <div style={{display: 'grid', gap: 22, width: '100%'}}>
       {items.slice(0, 3).map((item, index) => {
-        const appear = spring({frame: frame - 11 - index * 9, fps, config: {damping: 20, stiffness: 130}});
+        const appear = spring({frame: frame - 8 - index * 7, fps, config: {damping: 24, stiffness: 105}});
+        const fontSize = item.length > 220 ? 28 : item.length > 140 ? 31 : 35;
         return (
           <div
             key={`${item}-${index}`}
@@ -152,17 +160,29 @@ const BulletList = ({items}: {items: string[]}) => {
               gridTemplateColumns: '58px 1fr',
               alignItems: 'center',
               gap: 22,
-              padding: '24px 27px',
-              borderRadius: 25,
-              background: 'rgba(255,255,255,.94)',
+              minHeight: 126,
+              padding: '25px 29px',
+              borderRadius: 28,
+              background: index === 0 ? 'rgba(255,255,255,.98)' : 'rgba(250,253,251,.96)',
               border: `2px solid ${COLORS.line}`,
-              boxShadow: '0 16px 44px rgba(16,42,33,.07)',
+              boxShadow: '0 18px 48px rgba(16,45,36,.075)',
               opacity: interpolate(appear, [0, 1], [0, 1], clamp),
-              translate: `${interpolate(appear, [0, 1], [50, 0], clamp)}px 0`,
+              transform: `translateY(${interpolate(appear, [0, 1], [26, 0], clamp)}px)`,
             }}
           >
             <CheckIcon />
-            <div style={{fontSize: 36, lineHeight: 1.24, fontWeight: 780, color: COLORS.ink}}>{item}</div>
+            <div
+              style={{
+                ...justified,
+                fontSize,
+                lineHeight: 1.31,
+                fontWeight: 750,
+                color: COLORS.ink,
+                letterSpacing: '-0.012em',
+              }}
+            >
+              {item}
+            </div>
           </div>
         );
       })}
@@ -173,88 +193,143 @@ const BulletList = ({items}: {items: string[]}) => {
 const SceneShell = ({scene, durationInFrames, children}: {scene: LegalVideoScene; durationInFrames: number; children: ReactNode}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
-  const enter = spring({frame, fps, config: {damping: 20, stiffness: 110}});
-  const exit = interpolate(frame, [Math.max(0, durationInFrames - 20), durationInFrames], [1, 0], {
+  const enter = spring({frame, fps, config: {damping: 24, stiffness: 92}});
+  const exit = interpolate(frame, [Math.max(0, durationInFrames - 16), durationInFrames], [1, 0], {
     ...clamp,
     easing: Easing.bezier(0.4, 0, 1, 1),
   });
+  const titleSize = scene.kind === 'intro'
+    ? 78
+    : scene.title.length > 95
+      ? 51
+      : scene.title.length > 65
+        ? 57
+        : 64;
+
   return (
-    <AbsoluteFill style={{padding: '170px 72px 260px', opacity: interpolate(enter, [0, 1], [0, 1], clamp) * exit}}>
-      <div
-        style={{
-          marginBottom: 28,
-          fontSize: 24,
-          fontWeight: 900,
-          letterSpacing: '0.14em',
-          color: COLORS.green,
-          opacity: interpolate(frame, [0, 18], [0, 1], clamp),
-          translate: `0 ${interpolate(frame, [0, 18], [20, 0], clamp)}px`,
-        }}
-      >
-        {scene.eyebrow}
+    <AbsoluteFill
+      style={{
+        padding: '188px 64px 306px',
+        opacity: interpolate(enter, [0, 1], [0, 1], clamp) * exit,
+        transform: `translateY(${interpolate(enter, [0, 1], [22, 0], clamp)}px)`,
+      }}
+    >
+      <div style={{height: '100%', display: 'flex', flexDirection: 'column'}}>
+        <div
+          style={{
+            alignSelf: 'flex-start',
+            marginBottom: 24,
+            padding: '11px 17px',
+            borderRadius: 999,
+            border: `2px solid ${COLORS.line}`,
+            background: 'rgba(255,255,255,.78)',
+            color: COLORS.green,
+            fontSize: 22,
+            fontWeight: 900,
+            letterSpacing: '0.12em',
+          }}
+        >
+          {scene.eyebrow}
+        </div>
+        <h1
+          style={{
+            margin: 0,
+            maxWidth: 940,
+            fontSize: titleSize,
+            lineHeight: 1.08,
+            letterSpacing: '-0.044em',
+            fontWeight: 950,
+            color: COLORS.ink,
+          }}
+        >
+          {scene.title}
+        </h1>
+        {scene.subtitle ? (
+          <p
+            style={{
+              ...justified,
+              margin: '24px 0 0',
+              maxWidth: 915,
+              fontSize: 31,
+              lineHeight: 1.4,
+              fontWeight: 620,
+              color: COLORS.muted,
+            }}
+          >
+            {scene.subtitle}
+          </p>
+        ) : null}
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            paddingTop: 34,
+          }}
+        >
+          {children}
+        </div>
       </div>
-      <h1
-        style={{
-          margin: 0,
-          maxWidth: 930,
-          fontSize: scene.kind === 'intro' ? 82 : 68,
-          lineHeight: 1.05,
-          letterSpacing: '-0.052em',
-          fontWeight: 950,
-          color: COLORS.ink,
-          opacity: interpolate(enter, [0, 1], [0, 1], clamp),
-          translate: `0 ${interpolate(enter, [0, 1], [48, 0], clamp)}px`,
-        }}
-      >
-        {scene.title}
-      </h1>
-      {scene.subtitle ? (
-        <p style={{margin: '25px 0 0', maxWidth: 880, fontSize: 33, lineHeight: 1.35, fontWeight: 650, color: COLORS.muted}}>
-          {scene.subtitle}
-        </p>
-      ) : null}
-      <div style={{flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', paddingTop: 34}}>{children}</div>
     </AbsoluteFill>
   );
 };
 
-const IntroVisual = ({number, type}: {number: string; type: string}) => {
+const IntroVisual = ({document}: {document: LegalVideoProps['storyboard']['document']}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
-  const pop = spring({frame: frame - 10, fps, config: {damping: 16, stiffness: 125}});
-  const main = number.split('/')[0] || type.slice(0, 4).toLocaleUpperCase('vi');
+  const appear = spring({frame: frame - 7, fps, config: {damping: 24, stiffness: 95}});
+  const main = document.number.split('/')[0] || document.type.slice(0, 4).toLocaleUpperCase('vi');
   return (
     <div
       style={{
-        width: 570,
+        width: '100%',
         minHeight: 520,
-        padding: '72px 45px',
-        borderRadius: 140,
+        padding: '62px 54px',
+        borderRadius: 52,
         display: 'grid',
         placeItems: 'center',
         textAlign: 'center',
-        background: `linear-gradient(145deg, ${COLORS.green}, #124532)`,
+        background: `linear-gradient(145deg, ${COLORS.deep} 0%, #1c604b 100%)`,
+        border: '2px solid rgba(255,255,255,.24)',
         color: '#fff',
-        boxShadow: '0 45px 100px rgba(16,42,33,.25)',
-        scale: interpolate(pop, [0, 1], [0.76, 1], {...clamp, output: 'perceptual-scale'}),
-        rotate: `${interpolate(pop, [0, 1], [-4, 0], clamp)}deg`,
+        boxShadow: '0 38px 90px rgba(16,45,36,.22)',
+        opacity: interpolate(appear, [0, 1], [0, 1], clamp),
+        transform: `translateY(${interpolate(appear, [0, 1], [30, 0], clamp)}px) scale(${interpolate(appear, [0, 1], [.97, 1], clamp)})`,
       }}
     >
-      <div>
-        <div style={{fontSize: main.length <= 4 ? 188 : 115, lineHeight: .92, fontWeight: 950, letterSpacing: '-0.08em'}}>{main}</div>
-        <div style={{marginTop: 28, fontSize: 30, lineHeight: 1.25, fontWeight: 850}}>{number}</div>
+      <div style={{width: '100%'}}>
+        <div style={{fontSize: main.length <= 4 ? 174 : 110, lineHeight: .92, fontWeight: 950, letterSpacing: '-0.075em'}}>{main}</div>
+        <div style={{marginTop: 28, fontSize: 34, lineHeight: 1.25, fontWeight: 850}}>{document.number}</div>
+        <div style={{width: 110, height: 5, margin: '30px auto 24px', borderRadius: 99, background: COLORS.orange}} />
+        <div style={{fontSize: 27, lineHeight: 1.35, fontWeight: 650, opacity: .88}}>
+          {document.type} · {document.issuer}
+        </div>
       </div>
     </div>
   );
 };
 
 const TimelineVisual = ({scene}: {scene: LegalVideoScene}) => (
-  <div style={{width: '100%', display: 'grid', gap: 24}}>
+  <div style={{width: '100%', display: 'grid', gap: 22}}>
     <div style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20}}>
       {scene.bullets.slice(0, 2).map((item, index) => (
-        <div key={item} style={{minHeight: 230, borderRadius: 32, background: '#fff', border: `2px solid ${COLORS.line}`, padding: '38px 32px', boxShadow: '0 20px 55px rgba(16,42,33,.08)'}}>
-          <div style={{fontSize: 23, fontWeight: 850, color: COLORS.muted, marginBottom: 24}}>{index === 0 ? 'MỐC 1' : 'MỐC 2'}</div>
-          <div style={{fontSize: 43, fontWeight: 930, lineHeight: 1.14, color: COLORS.ink}}>{item}</div>
+        <div
+          key={`${item}-${index}`}
+          style={{
+            minHeight: 242,
+            borderRadius: 34,
+            background: index === 0 ? COLORS.deep : '#fff',
+            color: index === 0 ? '#fff' : COLORS.ink,
+            border: `2px solid ${index === 0 ? COLORS.deep : COLORS.line}`,
+            padding: '38px 32px',
+            boxShadow: '0 20px 55px rgba(16,45,36,.09)',
+          }}
+        >
+          <div style={{fontSize: 21, fontWeight: 900, letterSpacing: '0.1em', color: index === 0 ? 'rgba(255,255,255,.7)' : COLORS.muted, marginBottom: 24}}>
+            {index === 0 ? 'MỐC 1' : 'MỐC 2'}
+          </div>
+          <div style={{...justified, fontSize: item.length > 100 ? 34 : 40, fontWeight: 870, lineHeight: 1.22}}>{item}</div>
         </div>
       ))}
     </div>
@@ -266,13 +341,50 @@ const ProcessVisual = ({scene}: {scene: LegalVideoScene}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   return (
-    <div style={{display: 'grid', gap: 18, width: '100%'}}>
+    <div style={{display: 'grid', gap: 19, width: '100%'}}>
       {scene.bullets.slice(0, 3).map((item, index) => {
-        const appear = spring({frame: frame - index * 12, fps, config: {damping: 19, stiffness: 115}});
+        const appear = spring({frame: frame - index * 9, fps, config: {damping: 23, stiffness: 100}});
         return (
-          <div key={item} style={{display: 'grid', gridTemplateColumns: '90px 1fr', gap: 22, alignItems: 'center', opacity: appear, translate: `0 ${interpolate(appear, [0, 1], [40, 0], clamp)}px`}}>
-            <div style={{width: 82, height: 82, borderRadius: 28, display: 'grid', placeItems: 'center', background: index === 0 ? COLORS.orange : COLORS.green, color: '#fff', fontSize: 35, fontWeight: 950}}>{index + 1}</div>
-            <div style={{borderRadius: 25, background: '#fff', border: `2px solid ${COLORS.line}`, padding: '27px 29px', fontSize: 35, lineHeight: 1.25, fontWeight: 780}}>{item}</div>
+          <div
+            key={`${item}-${index}`}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '86px 1fr',
+              gap: 20,
+              alignItems: 'stretch',
+              opacity: appear,
+              transform: `translateY(${interpolate(appear, [0, 1], [24, 0], clamp)}px)`,
+            }}
+          >
+            <div
+              style={{
+                minHeight: 100,
+                borderRadius: 28,
+                display: 'grid',
+                placeItems: 'center',
+                background: index === 0 ? COLORS.orange : COLORS.green,
+                color: '#fff',
+                fontSize: 34,
+                fontWeight: 950,
+              }}
+            >
+              {index + 1}
+            </div>
+            <div
+              style={{
+                ...justified,
+                borderRadius: 28,
+                background: '#fff',
+                border: `2px solid ${COLORS.line}`,
+                padding: '27px 30px',
+                fontSize: item.length > 180 ? 28 : item.length > 110 ? 31 : 35,
+                lineHeight: 1.31,
+                fontWeight: 750,
+                boxShadow: '0 16px 42px rgba(16,45,36,.07)',
+              }}
+            >
+              {item}
+            </div>
           </div>
         );
       })}
@@ -283,13 +395,33 @@ const ProcessVisual = ({scene}: {scene: LegalVideoScene}) => {
 const NumberVisual = ({scene}: {scene: LegalVideoScene}) => (
   <div style={{width: '100%', display: 'grid', gridTemplateColumns: scene.bullets.length > 1 ? '1fr 1fr' : '1fr', gap: 22}}>
     {scene.bullets.slice(0, 3).map((item, index) => (
-      <div key={item} style={{minHeight: 280, display: 'grid', placeItems: 'center', textAlign: 'center', borderRadius: 38, padding: 35, background: index === 0 ? COLORS.green : '#fff', color: index === 0 ? '#fff' : COLORS.ink, border: `2px solid ${index === 0 ? COLORS.green : COLORS.line}`, boxShadow: '0 25px 65px rgba(16,42,33,.1)', fontSize: 43, lineHeight: 1.17, fontWeight: 900}}>{item}</div>
+      <div
+        key={`${item}-${index}`}
+        style={{
+          minHeight: 292,
+          display: 'grid',
+          placeItems: 'center',
+          textAlign: item.length > 90 ? 'justify' : 'center',
+          textAlignLast: item.length > 90 ? 'center' : 'auto',
+          borderRadius: 40,
+          padding: 38,
+          background: index === 0 ? `linear-gradient(145deg, ${COLORS.deep}, ${COLORS.green})` : '#fff',
+          color: index === 0 ? '#fff' : COLORS.ink,
+          border: `2px solid ${index === 0 ? COLORS.deep : COLORS.line}`,
+          boxShadow: '0 25px 65px rgba(16,45,36,.11)',
+          fontSize: item.length > 110 ? 34 : 41,
+          lineHeight: 1.2,
+          fontWeight: 900,
+        }}
+      >
+        {item}
+      </div>
     ))}
   </div>
 );
 
 function SceneVisual({scene, document}: {scene: LegalVideoScene; document: LegalVideoProps['storyboard']['document']}) {
-  if (scene.kind === 'intro') return <IntroVisual number={document.number} type={document.type} />;
+  if (scene.kind === 'intro') return <IntroVisual document={document} />;
   if (scene.kind === 'timeline') return <TimelineVisual scene={scene} />;
   if (scene.kind === 'process') return <ProcessVisual scene={scene} />;
   if (scene.kind === 'numbers') return <NumberVisual scene={scene} />;
@@ -314,31 +446,49 @@ const CaptionBar = ({scene}: {scene: LegalVideoScene}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const current = frame / fps;
-  const caption = captionIntervals(scene).find((item) => current >= item.start && current < item.end);
+  const intervals = captionIntervals(scene);
+  const caption = intervals.find((item) => current >= item.start && current < item.end) ?? intervals.at(-1);
   if (!caption) return null;
-  const local = current - caption.start;
-  const duration = Math.max(.4, caption.end - caption.start);
+  const fontSize = caption.text.length > 155 ? 27 : caption.text.length > 115 ? 29 : 32;
+
   return (
     <div
       style={{
         position: 'absolute',
-        left: 56,
-        right: 56,
-        bottom: 68,
+        left: 52,
+        right: 52,
+        bottom: 52,
+        height: 222,
         zIndex: 30,
-        padding: '24px 31px',
-        borderRadius: 27,
-        background: 'rgba(16,42,33,.96)',
-        boxShadow: '0 25px 70px rgba(16,42,33,.23)',
+        boxSizing: 'border-box',
+        padding: '24px 31px 25px',
+        borderRadius: 32,
+        border: '2px solid rgba(255,255,255,.13)',
+        background: 'linear-gradient(145deg, rgba(15,53,43,.985), rgba(20,66,53,.985))',
+        boxShadow: '0 25px 72px rgba(16,45,36,.25)',
         color: '#fff',
-        fontSize: 33,
-        lineHeight: 1.3,
-        fontWeight: 760,
-        textAlign: 'center',
-        opacity: interpolate(local, [0, .14, Math.max(.18, duration - .16), duration], [0, 1, 1, 0], clamp),
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        overflow: 'hidden',
       }}
     >
-      {caption.text}
+      <div style={{display: 'flex', alignItems: 'center', gap: 11, marginBottom: 12, color: 'rgba(255,255,255,.68)', fontSize: 17, fontWeight: 900, letterSpacing: '0.12em'}}>
+        <span style={{display: 'block', width: 28, height: 4, borderRadius: 99, background: COLORS.orange}} />
+        LỜI THUYẾT MINH
+      </div>
+      <div
+        style={{
+          textAlign: caption.text.length >= 72 ? 'justify' : 'center',
+          textAlignLast: 'center',
+          fontSize,
+          lineHeight: 1.34,
+          fontWeight: 720,
+          letterSpacing: '-0.009em',
+        }}
+      >
+        {caption.text}
+      </div>
     </div>
   );
 };
@@ -370,19 +520,52 @@ export const LegalVideo = ({storyboard}: LegalVideoProps) => {
       style={{
         overflow: 'hidden',
         fontFamily: 'Arial, "DejaVu Sans", sans-serif',
-        background: `radial-gradient(circle at 92% 5%, #d4eee2 0, transparent 32%), linear-gradient(155deg, #fbfdfc 0%, ${COLORS.pale} 100%)`,
+        background: `radial-gradient(circle at 88% 8%, rgba(128,202,169,.34) 0, transparent 31%), radial-gradient(circle at 4% 72%, rgba(227,106,62,.09) 0, transparent 28%), linear-gradient(155deg, #fbfdfc 0%, ${COLORS.pale} 100%)`,
         color: COLORS.ink,
       }}
     >
-      <div style={{position: 'absolute', width: 520, height: 520, borderRadius: '50%', background: 'rgba(227,106,62,.08)', left: -240, top: 920}} />
-      <div style={{position: 'absolute', width: 330, height: 330, borderRadius: '50%', border: '4px solid rgba(31,107,80,.08)', right: -120, top: 300}} />
-      <div style={{position: 'absolute', top: 62, left: 68, zIndex: 40, fontSize: 34, fontWeight: 950, letterSpacing: '-0.05em'}}>
-        Thuế<span style={{color: COLORS.orange}}>.</span>
+      <div style={{position: 'absolute', inset: 0, opacity: .22, backgroundImage: 'linear-gradient(rgba(31,107,80,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(31,107,80,.08) 1px, transparent 1px)', backgroundSize: '72px 72px'}} />
+      <div style={{position: 'absolute', width: 520, height: 520, borderRadius: '50%', background: 'rgba(227,106,62,.07)', left: -260, top: 920, filter: 'blur(2px)'}} />
+      <div style={{position: 'absolute', width: 340, height: 340, borderRadius: '50%', border: '4px solid rgba(31,107,80,.08)', right: -130, top: 390}} />
+
+      <div
+        style={{
+          position: 'absolute',
+          top: 48,
+          left: 52,
+          right: 52,
+          height: 86,
+          zIndex: 40,
+          padding: '0 26px',
+          borderRadius: 27,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          background: 'rgba(255,255,255,.82)',
+          border: `2px solid ${COLORS.line}`,
+          boxShadow: '0 14px 42px rgba(16,45,36,.07)',
+          backdropFilter: 'blur(14px)',
+        }}
+      >
+        <div style={{fontSize: 33, fontWeight: 950, letterSpacing: '-0.05em', color: COLORS.deep}}>
+          Thuế Rõ<span style={{color: COLORS.orange}}>.</span>
+        </div>
+        <div style={{maxWidth: 570, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 21, fontWeight: 850, color: COLORS.muted}}>
+          {storyboard.document.number} · VIDEO CHI TIẾT
+        </div>
       </div>
-      <div style={{position: 'absolute', top: 78, right: 68, zIndex: 40, fontSize: 22, fontWeight: 800, color: COLORS.muted}}>TÓM TẮT VĂN BẢN</div>
-      <div style={{position: 'absolute', top: 122, left: 68, right: 68, height: 7, borderRadius: 99, background: 'rgba(31,107,80,.12)', zIndex: 40}}>
-        <div style={{width: `${interpolate(frame, [0, durationInFrames - 1], [0, 100], clamp)}%`, height: '100%', borderRadius: 99, background: `linear-gradient(90deg, ${COLORS.green}, ${COLORS.orange})`}} />
+
+      <div style={{position: 'absolute', top: 153, left: 56, right: 56, height: 7, borderRadius: 99, background: 'rgba(31,107,80,.12)', zIndex: 40}}>
+        <div
+          style={{
+            width: `${interpolate(frame, [0, durationInFrames - 1], [0, 100], clamp)}%`,
+            height: '100%',
+            borderRadius: 99,
+            background: `linear-gradient(90deg, ${COLORS.green}, ${COLORS.orange})`,
+          }}
+        />
       </div>
+
       {storyboard.scenes.map((scene, index) => {
         const from = sceneStart(storyboard.scenes, index, fps);
         const duration = sceneFrames(scene, fps);
