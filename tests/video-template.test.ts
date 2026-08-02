@@ -46,8 +46,8 @@ test("khung phụ đề cố định, bỏ nhãn thuyết minh và không animat
 test("text ngắn căn trái và chỉ đoạn đủ dài mới căn đều", () => {
   const source = captionSource();
   assert.match(templateSource, /text\.length >= justifyFrom \? \('justify' as const\) : \('left' as const\)/u);
+  assert.match(templateSource, /textAlignLast: 'left'/u);
   assert.match(source, /readableAlign\(caption\.text, 150\)/u);
-  assert.match(source, /textAlignLast: 'left'/u);
   assert.match(timelineSource(), /readableAlign\(item, 180\)/u);
   assert.doesNotMatch(timelineSource(), /textAlignLast: 'center'/u);
 });
