@@ -23,8 +23,17 @@ import type {
 const DEFAULT_MODEL = "gemini-3.5-flash-lite";
 const FALLBACK_MODELS = ["gemini-3.1-flash-lite", "gemini-3-flash-preview"] as const;
 const CATEGORIES: LegalVideoCategory[] = [
-  "overview", "scope", "changes", "procedure", "obligation", "deadline",
-  "numbers", "effective", "transition", "forms", "prepare",
+  "overview",
+  "scope",
+  "changes",
+  "procedure",
+  "obligation",
+  "deadline",
+  "numbers",
+  "effective",
+  "transition",
+  "forms",
+  "prepare",
 ];
 
 function geminiKey() {
@@ -54,7 +63,12 @@ function responseText(payload: GeminiPayload) {
     .trim();
 }
 
-async function callStructuredGemini(system: string, input: string, responseSchema: Record<string, unknown>, maxOutputTokens: number) {
+async function callStructuredGemini(
+  system: string,
+  input: string,
+  responseSchema: Record<string, unknown>,
+  maxOutputTokens: number,
+) {
   if (!geminiKey()) throw new Error("Gemini chưa được cấu hình cho pipeline video.");
   let lastMessage = "";
   for (const model of modelCandidates()) {
@@ -70,7 +84,12 @@ async function callStructuredGemini(system: string, input: string, responseSchem
           body: JSON.stringify({
             systemInstruction: {parts: [{text: system}]},
             contents: [{role: "user", parts: [{text: input}]}],
-            generationConfig: {temperature: 0, maxOutputTokens, responseMimeType: "application/json", responseSchema},
+            generationConfig: {
+              temperature: 0,
+              maxOutputTokens,
+              responseMimeType: "application/json",
+              responseSchema,
+            },
           }),
         },
       );
@@ -80,7 +99,9 @@ async function callStructuredGemini(system: string, input: string, responseSchem
         if (!text) throw new Error("Gemini trả về JSON rỗng.");
         return JSON.parse(text) as unknown;
       }
-      lastMessage = typeof payload.error?.message === "string" ? payload.error.message.slice(0, 220) : `HTTP ${response.status}`;
+      lastMessage = typeof payload.error?.message === "string"
+        ? payload.error.message.slice(0, 220)
+        : `HTTP ${response.status}`;
       if (![404, 429, 500, 502, 503, 504].includes(response.status)) break;
     } catch (error) {
       lastMessage = error instanceof Error ? error.message : "Không gọi được Gemini.";
@@ -92,10 +113,76 @@ async function callStructuredGemini(system: string, input: string, responseSchem
 }
 
 function cleanText(value: string) {
-  return value.replace(/\s+/gu, " ").replace(/(?:…|\.{3,})$/u, "").trim();
+  return value
+    .normalize("NFC")
+    .replace(/\s+/gu, " ")
+    .replace(/\s+([,.;:!?])/gu, "$1")
+    .replace(/([.!?])(?:\s*[.!?])+/gu, "$1")
+    .replace(/([,;:])(?:\s*[,;:])+/gu, "$1")
+    .replace(/(?:…|\.{3,})$/u, "")
+    .trim();
 }
 
-function splitWords(value: string, maxChars: number) {
+function ensureSentence(value: string) {
+  const text = cleanText(value);
+  return !text || /[.!?]$/u.test(text) ? text : `${text}.`;
+}
+
+function hasVietnameseMarks(value: string) {
+  return /[ăâđêôơưà-ỹ]/iu.test(value);
+}
+
+function validVietnameseText(value: string) {
+  const text = cleanText(value);
+  if (text.length < 20) return true;
+  if (/^[A-Z0-9/ .:–—-]+$/u.test(text)) return true;
+  return hasVietnameseMarks(text);
+}
+
+function hasTruncation(value: string) {
+  return /…|\.{3,}/u.test(value);
+}
+
+function completeDisplayPhrase(value: string, maxChars = 138) {
+  const text = cleanText(value);
+  return text.length >= 12
+    && text.length <= maxChars
+    && !hasTruncation(text)
+    && !/[,;:]$/u.test(text)
+    && !/\b(?:và|hoặc|đồng thời|tại|trong|của|với|theo|để|do|bởi|từ|quản)$/iu.test(text)
+    && validVietnameseText(text);
+}
+
+function rebalanceWordChunks(
+  chunks: string[],
+  maxChars: number,
+  tolerance = 28,
+  minimumTail = 34,
+) {
+  if (chunks.length < 2) return chunks;
+  const result = [...chunks];
+  let tailWords = result.at(-1)?.split(/\s+/gu).filter(Boolean) ?? [];
+  let previousWords = result.at(-2)?.split(/\s+/gu).filter(Boolean) ?? [];
+  const textLength = (words: string[]) => words.join(" ").length;
+
+  while (
+    textLength(tailWords) < minimumTail
+    && previousWords.length > 1
+  ) {
+    const moved = previousWords.at(-1);
+    if (!moved) break;
+    const candidateTail = [moved, ...tailWords];
+    if (textLength(candidateTail) > maxChars + tolerance) break;
+    previousWords = previousWords.slice(0, -1);
+    tailWords = candidateTail;
+  }
+
+  result[result.length - 2] = previousWords.join(" ");
+  result[result.length - 1] = tailWords.join(" ");
+  return result.filter(Boolean);
+}
+
+function splitWords(value: string, maxChars: number, rebalanceTail = false) {
   const words = cleanText(value).split(/\s+/gu).filter(Boolean);
   const chunks: string[] = [];
   let current = "";
@@ -104,45 +191,67 @@ function splitWords(value: string, maxChars: number) {
     if (current && candidate.length > maxChars) {
       chunks.push(current);
       current = word;
-    } else current = candidate;
+    } else {
+      current = candidate;
+    }
   }
   if (current) chunks.push(current);
-  return chunks;
+  return rebalanceTail ? rebalanceWordChunks(chunks, maxChars) : chunks;
 }
 
 export function splitMeaningfulPhrases(value: string, maxChars = 105) {
   const normalized = cleanText(value);
   if (!normalized) return [];
   const clauses = normalized
-    .split(/(?<=[,;:])\s+|\s+(?=(?:hoặc|đồng thời|nếu|khi|trường hợp|sau khi|trước khi)\b)/giu)
-    .map((item) => cleanText(item).replace(/^[,;:]\s*/u, ""))
+    .split(/(?<=[;:.!?])\s+|\s+(?=(?:hoặc|đồng thời|nếu|khi|trường hợp|sau khi|trước khi)\b)/giu)
+    .map((item) => cleanText(item).replace(/^(?:hoặc|đồng thời)\s+/iu, ""))
     .filter(Boolean);
   return clauses.flatMap((clause) => clause.length <= maxChars ? [clause] : splitWords(clause, maxChars));
 }
 
+function displayPhrasesFromPoint(point: LegalVideoEvidencePoint, maxChars = 138) {
+  const claim = cleanText(point.claim);
+  if (completeDisplayPhrase(claim, maxChars)) return [claim];
+  return splitMeaningfulPhrases(claim, maxChars)
+    .map(cleanText)
+    .filter((phrase) => completeDisplayPhrase(phrase, maxChars));
+}
+
 function shortCompletePhrase(value: string, maxChars: number) {
   const text = cleanText(value);
-  if (text.length <= maxChars) return text;
-  const sentence = text.split(/(?<=[.!?])\s+/u).find((item) => item.length <= maxChars && item.length >= 20);
-  if (sentence) return cleanText(sentence);
-  const clause = splitMeaningfulPhrases(text, maxChars).find((item) => item.length >= 18);
-  return clause || splitWords(text, maxChars)[0] || text;
+  if (completeDisplayPhrase(text, maxChars)) return text;
+  const sentence = text
+    .split(/(?<=[.!?])\s+/u)
+    .map(cleanText)
+    .find((item) => completeDisplayPhrase(item, maxChars));
+  if (sentence) return sentence;
+  const clause = splitMeaningfulPhrases(text, maxChars)
+    .find((item) => completeDisplayPhrase(item, maxChars));
+  return clause || text;
 }
 
 export function captionChunksFromNarration(value: string, maxChars = 116) {
-  const sentences = cleanText(value).split(/(?<=[.!?;:])\s+/gu).map(cleanText).filter(Boolean);
+  const sentences = cleanText(value)
+    .split(/(?<=[.!?;:])\s+/gu)
+    .map(cleanText)
+    .filter(Boolean);
   const chunks: string[] = [];
   let current = "";
+
   for (const sentence of sentences.length ? sentences : [cleanText(value)]) {
     const pieces = sentence.length <= maxChars
       ? [sentence]
-      : splitMeaningfulPhrases(sentence, maxChars).flatMap((piece) => piece.length <= maxChars ? [piece] : splitWords(piece, maxChars));
+      : splitMeaningfulPhrases(sentence, maxChars)
+          .flatMap((piece) => piece.length <= maxChars ? [piece] : splitWords(piece, maxChars, true));
+
     for (const piece of pieces) {
       const candidate = [current, piece].filter(Boolean).join(" ");
       if (current && candidate.length > maxChars) {
         chunks.push(current);
         current = piece;
-      } else current = candidate;
+      } else {
+        current = candidate;
+      }
     }
   }
   if (current) chunks.push(current);
@@ -150,7 +259,12 @@ export function captionChunksFromNarration(value: string, maxChars = 116) {
 }
 
 function normalizedTokens(value: string) {
-  return new Set(normalizeVideoEvidence(value).replace(/[^a-z0-9à-ỹđ%]+/giu, " ").split(/\s+/gu).filter((token) => token.length > 2));
+  return new Set(
+    normalizeVideoEvidence(value)
+      .replace(/[^a-z0-9à-ỹđ%]+/giu, " ")
+      .split(/\s+/gu)
+      .filter((token) => token.length > 2),
+  );
 }
 
 function textSimilarity(left: string, right: string) {
@@ -162,20 +276,19 @@ function textSimilarity(left: string, right: string) {
   return intersection / Math.max(a.size, b.size);
 }
 
-function hasTruncation(value: string) {
-  return /…|\.{3,}/u.test(value);
-}
-
 const EVIDENCE_SCHEMA = {
   type: "object",
   properties: {
     points: {
-      type: "array", maxItems: 8,
+      type: "array",
+      maxItems: 8,
       items: {
         type: "object",
         properties: {
-          category: {type: "string", enum: CATEGORIES}, importance: {type: "integer", minimum: 1, maximum: 5},
-          claim: {type: "string"}, sourceExcerpt: {type: "string"},
+          category: {type: "string", enum: CATEGORIES},
+          importance: {type: "integer", minimum: 1, maximum: 5},
+          claim: {type: "string"},
+          sourceExcerpt: {type: "string"},
         },
         required: ["category", "importance", "claim", "sourceExcerpt"],
       },
@@ -202,44 +315,72 @@ function fallbackCategory(sentence: string): LegalVideoCategory {
 }
 
 function fallbackEvidence(section: LegalVideoEvidenceSection) {
-  const sentences = section.text.replace(/\s+/gu, " ").split(/(?<=[.!?;:])\s+/gu)
-    .map((sentence) => sentence.trim()).filter((sentence) => sentence.length >= 35 && sentence.length <= 420).slice(0, 6);
+  const sentences = section.text
+    .replace(/\s+/gu, " ")
+    .split(/(?<=[.!?;:])\s+/gu)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length >= 35 && sentence.length <= 420)
+    .slice(0, 6);
   return sentences.map((sentence, index): LegalVideoEvidencePoint => ({
     id: `${section.id}-fallback-${index + 1}`,
-    category: fallbackCategory(sentence), importance: index < 2 ? 4 : 3,
-    claim: shortCompletePhrase(sentence, 155), sourceExcerpt: sentence,
-    sectionId: section.id, provisionIds: section.provisionIds,
+    category: fallbackCategory(sentence),
+    importance: index < 2 ? 4 : 3,
+    claim: shortCompletePhrase(sentence, 155),
+    sourceExcerpt: sentence,
+    sectionId: section.id,
+    provisionIds: section.provisionIds,
   }));
 }
 
-export async function summarizeVideoEvidenceSection(document: DocumentDetail, section: LegalVideoEvidenceSection): Promise<LegalVideoEvidencePoint[]> {
+export async function summarizeVideoEvidenceSection(
+  document: DocumentDetail,
+  section: LegalVideoEvidenceSection,
+): Promise<LegalVideoEvidencePoint[]> {
   if (!videoGeminiConfigured()) return fallbackEvidence(section);
   const raw = await callStructuredGemini(
     [
       "Bạn là biên tập viên pháp luật Việt Nam viết nội dung cho video giải thích, không phải bản chép lại văn bản.",
       "Chọn đủ các ý có tác động thực tế: ai chịu tác động, điều kiện nào, phải làm gì, thời hạn, số liệu, ngoại lệ và hệ quả.",
-      "Mỗi claim chỉ trình bày một ý hoàn chỉnh, tối đa 150 ký tự, dùng tiếng Việt rõ ràng nhưng không thay đổi ý nghĩa pháp lý.",
+      "Mỗi claim chỉ trình bày một ý hoàn chỉnh, tối đa 150 ký tự, dùng tiếng Việt có dấu, rõ ràng nhưng không thay đổi ý nghĩa pháp lý.",
       "Không dùng dấu ba chấm và không cắt câu giữa chừng.",
       "Ưu tiên cấu trúc: chủ thể – điều kiện – hành động hoặc hệ quả. Tránh mở đầu dài như 'theo quy định tại'.",
       "Không suy đoán. sourceExcerpt phải là đoạn nguyên văn liên tục trong nguồn, dài 25–360 ký tự.",
       "Giữ nguyên mọi điều kiện, ngoại lệ và số liệu. Không thêm số liệu hoặc kết luận không có trong sourceExcerpt.",
     ].join(" "),
-    [`VĂN BẢN: ${document.number} — ${document.title}`, `PHẦN: ${section.heading}`, "", "NỘI DUNG NGUỒN:", section.text].join("\n"),
-    EVIDENCE_SCHEMA, 3_200,
+    [
+      `VĂN BẢN: ${document.number} — ${document.title}`,
+      `PHẦN: ${section.heading}`,
+      "",
+      "NỘI DUNG NGUỒN:",
+      section.text,
+    ].join("\n"),
+    EVIDENCE_SCHEMA,
+    3_200,
   ) as {points?: Array<Record<string, unknown>>};
 
   const points = (raw.points ?? []).flatMap((point, index): LegalVideoEvidencePoint[] => {
     const claim = typeof point.claim === "string" ? cleanText(point.claim) : "";
     const sourceExcerpt = typeof point.sourceExcerpt === "string" ? point.sourceExcerpt.trim() : "";
-    if (!claim || claim.length > 165 || hasTruncation(claim) || !sourceExcerpt || !validCategory(point.category)) return [];
+    if (
+      !claim
+      || claim.length > 165
+      || hasTruncation(claim)
+      || !validVietnameseText(claim)
+      || !sourceExcerpt
+      || !validCategory(point.category)
+    ) return [];
     if (!sourceContainsEvidence(section.text, sourceExcerpt)) return [];
     const allowed = normalizeVideoEvidence(sourceExcerpt);
     if (extractVideoNumberTokens(claim).some((token) => !allowed.includes(normalizeVideoEvidence(token)))) return [];
     const importance = Number(point.importance);
     return [{
-      id: `${section.id}-point-${index + 1}`, category: point.category,
+      id: `${section.id}-point-${index + 1}`,
+      category: point.category,
       importance: Math.max(1, Math.min(5, Number.isFinite(importance) ? Math.round(importance) : 3)) as 1 | 2 | 3 | 4 | 5,
-      claim, sourceExcerpt, sectionId: section.id, provisionIds: section.provisionIds,
+      claim,
+      sourceExcerpt,
+      sectionId: section.id,
+      provisionIds: section.provisionIds,
     }];
   });
   return points.length ? points : fallbackEvidence(section);
@@ -247,22 +388,42 @@ export async function summarizeVideoEvidenceSection(document: DocumentDetail, se
 
 const GROUP_SCHEMA = {
   type: "object",
-  properties: {groups: {type: "array", items: {type: "object", properties: {
-    category: {type: "string", enum: CATEGORIES},
-    evidencePointIds: {type: "array", minItems: 1, maxItems: 3, items: {type: "string"}},
-    title: {type: "string"},
-  }, required: ["category", "evidencePointIds", "title"]}}},
+  properties: {
+    groups: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          category: {type: "string", enum: CATEGORIES},
+          evidencePointIds: {type: "array", minItems: 1, maxItems: 3, items: {type: "string"}},
+          title: {type: "string"},
+        },
+        required: ["category", "evidencePointIds", "title"],
+      },
+    },
+  },
   required: ["groups"],
 };
 
 const SCENE_SCHEMA = {
   type: "object",
-  properties: {scenes: {type: "array", maxItems: 20, items: {type: "object", properties: {
-    category: {type: "string", enum: CATEGORIES},
-    evidencePointIds: {type: "array", minItems: 1, maxItems: 3, items: {type: "string"}},
-    title: {type: "string"}, bullets: {type: "array", minItems: 1, maxItems: 3, items: {type: "string"}},
-    narration: {type: "string"},
-  }, required: ["category", "evidencePointIds", "title", "bullets", "narration"]}}},
+  properties: {
+    scenes: {
+      type: "array",
+      maxItems: 20,
+      items: {
+        type: "object",
+        properties: {
+          category: {type: "string", enum: CATEGORIES},
+          evidencePointIds: {type: "array", minItems: 1, maxItems: 3, items: {type: "string"}},
+          title: {type: "string"},
+          bullets: {type: "array", minItems: 1, maxItems: 3, items: {type: "string"}},
+          narration: {type: "string"},
+        },
+        required: ["category", "evidencePointIds", "title", "bullets", "narration"],
+      },
+    },
+  },
   required: ["scenes"],
 };
 
@@ -289,21 +450,33 @@ function visualMode(category: LegalVideoCategory, isFinal = false): LegalVideoVi
 
 function categoryEyebrow(category: LegalVideoCategory) {
   const labels: Record<LegalVideoCategory, string> = {
-    overview: "BỨC TRANH CHUNG", scope: "AI CHỊU TÁC ĐỘNG", changes: "ĐIỂM THAY ĐỔI",
-    procedure: "DÒNG THỰC HIỆN", obligation: "TRÁCH NHIỆM", deadline: "MỐC PHẢI THEO DÕI",
-    numbers: "CON SỐ TÁC ĐỘNG", effective: "MỐC THỜI GIAN", transition: "CÁCH CHUYỂN TIẾP",
-    forms: "HỒ SƠ VÀ DỮ LIỆU", prepare: "VIỆC CẦN CHUẨN BỊ",
+    overview: "BỨC TRANH CHUNG",
+    scope: "AI CHỊU TÁC ĐỘNG",
+    changes: "ĐIỂM THAY ĐỔI",
+    procedure: "DÒNG THỰC HIỆN",
+    obligation: "TRÁCH NHIỆM",
+    deadline: "MỐC PHẢI THEO DÕI",
+    numbers: "CON SỐ TÁC ĐỘNG",
+    effective: "MỐC THỜI GIAN",
+    transition: "CÁCH CHUYỂN TIẾP",
+    forms: "HỒ SƠ VÀ DỮ LIỆU",
+    prepare: "VIỆC CẦN CHUẨN BỊ",
   };
   return labels[category];
 }
 
 function categoryFallbackTitle(category: LegalVideoCategory) {
   const labels: Record<LegalVideoCategory, string> = {
-    overview: "Văn bản tác động đến cách quản lý như thế nào?", scope: "Ai chịu tác động trực tiếp?",
-    changes: "Điểm nào làm thay đổi cách thực hiện?", procedure: "Quy trình cần đi qua những bước nào?",
-    obligation: "Chủ thể phải thực hiện điều gì?", deadline: "Mốc nào không được bỏ qua?",
-    numbers: "Con số nào ảnh hưởng trực tiếp?", effective: "Văn bản bắt đầu áp dụng từ khi nào?",
-    transition: "Quy định chuyển tiếp được áp dụng thế nào?", forms: "Cần dùng hồ sơ hoặc dữ liệu nào?",
+    overview: "Văn bản tác động đến cách quản lý như thế nào?",
+    scope: "Ai chịu tác động trực tiếp?",
+    changes: "Điểm nào làm thay đổi cách thực hiện?",
+    procedure: "Quy trình cần đi qua những bước nào?",
+    obligation: "Chủ thể phải thực hiện điều gì?",
+    deadline: "Mốc nào không được bỏ qua?",
+    numbers: "Con số nào ảnh hưởng trực tiếp?",
+    effective: "Văn bản bắt đầu áp dụng từ khi nào?",
+    transition: "Quy định chuyển tiếp được áp dụng thế nào?",
+    forms: "Cần dùng hồ sơ hoặc dữ liệu nào?",
     prepare: "Cần chuẩn bị gì trước khi thực hiện?",
   };
   return labels[category];
@@ -312,7 +485,9 @@ function categoryFallbackTitle(category: LegalVideoCategory) {
 function selectEvidence(points: LegalVideoEvidencePoint[], limit: number) {
   const selected: LegalVideoEvidencePoint[] = [];
   for (const category of CATEGORIES) {
-    const first = points.filter((point) => point.category === category).sort((left, right) => right.importance - left.importance)[0];
+    const first = points
+      .filter((point) => point.category === category)
+      .sort((left, right) => right.importance - left.importance)[0];
     if (first) selected.push(first);
   }
   for (const point of [...points].sort((left, right) => right.importance - left.importance)) {
@@ -322,11 +497,18 @@ function selectEvidence(points: LegalVideoEvidencePoint[], limit: number) {
   return selected;
 }
 
+function visualKeyword(value: string) {
+  return cleanText(value)
+    .replace(/,\s*/gu, " · ")
+    .replace(/[.!?]$/u, "");
+}
+
 function visualPhrases(points: LegalVideoEvidencePoint[], limit = 3) {
   const result: string[] = [];
   for (const point of points) {
-    for (const rawPhrase of splitMeaningfulPhrases(point.claim, 104)) {
-      const phrase = rawPhrase.replace(/^(?:và|hoặc|đồng thời)\s+/iu, "").trim();
+    const candidates = displayPhrasesFromPoint(point, 138);
+    for (const candidate of candidates) {
+      const phrase = visualKeyword(candidate);
       if (!phrase || result.some((item) => textSimilarity(item, phrase) > 0.8)) continue;
       result.push(phrase);
       if (result.length >= limit) return result;
@@ -335,11 +517,20 @@ function visualPhrases(points: LegalVideoEvidencePoint[], limit = 3) {
   return result;
 }
 
+function validTitle(value: string) {
+  const text = cleanText(value);
+  return text.length >= 12
+    && text.length <= 78
+    && !hasTruncation(text)
+    && !/[,;:]$/u.test(text)
+    && validVietnameseText(text);
+}
+
 function safeTitle(value: string, category: LegalVideoCategory, points: LegalVideoEvidencePoint[]) {
   const candidate = cleanText(value);
-  if (candidate.length >= 12 && candidate.length <= 78 && !hasTruncation(candidate) && !/[,;:]$/u.test(candidate)) return candidate;
+  if (validTitle(candidate)) return candidate;
   const fromClaim = shortCompletePhrase(points[0]?.claim || "", 72);
-  if (fromClaim.length >= 12 && fromClaim.length <= 78 && !hasTruncation(fromClaim)) return fromClaim;
+  if (validTitle(fromClaim)) return fromClaim;
   return categoryFallbackTitle(category);
 }
 
@@ -353,6 +544,18 @@ function removeTitleRepeats(title: string, bullets: string[]) {
   return unique;
 }
 
+function evidenceBullets(points: LegalVideoEvidencePoint[], limit = 3) {
+  const result: string[] = [];
+  for (const point of points) {
+    for (const phrase of displayPhrasesFromPoint(point, 138)) {
+      if (result.some((item) => textSimilarity(item, phrase) >= 0.82)) continue;
+      result.push(phrase);
+      if (result.length >= limit) return result;
+    }
+  }
+  return result;
+}
+
 function groupDeterministically(points: LegalVideoEvidencePoint[], maxGroups: number) {
   const groups = new Map<LegalVideoCategory, LegalVideoEvidencePoint[]>();
   for (const point of points) {
@@ -361,11 +564,17 @@ function groupDeterministically(points: LegalVideoEvidencePoint[], maxGroups: nu
     groups.set(point.category, current);
   }
   return [...groups.entries()].slice(0, maxGroups).map(([category, items]) => ({
-    category, evidencePointIds: items.map((point) => point.id), title: shortCompletePhrase(items[0].claim, 72),
+    category,
+    evidencePointIds: items.map((point) => point.id),
+    title: shortCompletePhrase(items[0].claim, 72),
   }));
 }
 
-async function groupEvidenceForScenes(document: DocumentDetail, points: LegalVideoEvidencePoint[], length: LegalVideoLength) {
+async function groupEvidenceForScenes(
+  document: DocumentDetail,
+  points: LegalVideoEvidencePoint[],
+  length: LegalVideoLength,
+) {
   const profile = videoLengthProfile(length);
   const fallback = groupDeterministically(points, profile.maxScenes - 2);
   if (!videoGeminiConfigured()) return fallback;
@@ -375,22 +584,32 @@ async function groupEvidenceForScenes(document: DocumentDetail, points: LegalVid
         "Nhóm evidencePoint thành các cảnh video pháp luật có mạch kể chuyện.",
         "Mỗi cảnh trả lời một câu hỏi thực tế của người xem; không ghép các ý chỉ vì chúng đứng gần nhau trong văn bản.",
         "Sắp xếp theo mạch: bối cảnh, ai chịu tác động, điều kiện kích hoạt, dòng xử lý, số liệu hoặc thời hạn, kết quả cần đạt.",
-        "title là một câu hoàn chỉnh tối đa 72 ký tự, không dùng dấu ba chấm và không chép lại toàn bộ claim.",
+        "title phải viết bằng tiếng Việt có dấu, là một câu hoàn chỉnh tối đa 72 ký tự, không dùng dấu ba chấm và không chép lại toàn bộ claim.",
         "Loại bỏ ý trùng; giữ điều kiện và ngoại lệ quan trọng ở cùng cảnh; ưu tiên importance cao.",
       ].join(" "),
       JSON.stringify({
-        target: {minGroups: Math.max(4, profile.minScenes - 3), maxGroups: profile.maxScenes - 2},
+        target: {
+          minGroups: Math.max(4, profile.minScenes - 3),
+          maxGroups: profile.maxScenes - 2,
+        },
         document: {number: document.number, title: document.title},
         evidencePoints: points.map(({id, category, importance, claim}) => ({id, category, importance, claim})),
       }),
-      GROUP_SCHEMA, 3_200,
+      GROUP_SCHEMA,
+      3_200,
     ) as {groups?: Array<Record<string, unknown>>};
     const pointMap = new Map(points.map((point) => [point.id, point]));
     const groups = (raw.groups ?? []).flatMap((group) => {
       if (!validCategory(group.category) || !Array.isArray(group.evidencePointIds)) return [];
-      const ids = group.evidencePointIds.filter((id): id is string => typeof id === "string" && pointMap.has(id)).slice(0, 3);
+      const ids = group.evidencePointIds
+        .filter((id): id is string => typeof id === "string" && pointMap.has(id))
+        .slice(0, 3);
       if (!ids.length) return [];
-      return [{category: group.category, evidencePointIds: ids, title: typeof group.title === "string" ? cleanText(group.title) : ""}];
+      return [{
+        category: group.category,
+        evidencePointIds: ids,
+        title: typeof group.title === "string" ? cleanText(group.title) : "",
+      }];
     }).slice(0, profile.maxScenes - 2);
     return groups.length >= Math.max(3, profile.minScenes - 4) ? groups : fallback;
   } catch {
@@ -399,8 +618,11 @@ async function groupEvidenceForScenes(document: DocumentDetail, points: LegalVid
 }
 
 function groundedText(value: string, points: LegalVideoEvidencePoint[]) {
-  const allowed = normalizeVideoEvidence(points.map((point) => `${point.claim} ${point.sourceExcerpt}`).join(" "));
-  return extractVideoNumberTokens(value).every((token) => allowed.includes(normalizeVideoEvidence(token)));
+  const allowed = normalizeVideoEvidence(
+    points.map((point) => `${point.claim} ${point.sourceExcerpt}`).join(" "),
+  );
+  return extractVideoNumberTokens(value)
+    .every((token) => allowed.includes(normalizeVideoEvidence(token)));
 }
 
 function buildScene(
@@ -409,20 +631,48 @@ function buildScene(
   pointMap: Map<string, LegalVideoEvidencePoint>,
   draft?: {title: string; bullets: string[]; narration: string},
 ): LegalVideoScene | null {
-  const points = group.evidencePointIds.map((id) => pointMap.get(id)).filter(Boolean) as LegalVideoEvidencePoint[];
+  const points = group.evidencePointIds
+    .map((id) => pointMap.get(id))
+    .filter(Boolean) as LegalVideoEvidencePoint[];
   if (!points.length) return null;
-  const fallbackBullets = visualPhrases(points);
-  const proposedBullets = draft?.bullets.flatMap((item) => splitMeaningfulPhrases(item, 112)) ?? fallbackBullets;
+
+  const fallbackBullets = evidenceBullets(points);
+  const proposedBullets = draft?.bullets
+    .map(cleanText)
+    .filter((item) => completeDisplayPhrase(item, 118)) ?? fallbackBullets;
   const title = safeTitle(draft?.title || group.title, group.category, points);
-  let bullets = removeTitleRepeats(title, proposedBullets).filter((item) => item.length <= 118 && !hasTruncation(item)).slice(0, 3);
-  if (!bullets.length) bullets = removeTitleRepeats(title, fallbackBullets).slice(0, 3);
-  if (!bullets.length) bullets = [shortCompletePhrase(points[0].claim, 110)];
-  const narration = cleanText(draft?.narration || points.map((point) => point.claim).join(". "));
+  let bullets = removeTitleRepeats(title, proposedBullets)
+    .filter((item) => completeDisplayPhrase(item, 138))
+    .slice(0, 3);
+  if (!bullets.length) {
+    bullets = removeTitleRepeats(title, fallbackBullets)
+      .filter((item) => completeDisplayPhrase(item, 138))
+      .slice(0, 3);
+  }
+  if (!bullets.length) {
+    const emergency = shortCompletePhrase(points[0].claim, 138);
+    if (completeDisplayPhrase(emergency, 138)) bullets = [emergency];
+  }
+  if (!bullets.length) return null;
+
+  const narration = cleanText(
+    draft?.narration
+      || points.map((point) => ensureSentence(point.claim)).join(" "),
+  );
   return {
-    id: `scene-${index + 2}`, category: group.category, kind: sceneKind(group.category), eyebrow: categoryEyebrow(group.category),
-    title, subtitle: "", bullets, narration, captionChunks: captionChunksFromNarration(narration),
-    evidencePointIds: points.map((point) => point.id), sourceExcerpt: points[0].sourceExcerpt,
-    visualMode: visualMode(group.category), visualKeywords: visualPhrases(points, 4),
+    id: `scene-${index + 2}`,
+    category: group.category,
+    kind: sceneKind(group.category),
+    eyebrow: categoryEyebrow(group.category),
+    title,
+    subtitle: "",
+    bullets,
+    narration,
+    captionChunks: captionChunksFromNarration(narration),
+    evidencePointIds: points.map((point) => point.id),
+    sourceExcerpt: points[0].sourceExcerpt,
+    visualMode: visualMode(group.category),
+    visualKeywords: bullets.map(visualKeyword),
   };
 }
 
@@ -431,8 +681,11 @@ async function draftViewerFriendlyScenes(
   groups: Array<{category: LegalVideoCategory; evidencePointIds: string[]; title: string}>,
   pointMap: Map<string, LegalVideoEvidencePoint>,
 ) {
-  const fallback = groups.map((group, index) => buildScene(group, index, pointMap)).filter((scene): scene is LegalVideoScene => Boolean(scene));
+  const fallback = groups
+    .map((group, index) => buildScene(group, index, pointMap))
+    .filter((scene): scene is LegalVideoScene => Boolean(scene));
   if (!videoGeminiConfigured() || !groups.length) return fallback;
+
   try {
     const selectedIds = new Set(groups.flatMap((group) => group.evidencePointIds));
     const selectedPoints = [...pointMap.values()].filter((point) => selectedIds.has(point.id));
@@ -440,90 +693,288 @@ async function draftViewerFriendlyScenes(
       [
         "Bạn là đạo diễn nội dung cho video giải thích pháp luật, ưu tiên điều người xem cần hiểu, quyết định hoặc thực hiện.",
         "Mỗi cảnh chỉ có một ý chính và phải trả lời được một câu hỏi thực tế.",
+        "Toàn bộ title, bullet và narration phải viết bằng tiếng Việt có dấu.",
         "title là câu hoàn chỉnh tối đa 72 ký tự; mỗi bullet là ý hoàn chỉnh tối đa 110 ký tự; tối đa 3 bullet.",
+        "Không kết thúc bullet bằng dấu phẩy, dấu chấm phẩy, dấu hai chấm hoặc một liên từ chưa hoàn tất.",
         "Không dùng dấu ba chấm, không cắt câu và không lặp title trong bullet.",
         "narration gồm 2–4 câu ngắn theo thứ tự: bối cảnh hoặc chủ thể – điều kiện – hành động – hệ quả hoặc lưu ý.",
         "Không chép nguyên đoạn pháp lý dài. Không thêm ví dụ, lời khuyên, số liệu hoặc kết luận ngoài evidence.",
         "Cảnh cuối không được dùng câu meta như 'giữ lại những ý quan trọng nhất'; nội dung phải nêu tác động hoặc việc cần kiểm tra cụ thể.",
       ].join(" "),
       JSON.stringify({
-        document: {number: document.number, title: document.title}, groups,
-        evidencePoints: selectedPoints.map(({id, category, importance, claim, sourceExcerpt}) => ({id, category, importance, claim, sourceExcerpt})),
+        document: {number: document.number, title: document.title},
+        groups,
+        evidencePoints: selectedPoints.map(({
+          id,
+          category,
+          importance,
+          claim,
+          sourceExcerpt,
+        }) => ({id, category, importance, claim, sourceExcerpt})),
       }),
-      SCENE_SCHEMA, 5_000,
+      SCENE_SCHEMA,
+      5_000,
     ) as {scenes?: Array<Record<string, unknown>>};
 
     const drafted = new Map<string, {title: string; bullets: string[]; narration: string}>();
     for (const draft of raw.scenes ?? []) {
       if (!Array.isArray(draft.evidencePointIds) || !Array.isArray(draft.bullets)) continue;
-      const ids = draft.evidencePointIds.filter((id): id is string => typeof id === "string" && selectedIds.has(id));
+      const ids = draft.evidencePointIds
+        .filter((id): id is string => typeof id === "string" && selectedIds.has(id));
       if (!ids.length) continue;
+
       const title = typeof draft.title === "string" ? cleanText(draft.title) : "";
-      const bullets = draft.bullets.filter((item): item is string => typeof item === "string").map(cleanText);
+      const bullets = draft.bullets
+        .filter((item): item is string => typeof item === "string")
+        .map(cleanText);
       const narration = typeof draft.narration === "string" ? cleanText(draft.narration) : "";
-      if (!title || title.length > 82 || hasTruncation(title) || !bullets.length || !narration || hasTruncation(narration)) continue;
+      const validBullets = bullets.length > 0
+        && bullets.every((bullet) => completeDisplayPhrase(bullet, 118));
+      if (
+        !validTitle(title)
+        || !validBullets
+        || !narration
+        || hasTruncation(narration)
+        || !validVietnameseText(narration)
+      ) continue;
       drafted.set(ids.sort().join("|"), {title, bullets, narration});
     }
 
     const scenes = groups.flatMap((group, index) => {
       const key = [...group.evidencePointIds].sort().join("|");
       const draft = drafted.get(key);
-      const points = group.evidencePointIds.map((id) => pointMap.get(id)).filter(Boolean) as LegalVideoEvidencePoint[];
-      if (draft && ![draft.title, ...draft.bullets, draft.narration].every((value) => groundedText(value, points))) {
-        return buildScene(group, index, pointMap) ?? [];
+      const points = group.evidencePointIds
+        .map((id) => pointMap.get(id))
+        .filter(Boolean) as LegalVideoEvidencePoint[];
+      if (
+        draft
+        && ![draft.title, ...draft.bullets, draft.narration]
+          .every((value) => groundedText(value, points))
+      ) {
+        const fallbackScene = buildScene(group, index, pointMap);
+        return fallbackScene ? [fallbackScene] : [];
       }
-      return buildScene(group, index, pointMap, draft) ?? [];
+      const scene = buildScene(group, index, pointMap, draft);
+      return scene ? [scene] : [];
     });
-    return scenes.length >= Math.max(3, Math.floor(fallback.length * 0.65)) ? scenes : fallback;
+    return scenes.length >= Math.max(3, Math.floor(fallback.length * 0.65))
+      ? scenes
+      : fallback;
   } catch {
     return fallback;
   }
 }
 
 function introScene(document: DocumentDetail): LegalVideoScene {
-  const subject = cleanText(document.title.replace(/^.*?quy định về\s*/iu, "").replace(/[.]$/u, ""));
-  const narration = `${document.type} số ${document.number} quy định về ${subject}. Video tập trung vào các tác động, điều kiện và dòng thực hiện có ý nghĩa trực tiếp.`;
+  const subject = cleanText(
+    document.title
+      .replace(/^.*?quy định về\s*/iu, "")
+      .replace(/[.]$/u, ""),
+  );
+  const narration = cleanText(
+    `${document.type} số ${document.number} quy định về ${subject}. `
+    + "Video tập trung vào các tác động, điều kiện và dòng thực hiện có ý nghĩa trực tiếp.",
+  );
   return {
-    id: "scene-1", kind: "intro", category: "overview", eyebrow: "VĂN BẢN TRONG 1 MẠCH KỂ",
-    title: document.number, subtitle: shortCompletePhrase(document.title, 155), bullets: [], narration,
-    captionChunks: captionChunksFromNarration(narration), evidencePointIds: [], sourceExcerpt: document.title,
-    visualMode: "document", visualKeywords: [document.type, document.issuer, subject],
+    id: "scene-1",
+    kind: "intro",
+    category: "overview",
+    eyebrow: "VĂN BẢN TRONG 1 MẠCH KỂ",
+    title: document.number,
+    subtitle: shortCompletePhrase(document.title, 155),
+    bullets: [],
+    narration,
+    captionChunks: captionChunksFromNarration(narration),
+    evidencePointIds: [],
+    sourceExcerpt: document.title,
+    visualMode: "document",
+    visualKeywords: [document.type, document.issuer, visualKeyword(subject)],
   };
 }
 
 function effectiveScene(document: DocumentDetail): LegalVideoScene | null {
   if (!document.effective_date && !document.issued_date) return null;
-  const issued = document.issued_date ? document.issued_date.split("-").reverse().join("/") : null;
-  const effective = document.effective_date ? document.effective_date.split("-").reverse().join("/") : null;
+  const issued = document.issued_date
+    ? document.issued_date.split("-").reverse().join("/")
+    : null;
+  const effective = document.effective_date
+    ? document.effective_date.split("-").reverse().join("/")
+    : null;
   const sameDate = Boolean(issued && effective && issued === effective);
-  const bullets = sameDate ? [`Ban hành và có hiệu lực: ${issued}`] : [issued ? `Ban hành: ${issued}` : "", effective ? `Có hiệu lực: ${effective}` : ""].filter(Boolean);
-  const narration = sameDate ? `Văn bản được ban hành và có hiệu lực cùng ngày ${issued}.` : [issued ? `Văn bản được ban hành ngày ${issued}.` : "", effective ? `Văn bản có hiệu lực từ ngày ${effective}.` : ""].filter(Boolean).join(" ");
+  const bullets = sameDate
+    ? [`Ban hành và có hiệu lực: ${issued}`]
+    : [
+        issued ? `Ban hành: ${issued}` : "",
+        effective ? `Có hiệu lực: ${effective}` : "",
+      ].filter(Boolean);
+  const narration = sameDate
+    ? `Văn bản được ban hành và có hiệu lực cùng ngày ${issued}.`
+    : [
+        issued ? `Văn bản được ban hành ngày ${issued}.` : "",
+        effective ? `Văn bản có hiệu lực từ ngày ${effective}.` : "",
+      ].filter(Boolean).join(" ");
   return {
-    id: "scene-effective", kind: "timeline", category: "effective", eyebrow: "MỐC BẮT ĐẦU",
-    title: sameDate ? `Áp dụng ngay từ ngày ban hành ${issued}` : effective ? `Bắt đầu áp dụng từ ${effective}` : "Mốc ban hành văn bản",
-    subtitle: "", bullets, narration, captionChunks: captionChunksFromNarration(narration), evidencePointIds: [],
-    sourceExcerpt: document.title, visualMode: "timeline", visualKeywords: bullets,
+    id: "scene-effective",
+    kind: "timeline",
+    category: "effective",
+    eyebrow: "MỐC BẮT ĐẦU",
+    title: sameDate
+      ? `Áp dụng ngay từ ngày ban hành ${issued}`
+      : effective
+        ? `Bắt đầu áp dụng từ ${effective}`
+        : "Mốc ban hành văn bản",
+    subtitle: "",
+    bullets,
+    narration,
+    captionChunks: captionChunksFromNarration(narration),
+    evidencePointIds: [],
+    sourceExcerpt: document.title,
+    visualMode: "timeline",
+    visualKeywords: bullets,
   };
 }
 
+function mentionsEffectiveFact(value: string) {
+  return /ban hành|có hiệu lực|hiệu lực thi hành/iu.test(value);
+}
+
+function isEffectiveOnly(value: string) {
+  return mentionsEffectiveFact(value)
+    && !/thay thế|sửa đổi|bổ sung|bãi bỏ|hết hiệu lực/iu.test(value);
+}
+
+function legalEffectTitle(value: string, category: LegalVideoCategory) {
+  const text = cleanText(value);
+  const replacement = text.match(
+    /thay thế\s+((?:Thông tư|Nghị định|Quyết định|Luật)(?:\s+số)?\s+[\d/.-]+(?:[A-ZĐ-]+)?)/iu,
+  );
+  if (replacement) return `Văn bản thay thế ${replacement[1]}`;
+  const repeal = text.match(
+    /bãi bỏ\s+((?:Thông tư|Nghị định|Quyết định|Luật)(?:\s+số)?\s+[\d/.-]+(?:[A-ZĐ-]+)?)/iu,
+  );
+  if (repeal) return `Văn bản bãi bỏ ${repeal[1]}`;
+  return categoryFallbackTitle(category);
+}
+
+function removeRepeatedEffectiveFacts(
+  scenes: LegalVideoScene[],
+  document: DocumentDetail,
+  pointMap: Map<string, LegalVideoEvidencePoint>,
+) {
+  if (!document.issued_date && !document.effective_date) return scenes;
+
+  return scenes.flatMap((scene, index): LegalVideoScene[] => {
+    if (scene.category === "effective") return [scene];
+
+    const remainingPoints = scene.evidencePointIds
+      .map((id) => pointMap.get(id))
+      .filter((point): point is LegalVideoEvidencePoint => Boolean(point) && !isEffectiveOnly(`${point.claim} ${point.sourceExcerpt}`));
+    const remainingBullets = scene.bullets
+      .map(cleanText)
+      .filter((bullet) => !isEffectiveOnly(bullet) && completeDisplayPhrase(bullet, 138));
+    const remainingNarration = cleanText(scene.narration)
+      .split(/(?<=[.!?])\s+/gu)
+      .map(cleanText)
+      .filter((sentence) => sentence && !isEffectiveOnly(sentence))
+      .map(ensureSentence)
+      .join(" ");
+
+    const removedSomething = remainingPoints.length !== scene.evidencePointIds.length
+      || remainingBullets.length !== scene.bullets.length
+      || cleanText(remainingNarration) !== cleanText(scene.narration);
+    if (!removedSomething) return [scene];
+    if (!remainingPoints.length && !remainingBullets.length && !remainingNarration) return [];
+
+    const retainedIds = remainingPoints.length
+      ? remainingPoints.map((point) => point.id)
+      : scene.evidencePointIds;
+    const retainedSource = remainingPoints[0]?.sourceExcerpt || scene.sourceExcerpt;
+    const retainedCategory = remainingPoints[0]?.category || scene.category;
+    const bullets = remainingBullets.length
+      ? remainingBullets
+      : evidenceBullets(remainingPoints).slice(0, 3);
+    if (!bullets.length) return [];
+
+    const titleSource = bullets.join(" ");
+    const title = mentionsEffectiveFact(scene.title)
+      ? legalEffectTitle(titleSource, retainedCategory)
+      : safeTitle(scene.title, retainedCategory, remainingPoints.length ? remainingPoints : scene.evidencePointIds
+          .map((id) => pointMap.get(id)).filter(Boolean) as LegalVideoEvidencePoint[]);
+    const narration = remainingNarration
+      || remainingPoints.map((point) => ensureSentence(point.claim)).join(" ");
+
+    return [{
+      ...scene,
+      id: `scene-clean-${index + 1}`,
+      category: retainedCategory,
+      kind: sceneKind(retainedCategory),
+      eyebrow: categoryEyebrow(retainedCategory),
+      title,
+      bullets,
+      narration: cleanText(narration),
+      captionChunks: captionChunksFromNarration(narration),
+      evidencePointIds: retainedIds,
+      sourceExcerpt: retainedSource,
+      visualMode: visualMode(retainedCategory),
+      visualKeywords: bullets.map(visualKeyword),
+    }];
+  });
+}
+
 function finalSummaryScene(points: LegalVideoEvidencePoint[]): LegalVideoScene | null {
-  const priority: LegalVideoCategory[] = ["obligation", "procedure", "deadline", "forms", "transition", "changes", "scope", "numbers", "overview"];
-  const selected: LegalVideoEvidencePoint[] = [];
+  const priority: LegalVideoCategory[] = [
+    "obligation",
+    "procedure",
+    "deadline",
+    "forms",
+    "transition",
+    "changes",
+    "scope",
+    "numbers",
+    "overview",
+  ];
+  const selected: Array<{point: LegalVideoEvidencePoint; phrase: string}> = [];
   for (const category of priority) {
-    const point = points.filter((item) => item.category === category).sort((left, right) => right.importance - left.importance)[0];
-    if (point && !selected.some((item) => textSimilarity(item.claim, point.claim) > 0.78)) selected.push(point);
+    const point = points
+      .filter((item) => item.category === category)
+      .sort((left, right) => right.importance - left.importance)[0];
+    if (!point || selected.some((item) => textSimilarity(item.point.claim, point.claim) > 0.78)) continue;
+    const phrase = displayPhrasesFromPoint(point, 138)[0];
+    if (!phrase) continue;
+    selected.push({point, phrase});
     if (selected.length === 3) break;
   }
   if (selected.length < 2) return null;
-  const bullets = selected.map((point) => shortCompletePhrase(point.claim, 112));
-  const actionable = selected.some((point) => ["obligation", "procedure", "forms", "prepare", "deadline"].includes(point.category));
-  const title = actionable ? "Ba việc cần kiểm tra trước khi áp dụng" : "Ba tác động trực tiếp cần ghi nhớ";
-  const narration = `Ba nội dung có tác động trực tiếp khi áp dụng văn bản gồm: ${selected.map((point) => cleanText(point.claim)).join(". ")}`;
+
+  const bullets = selected.map((item) => item.phrase);
+  const actionable = selected.some((item) => [
+    "obligation",
+    "procedure",
+    "forms",
+    "prepare",
+    "deadline",
+  ].includes(item.point.category));
+  const title = actionable
+    ? "Ba việc cần kiểm tra trước khi áp dụng"
+    : "Ba tác động trực tiếp cần ghi nhớ";
+  const narration = cleanText(
+    "Ba nội dung có tác động trực tiếp khi áp dụng văn bản gồm: "
+    + selected.map((item) => ensureSentence(item.phrase)).join(" "),
+  );
   return {
-    id: "scene-summary", kind: "summary", category: "overview", eyebrow: "KẾT LUẬN THỰC TẾ",
-    title, subtitle: "", bullets, narration, captionChunks: captionChunksFromNarration(narration),
-    evidencePointIds: selected.map((point) => point.id), sourceExcerpt: selected[0].sourceExcerpt,
-    visualMode: "takeaways", visualKeywords: bullets,
+    id: "scene-summary",
+    kind: "summary",
+    category: "overview",
+    eyebrow: "KẾT LUẬN THỰC TẾ",
+    title,
+    subtitle: "",
+    bullets,
+    narration,
+    captionChunks: captionChunksFromNarration(narration),
+    evidencePointIds: selected.map((item) => item.point.id),
+    sourceExcerpt: selected[0].point.sourceExcerpt,
+    visualMode: "takeaways",
+    visualKeywords: bullets.map(visualKeyword),
   };
 }
 
@@ -546,7 +997,10 @@ function uniqueSceneTitles(scenes: LegalVideoScene[]) {
 }
 
 export async function createLegalVideoStoryboard(input: {
-  document: DocumentDetail; points: LegalVideoEvidencePoint[]; length: LegalVideoLength; voice: LegalVideoVoice;
+  document: DocumentDetail;
+  points: LegalVideoEvidencePoint[];
+  length: LegalVideoLength;
+  voice: LegalVideoVoice;
 }): Promise<LegalVideoStoryboard> {
   const {document, length, voice} = input;
   const profile = videoLengthProfile(length);
@@ -559,39 +1013,66 @@ export async function createLegalVideoStoryboard(input: {
   const selected = selectEvidence([...unique.values()], profile.maxEvidencePoints);
   const pointMap = new Map(selected.map((point) => [point.id, point]));
   const groups = await groupEvidenceForScenes(document, selected, length);
-  const bodyScenes = await draftViewerFriendlyScenes(document, groups, pointMap);
+  let bodyScenes = await draftViewerFriendlyScenes(document, groups, pointMap);
 
   const covered = new Set(bodyScenes.map((scene) => scene.category));
   for (const category of new Set(selected.map((point) => point.category))) {
     if (covered.has(category) || bodyScenes.length >= profile.maxScenes - 2) continue;
     const point = selected.find((item) => item.category === category);
     if (!point) continue;
-    const scene = buildScene({category, evidencePointIds: [point.id], title: point.claim}, bodyScenes.length, pointMap);
+    const scene = buildScene(
+      {category, evidencePointIds: [point.id], title: point.claim},
+      bodyScenes.length,
+      pointMap,
+    );
     if (scene) bodyScenes.push(scene);
     covered.add(category);
   }
 
+  bodyScenes = removeRepeatedEffectiveFacts(bodyScenes, document, pointMap);
   const effective = effectiveScene(document);
   const summary = finalSummaryScene(selected);
   const scenes = uniqueSceneTitles([
-    introScene(document), ...(effective ? [effective] : []), ...bodyScenes, ...(summary ? [summary] : []),
-  ].slice(0, profile.maxScenes).map((scene, index) => ({...scene, id: `scene-${index + 1}`})));
+    introScene(document),
+    ...(effective ? [effective] : []),
+    ...bodyScenes,
+    ...(summary ? [summary] : []),
+  ]
+    .slice(0, profile.maxScenes)
+    .map((scene, index) => ({...scene, id: `scene-${index + 1}`})));
   const selectedPointIds = new Set(scenes.flatMap((scene) => scene.evidencePointIds));
   const detected = detectVideoCoverage(document);
   const coveredCategories = Array.from(new Set(scenes.map((scene) => scene.category)));
   const missing = detected.filter((category) => !coveredCategories.includes(category));
 
   return {
-    version: 1, templateVersion: VIDEO_TEMPLATE_VERSION,
+    version: 1,
+    templateVersion: VIDEO_TEMPLATE_VERSION,
     document: {
-      id: document.id, number: document.number, title: document.title, type: document.type, issuer: document.issuer,
-      issued_date: document.issued_date, effective_date: document.effective_date, status: document.status,
+      id: document.id,
+      number: document.number,
+      title: document.title,
+      type: document.type,
+      issuer: document.issuer,
+      issued_date: document.issued_date,
+      effective_date: document.effective_date,
+      status: document.status,
     },
-    length, voice, fps: 30, width: 1080, height: 1920, scenes,
+    length,
+    voice,
+    fps: 30,
+    width: 1080,
+    height: 1920,
+    scenes,
     coverage: {
-      detected, covered: coveredCategories, missing, evidencePointCount: selected.length,
+      detected,
+      covered: coveredCategories,
+      missing,
+      evidencePointCount: selected.length,
       selectedPointCount: selectedPointIds.size,
-      coverageScore: detected.length ? Number(((detected.length - missing.length) / detected.length).toFixed(3)) : 1,
+      coverageScore: detected.length
+        ? Number(((detected.length - missing.length) / detected.length).toFixed(3))
+        : 1,
     },
     createdAt: new Date().toISOString(),
   };
