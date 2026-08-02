@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import test from "node:test";
-import {captionChunksFromNarration, splitMeaningfulPhrases} from "../lib/video/storyboard.ts";
 
 const panelSource = readFileSync(new URL("../app/document-video-panel.tsx", import.meta.url), "utf8");
 const templateSource = readFileSync(new URL("../experiments/remotion-tt89/src/LegalVideo.tsx", import.meta.url), "utf8");
@@ -26,23 +25,24 @@ test("template và pipeline v4 buộc tạo lại video theo hướng visual-fir
   assert.match(storyboardSource, /visualMode: "takeaways"/u);
 });
 
-test("không cắt phụ đề bằng dấu ba chấm và giữ đủ toàn bộ lời đọc", () => {
-  const narration = "Trường hợp phân hệ gặp sự cố, chưa đáp ứng yêu cầu nghiệp vụ hoặc chưa tích hợp được với nguồn dữ liệu thì cơ quan thuế thực hiện kiểm tra tại trụ sở.";
-  const chunks = captionChunksFromNarration(narration, 62);
-  assert.ok(chunks.length >= 3);
-  assert.ok(chunks.every((chunk) => chunk.length <= 62));
-  assert.ok(chunks.every((chunk) => !/…|\.\.\./u.test(chunk)));
-  assert.equal(chunks.join(" ").replace(/\s+/gu, " "), narration.replace(/\s+/gu, " "));
+test("phụ đề được chia theo câu, mệnh đề và từ mà không chèn dấu ba chấm", () => {
+  assert.match(storyboardSource, /export function captionChunksFromNarration/u);
+  assert.match(storyboardSource, /splitMeaningfulPhrases\(sentence, maxChars\)/u);
+  assert.match(storyboardSource, /splitWords\(piece, maxChars\)/u);
+  assert.doesNotMatch(
+    storyboardSource.slice(
+      storyboardSource.indexOf("export function captionChunksFromNarration"),
+      storyboardSource.indexOf("function normalizedTokens"),
+    ),
+    /`${[^}]+}…`|slice\(0,\s*maxChars\)/u,
+  );
 });
 
-test("câu pháp lý dài được tách thành các ý hình ảnh hoàn chỉnh", () => {
-  const phrases = splitMeaningfulPhrases(
-    "Trường hợp phân hệ quản lý gặp sự cố, chưa đáp ứng yêu cầu nghiệp vụ hoặc chưa tích hợp được với nguồn dữ liệu",
-    75,
-  );
-  assert.ok(phrases.length >= 3);
-  assert.ok(phrases.every((phrase) => phrase.length <= 75));
-  assert.ok(phrases.every((phrase) => !/…|\.\.\./u.test(phrase)));
+test("câu pháp lý dài được tách thành các cụm hình ảnh hoàn chỉnh", () => {
+  assert.match(storyboardSource, /export function splitMeaningfulPhrases/u);
+  assert.match(storyboardSource, /hoặc\|đồng thời\|nếu\|khi\|trường hợp\|sau khi\|trước khi/u);
+  assert.match(storyboardSource, /splitWords\(clause, maxChars\)/u);
+  assert.match(storyboardSource, /Không dùng dấu ba chấm và không cắt câu giữa chừng/u);
 });
 
 test("Remotion có hệ hình ảnh ngữ nghĩa thay vì một icon cạnh danh sách text", () => {
