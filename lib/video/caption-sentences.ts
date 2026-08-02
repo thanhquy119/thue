@@ -19,7 +19,10 @@ function rebalanceSentenceChunks(
   let tailWords = chunks[lastIndex].split(/\s+/gu).filter(Boolean);
   const lengthOf = (words: string[]) => words.join(" ").length;
 
-  while (lengthOf(tailWords) < minimumTail && previousWords.length > 1) {
+  while (
+    (tailWords.length < 3 || lengthOf(tailWords) < minimumTail)
+    && previousWords.length > 3
+  ) {
     const moved = previousWords.at(-1);
     if (!moved) break;
     const candidateTail = [moved, ...tailWords];
