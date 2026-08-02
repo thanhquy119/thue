@@ -47,9 +47,9 @@ test("Remotion có hệ hình ảnh ngữ nghĩa thay vì một icon cạnh danh
   for (const component of [
     "SceneBackdrop", "KeywordGlyph", "DocumentVisual", "TimelineVisual", "NetworkVisual",
     "FlowVisual", "ContrastVisual", "MetricVisual", "ChecklistVisual", "DecisionVisual", "TakeawayVisual",
-  ]) assert.match(templateSource, new RegExp(`const ${component}`, "u"));
-  assert.match(templateSource, /strokeDashoffset=\{-frame \* \.7\}/u);
-  assert.match(templateSource, /pathLength="1"/u);
+  ]) assert.ok(templateSource.includes(`const ${component}`), `Thiếu ${component}`);
+  assert.ok(templateSource.includes("strokeDashoffset={-frame * .7}"));
+  assert.ok(templateSource.includes('pathLength="1"'));
 });
 
 test("cảnh không bị làm trắng trước khi kết thúc và caption chuyển nhẹ theo câu", () => {
@@ -57,8 +57,8 @@ test("cảnh không bị làm trắng trước khi kết thúc và caption chuy�
   assert.doesNotMatch(templateSource, /const exit = interpolate/u);
   const source = captionSource();
   assert.match(source, /localFrame/u);
-  assert.match(source, /\[0,6\],\[0,1\]/u);
-  assert.match(source, /minHeight:176/u);
+  assert.ok(source.includes("interpolate(localFrame,[0,6],[0,1],clamp)"));
+  assert.ok(source.includes("minHeight:176"));
 });
 
 test("kết luận nêu tác động hoặc việc cần kiểm tra, không dùng câu meta vô nghĩa", () => {
