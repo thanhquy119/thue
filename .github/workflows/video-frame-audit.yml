@@ -10,60 +10,90 @@ permissions:
   contents: write
 
 jobs:
-  audit:
+  patch-captions:
     if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[video-frame-audit]')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout audit branch
+      - name: Checkout branch
         uses: actions/checkout@v4
         with:
           ref: improve/video-storytelling-v4
           fetch-depth: 0
 
-      - name: Install FFmpeg
+      - name: Keep captions inside sentence boundaries
         run: |
-          if ! command -v ffmpeg >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y ffmpeg
-          fi
+          python3 - <<'PY'
+          from pathlib import Path
 
-      - name: Download rendered video
-        run: |
-          curl --fail --location --retry 4 --retry-delay 3 \
-            "https://thue-ro.vercel.app/api/videos/jobs/1c7cc419-ff78-444f-8f68-98dd7db82ada/video" \
-            --output video.mp4
-          test -s video.mp4
-          ffprobe -v error -show_entries format=duration,size -of json video.mp4
+          storyboard = Path('lib/video/storyboard.ts')
+          source = storyboard.read_text()
+          old = '''export function captionChunksFromNarration(value: string, maxChars = 116) {
+            const sentences = cleanText(value).split(/(?<=[.!?;:])\\s+/gu).map(cleanText).filter(Boolean);
+            const chunks: string[] = []; let current = "";
+            for (const sentence of sentences.length ? sentences : [cleanText(value)]) {
+              const pieces = sentence.length <= maxChars ? [sentence] : splitMeaningfulPhrases(sentence, maxChars, true);
+              for (const piece of pieces) {
+                const candidate = [current, piece].filter(Boolean).join(" ");
+                if (current && candidate.length > maxChars) { chunks.push(current); current = piece; } else current = candidate;
+              }
+            }
+            if (current) chunks.push(current);
+            return rebalanceWordChunks(chunks.filter(Boolean), maxChars);
+          }'''
+          new = '''export function captionChunksFromNarration(value: string, maxChars = 116) {
+            const normalized = cleanText(value);
+            const sentences = normalized.split(/(?<=[.!?])\\s+/gu).map(cleanText).filter(Boolean);
+            return (sentences.length ? sentences : [normalized]).flatMap((sentence) => {
+              if (sentence.length <= maxChars) return [sentence];
+              const pieces = splitMeaningfulPhrases(sentence, maxChars, true).filter(Boolean);
+              return rebalanceWordChunks(pieces, maxChars);
+            });
+          }'''
+          if old not in source:
+            raise SystemExit('Không tìm thấy captionChunksFromNarration cần thay')
+          storyboard.write_text(source.replace(old, new, 1))
 
-      - name: Extract evenly spaced frames
-        run: |
-          rm -rf video-audit/tt94-v5
-          mkdir -p video-audit/tt94-v5
-          DURATION="$(ffprobe -v error -show_entries format=duration -of csv=p=0 video.mp4)"
-          INTERVAL="$(awk -v duration="$DURATION" 'BEGIN { printf "%.6f", duration / 12 }')"
-          ffmpeg -hide_banner -loglevel error -i video.mp4 \
-            -vf "fps=1/${INTERVAL},scale=540:-2" \
-            -frames:v 12 -q:v 2 video-audit/tt94-v5/frame-%02d.jpg
-          test "$(find video-audit/tt94-v5 -name 'frame-*.jpg' | wc -l)" -ge 10
-          ffmpeg -hide_banner -loglevel error -framerate 1 \
-            -i video-audit/tt94-v5/frame-%02d.jpg \
-            -vf "tile=3x4:padding=8:margin=8" \
-            -frames:v 1 -q:v 2 video-audit/tt94-v5/contact-sheet.jpg
-          printf '%s\n' "$GITHUB_RUN_ID" > video-audit/tt94-v5/run-id.txt
+          e2e = Path('scripts/run-video-v3-e2e.ts')
+          source = e2e.read_text()
+          marker = '''      if (caption.length > 150) {
+                throw new Error(`[video-v3-e2e] Cảnh ${scene.id} có phụ đề quá dài.`);
+              }
+          '''
+          addition = marker + '''      if (/[.!?]\\s+\\S/u.test(caption)) {
+                throw new Error(`[video-v3-e2e] Phụ đề trộn phần đầu câu sau vào câu trước: ${scene.id} — ${caption}`);
+              }
+          '''
+          if marker not in source:
+            raise SystemExit('Không tìm thấy vị trí kiểm tra caption')
+          e2e.write_text(source.replace(marker, addition, 1))
 
-      - name: Upload frame audit artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: tt94-v5-frame-audit
-          path: video-audit/tt94-v5
-          if-no-files-found: error
-          retention-days: 7
+          chunking = Path('lib/video/chunking.ts')
+          source = chunking.read_text()
+          source = source.replace('VIDEO_TEMPLATE_VERSION = "legal-video-v5"', 'VIDEO_TEMPLATE_VERSION = "legal-video-v6"')
+          source = source.replace('VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v5"', 'VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v6"')
+          chunking.write_text(source)
 
-      - name: Commit temporary audit frames
+          tests = Path('tests/video-template.test.ts')
+          source = tests.read_text()
+          source = source.replace('VIDEO_TEMPLATE_VERSION = "legal-video-v5"', 'VIDEO_TEMPLATE_VERSION = "legal-video-v6"')
+          source = source.replace('VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v5"', 'VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v6"')
+          source += '''\n\ntest("phụ đề không ghép phần đầu câu sau vào cuối câu trước", () => {
+            const start = storyboardSource.indexOf("export function captionChunksFromNarration");
+            const end = storyboardSource.indexOf("function normalizedTokens", start);
+            const source = storyboardSource.slice(start, end);
+            assert.match(source, /sentences\\.length \\? sentences : \\[normalized\\]\\)\\.flatMap/u);
+            assert.doesNotMatch(source, /let current/u);
+            assert.doesNotMatch(source, /rebalanceWordChunks\\(chunks/u);
+          });\n'''
+          tests.write_text(source)
+          PY
+
+      - name: Commit caption fix
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add video-audit/tt94-v5
-          git commit -m "Lưu khung hình audit video v5 [skip frame audit]"
+          git rm -f .caption-boundary-fix-trigger .github/workflows/apply-caption-boundary-fix.yml || true
+          git add lib/video/storyboard.ts lib/video/chunking.ts scripts/run-video-v3-e2e.ts tests/video-template.test.ts
+          git commit -m "[video-v3-e2e] Khóa phụ đề theo ranh giới từng câu"
           git push origin HEAD:improve/video-storytelling-v4
