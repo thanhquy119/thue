@@ -31,32 +31,32 @@ jobs:
       - name: Download rendered video
         run: |
           curl --fail --location --retry 4 --retry-delay 3 \
-            "https://thue-ro.vercel.app/api/videos/jobs/cef5e8d8-ad62-4efb-ad57-ecfc4fbfb2f7/video" \
+            "https://thue-ro.vercel.app/api/videos/jobs/1c7cc419-ff78-444f-8f68-98dd7db82ada/video" \
             --output video.mp4
           test -s video.mp4
           ffprobe -v error -show_entries format=duration,size -of json video.mp4
 
       - name: Extract evenly spaced frames
         run: |
-          rm -rf video-audit/tt94-v4
-          mkdir -p video-audit/tt94-v4
+          rm -rf video-audit/tt94-v5
+          mkdir -p video-audit/tt94-v5
           DURATION="$(ffprobe -v error -show_entries format=duration -of csv=p=0 video.mp4)"
           INTERVAL="$(awk -v duration="$DURATION" 'BEGIN { printf "%.6f", duration / 12 }')"
           ffmpeg -hide_banner -loglevel error -i video.mp4 \
             -vf "fps=1/${INTERVAL},scale=540:-2" \
-            -frames:v 12 -q:v 2 video-audit/tt94-v4/frame-%02d.jpg
-          test "$(find video-audit/tt94-v4 -name 'frame-*.jpg' | wc -l)" -ge 10
+            -frames:v 12 -q:v 2 video-audit/tt94-v5/frame-%02d.jpg
+          test "$(find video-audit/tt94-v5 -name 'frame-*.jpg' | wc -l)" -ge 10
           ffmpeg -hide_banner -loglevel error -framerate 1 \
-            -i video-audit/tt94-v4/frame-%02d.jpg \
+            -i video-audit/tt94-v5/frame-%02d.jpg \
             -vf "tile=3x4:padding=8:margin=8" \
-            -frames:v 1 -q:v 2 video-audit/tt94-v4/contact-sheet.jpg
-          printf '%s\n' "$GITHUB_RUN_ID" > video-audit/tt94-v4/run-id.txt
+            -frames:v 1 -q:v 2 video-audit/tt94-v5/contact-sheet.jpg
+          printf '%s\n' "$GITHUB_RUN_ID" > video-audit/tt94-v5/run-id.txt
 
       - name: Upload frame audit artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tt94-v4-frame-audit
-          path: video-audit/tt94-v4
+          name: tt94-v5-frame-audit
+          path: video-audit/tt94-v5
           if-no-files-found: error
           retention-days: 7
 
@@ -64,6 +64,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add video-audit/tt94-v4
-          git commit -m "Lưu khung hình audit video v4 [skip frame audit]"
+          git add video-audit/tt94-v5
+          git commit -m "Lưu khung hình audit video v5 [skip frame audit]"
           git push origin HEAD:improve/video-storytelling-v4
