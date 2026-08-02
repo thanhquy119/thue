@@ -9,7 +9,7 @@ import type {
 const NUMBER_TOKEN = /\b\d+(?:[.,/]\d+)*(?:\s*%|\s*(?:đồng|triệu|tỷ))?\b/giu;
 const SPACE = /\s+/gu;
 
-export const VIDEO_TEMPLATE_VERSION = "legal-video-v1";
+export const VIDEO_TEMPLATE_VERSION = "legal-video-v2";
 export const VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v2";
 
 export function normalizeVideoEvidence(value: string) {
@@ -79,161 +79,181 @@ function appendProvision(
   }
   return {
     ...current,
-    heading: current.heading || provisionLabel(provision),
     text: [current.text, block].filter(Boolean).join("\n\n"),
     provisionIds: [...current.provisionIds, provision.id],
   };
 }
 
-export function buildVideoEvidenceSections(document: DocumentDetail, maxChars = 8_500) {
+function splitLongText(value: string, maxChars: number) {
+  const paragraphs = value.split(/\n{2,}/gu).map((item) => item.trim()).filter(Boolean);
+  const chunks: string[] = [];
+  let current = "";
+  for (const paragraph of paragraphs) {
+    if (current && current.length + paragraph.length + 2 > maxChars) {
+      chunks.push(current);
+      current = "";
+    }
+    if (paragraph.length <= maxChars) {
+      current = [current, paragraph].filter(Boolean).join("\n\n");
+      continue;
+    }
+    const sentences = paragraph.split(/(?<=[.!?;:])\s+/gu);
+    for (const sentence of sentences) {
+      if (current && current.length + sentence.length + 1 > maxChars) {
+        chunks.push(current);
+        current = "";
+      }
+      if (sentence.length <= maxChars) {
+        current = [current, sentence].filter(Boolean).join(" ");
+        continue;
+      }
+      for (let offset = 0; offset < sentence.length; offset += maxChars) {
+        const part = sentence.slice(offset, offset + maxChars).trim();
+        if (part) chunks.push(part);
+      }
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+export function buildVideoEvidenceSections(document: DocumentDetail, maxChars: number) {
+  const provisions = document.provisions.filter((provision) => provision.official_text.trim());
+  if (!provisions.length) {
+    return splitLongText(document.official_text, maxChars).map((text, index): LegalVideoEvidenceSection => ({
+      id: `section-${index + 1}`,
+      heading: index === 0 ? document.title : `Phần ${index + 1}`,
+      text,
+      provisionIds: [],
+      order: index,
+    }));
+  }
   const sections: LegalVideoEvidenceSection[] = [];
   let current: LegalVideoEvidenceSection = {
     id: "section-1",
-    heading: document.title,
+    heading: provisionLabel(provisions[0]),
     text: "",
     provisionIds: [],
     order: 0,
   };
-
-  const provisions = document.provisions
-    .filter((provision) => provision.official_text.trim())
-    .sort((left, right) => left.order_index - right.order_index);
-
-  if (!provisions.length) {
-    const source = document.official_text.trim();
-    for (let cursor = 0; cursor < source.length; cursor += maxChars) {
-      const text = source.slice(cursor, cursor + maxChars).trim();
-      if (!text) continue;
-      sections.push({
+  for (const provision of provisions) {
+    if (provision.official_text.length > maxChars) {
+      if (current.text) sections.push(current);
+      const chunks = splitLongText(`${provisionLabel(provision)}\n${provision.official_text}`, maxChars);
+      for (const text of chunks) {
+        sections.push({
+          id: `section-${sections.length + 1}`,
+          heading: provisionLabel(provision),
+          text,
+          provisionIds: [provision.id],
+          order: sections.length,
+        });
+      }
+      current = {
         id: `section-${sections.length + 1}`,
-        heading: sections.length ? `Phần ${sections.length + 1}` : document.title,
-        text,
+        heading: provisionLabel(provision),
+        text: "",
         provisionIds: [],
         order: sections.length,
-      });
-    }
-    return sections;
-  }
-
-  for (const provision of provisions) {
-    current = appendProvision(sections, current, provision, maxChars);
-  }
-  if (current.text.trim()) sections.push(current);
-  return sections.map((section, index) => ({...section, id: `section-${index + 1}`, order: index}));
-}
-
-function sentenceSegments(value: string) {
-  const text = value.replace(SPACE, " ").trim();
-  if (!text) return [];
-  try {
-    const Segmenter = Intl.Segmenter;
-    if (Segmenter) {
-      return [...new Segmenter("vi", {granularity: "sentence"}).segment(text)]
-        .map((item) => item.segment.trim())
-        .filter(Boolean);
-    }
-  } catch {
-    // Dùng biểu thức dự phòng trên runtime chưa hỗ trợ Segmenter.
-  }
-  return text.split(/(?<=[.!?;:])\s+(?=[A-ZÀ-Ỹ0-9])/gu).map((item) => item.trim()).filter(Boolean);
-}
-
-function splitLongSentence(sentence: string, maxChars: number) {
-  if (sentence.length <= maxChars) return [sentence];
-  const pieces = sentence
-    .split(/(?<=[,;:])\s+/gu)
-    .map((item) => item.trim())
-    .filter(Boolean);
-  const result: string[] = [];
-  let current = "";
-  for (const piece of pieces.length > 1 ? pieces : [sentence]) {
-    if (piece.length > maxChars) {
-      if (current) {
-        result.push(current);
-        current = "";
-      }
-      for (let cursor = 0; cursor < piece.length; cursor += maxChars) {
-        result.push(piece.slice(cursor, cursor + maxChars).trim());
-      }
+      };
       continue;
     }
-    const candidate = [current, piece].filter(Boolean).join(" ");
-    if (candidate.length > maxChars && current) {
-      result.push(current);
-      current = piece;
-    } else {
-      current = candidate;
-    }
+    current = appendProvision(sections, current, provision, maxChars);
+    current.id = `section-${sections.length + 1}`;
+    current.order = sections.length;
   }
-  if (current) result.push(current);
-  return result;
+  if (current.text) sections.push(current);
+  return sections;
 }
 
-export function splitVietnameseTtsText(value: string, targetChars = 480, maxChars = 720) {
-  const sentences = sentenceSegments(value).flatMap((sentence) => splitLongSentence(sentence, maxChars));
-  const chunks: string[] = [];
-  let current = "";
-  for (const sentence of sentences) {
-    const candidate = [current, sentence].filter(Boolean).join(" ");
-    const shouldFlush = current && candidate.length > targetChars;
-    if (shouldFlush) {
-      chunks.push(current);
-      current = sentence;
-    } else {
-      current = candidate;
-    }
-    if (current.length >= maxChars) {
-      chunks.push(current);
-      current = "";
-    }
-  }
-  if (current) chunks.push(current);
-  return chunks.filter(Boolean);
-}
-
-export function extractVideoNumberTokens(value: string) {
-  return [...normalizeVideoEvidence(value).matchAll(NUMBER_TOKEN)]
-    .map((match) => match[0].replace(SPACE, " ").trim())
-    .filter(Boolean);
+export function normalizeEvidenceForMatch(value: string) {
+  return normalizeVideoEvidence(value)
+    .replace(/[“”"'‘’()[\]{}]/gu, "")
+    .replace(/[^\p{L}\p{N}%.,/\s-]+/gu, " ")
+    .replace(SPACE, " ")
+    .trim();
 }
 
 export function sourceContainsEvidence(source: string, excerpt: string) {
-  const expected = normalizeVideoEvidence(excerpt);
-  return expected.length >= 12 && normalizeVideoEvidence(source).includes(expected);
+  const normalizedSource = normalizeEvidenceForMatch(source);
+  const normalizedExcerpt = normalizeEvidenceForMatch(excerpt);
+  if (normalizedExcerpt.length < 18) return false;
+  return normalizedSource.includes(normalizedExcerpt);
+}
+
+export function extractVideoNumberTokens(value: string) {
+  return value.match(NUMBER_TOKEN)?.map((token) => token.replace(SPACE, " ").trim()) ?? [];
 }
 
 export function sceneNumbersAreGrounded(scene: LegalVideoScene, source: string) {
-  const allowed = normalizeVideoEvidence(source);
-  const displayed = [scene.title, scene.subtitle ?? "", ...scene.bullets, scene.narration].join(" ");
-  return extractVideoNumberTokens(displayed).every((token) => allowed.includes(normalizeVideoEvidence(token)));
+  const sourceNormalized = normalizeVideoEvidence(source);
+  const allowed = normalizeVideoEvidence([scene.sourceExcerpt, ...scene.bullets].filter(Boolean).join(" "));
+  return extractVideoNumberTokens([scene.title, scene.subtitle, scene.narration, ...scene.bullets].filter(Boolean).join(" "))
+    .every((token) => {
+      const normalized = normalizeVideoEvidence(token);
+      return allowed.includes(normalized) && sourceNormalized.includes(normalized);
+    });
 }
 
 export function validateGroundedScene(scene: LegalVideoScene, source: string) {
-  const issues: string[] = [];
-  if (scene.kind !== "intro" && !sourceContainsEvidence(source, scene.sourceExcerpt)) {
-    issues.push("source_excerpt_not_found");
+  const errors: string[] = [];
+  if (!scene.title.trim()) errors.push("missing_title");
+  if (!scene.narration.trim()) errors.push("missing_narration");
+  if (!scene.captionChunks.length) errors.push("missing_captions");
+  if (scene.sourceExcerpt && !sourceContainsEvidence(source, scene.sourceExcerpt)) errors.push("invalid_source_excerpt");
+  if (!sceneNumbersAreGrounded(scene, source)) errors.push("ungrounded_number");
+  return errors;
+}
+
+const COVERAGE_PATTERNS: Array<[LegalVideoCategory, RegExp]> = [
+  ["scope", /phạm vi|đối tượng|áp dụng đối với/iu],
+  ["changes", /sửa đổi|bổ sung|thay thế|bãi bỏ/iu],
+  ["procedure", /hồ sơ|thủ tục|trình tự/iu],
+  ["obligation", /nghĩa vụ|trách nhiệm|phải thực hiện/iu],
+  ["deadline", /thời hạn|ngày làm việc|chậm nhất/iu],
+  ["numbers", /\d+\s*%|\d[\d.,]*\s*(?:đồng|triệu|tỷ)|mức phạt/iu],
+  ["effective", /hiệu lực|có hiệu lực từ/iu],
+  ["transition", /chuyển tiếp/iu],
+  ["forms", /phụ lục|mẫu số|biểu mẫu/iu],
+];
+
+export function detectVideoCoverage(document: DocumentDetail) {
+  const source = `${document.title}\n${document.official_text}`;
+  const categories = COVERAGE_PATTERNS.filter(([, pattern]) => pattern.test(source)).map(([category]) => category);
+  return Array.from(new Set<LegalVideoCategory>(["overview", ...categories]));
+}
+
+export function splitVietnameseTtsText(text: string, targetChars = 1_100, maxChars = 1_450) {
+  const normalized = text.replace(SPACE, " ").trim();
+  if (!normalized) return [];
+  const sentences = normalized.split(/(?<=[.!?;:])\s+/gu).filter(Boolean);
+  const chunks: string[] = [];
+  let current = "";
+  for (const sentence of sentences) {
+    if (current && current.length + sentence.length + 1 > targetChars) {
+      chunks.push(current);
+      current = "";
+    }
+    if (sentence.length <= maxChars) {
+      current = [current, sentence].filter(Boolean).join(" ");
+      continue;
+    }
+    const clauses = sentence.split(/(?<=[,])\s+/gu);
+    for (const clause of clauses) {
+      if (current && current.length + clause.length + 1 > maxChars) {
+        chunks.push(current);
+        current = "";
+      }
+      if (clause.length <= maxChars) {
+        current = [current, clause].filter(Boolean).join(" ");
+        continue;
+      }
+      for (let offset = 0; offset < clause.length; offset += maxChars) {
+        const part = clause.slice(offset, offset + maxChars).trim();
+        if (part) chunks.push(part);
+      }
+    }
   }
-  if (!sceneNumbersAreGrounded(scene, source)) issues.push("ungrounded_number");
-  if (!scene.title.trim() || !scene.narration.trim()) issues.push("missing_content");
-  if (scene.bullets.length > 3) issues.push("too_many_bullets");
-  return issues;
-}
-
-function includesAny(source: string, patterns: RegExp[]) {
-  return patterns.some((pattern) => pattern.test(source));
-}
-
-export function detectVideoCoverage(document: DocumentDetail): LegalVideoCategory[] {
-  const source = normalizeVideoEvidence(document.official_text);
-  const categories = new Set<LegalVideoCategory>(["overview"]);
-  if (includesAny(source, [/phạm vi áp dụng/u, /đối tượng áp dụng/u, /áp dụng đối với/u])) categories.add("scope");
-  if (includesAny(source, [/sửa đổi/u, /bổ sung/u, /thay thế/u, /điểm mới/u])) categories.add("changes");
-  if (includesAny(source, [/trình tự/u, /thủ tục/u, /hồ sơ/u, /thực hiện theo/u])) categories.add("procedure");
-  if (includesAny(source, [/có trách nhiệm/u, /phải thực hiện/u, /nghĩa vụ/u, /người nộp thuế phải/u])) categories.add("obligation");
-  if (includesAny(source, [/thời hạn/u, /trong thời gian/u, /chậm nhất/u, /ngày làm việc/u])) categories.add("deadline");
-  if (includesAny(source, [/\d+\s*%/u, /\d[\d.,]*\s*(?:đồng|triệu|tỷ)/u, /mức phạt/u])) categories.add("numbers");
-  if (document.effective_date || includesAny(source, [/hiệu lực thi hành/u, /có hiệu lực/u])) categories.add("effective");
-  if (includesAny(source, [/điều khoản chuyển tiếp/u, /chuyển tiếp/u, /trước ngày/u])) categories.add("transition");
-  if (includesAny(source, [/mẫu số/u, /biểu mẫu/u, /phụ lục/u])) categories.add("forms");
-  return [...categories];
+  if (current) chunks.push(current);
+  return chunks;
 }
