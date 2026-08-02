@@ -6,7 +6,7 @@ const panelSource = readFileSync(new URL("../app/document-video-panel.tsx", impo
 const templateSource = readFileSync(new URL("../experiments/remotion-tt89/src/LegalVideo.tsx", import.meta.url), "utf8");
 const chunkingSource = readFileSync(new URL("../lib/video/chunking.ts", import.meta.url), "utf8");
 const storyboardSource = readFileSync(new URL("../lib/video/storyboard.ts", import.meta.url), "utf8");
-const captionsV6Source = readFileSync(new URL("../lib/video/storyboard-v6.ts", import.meta.url), "utf8");
+const captionsV6Source = readFileSync(new URL("../lib/video/caption-sentences.ts", import.meta.url), "utf8");
 const tsconfigSource = readFileSync(new URL("../tsconfig.json", import.meta.url), "utf8");
 
 function captionSource() {
