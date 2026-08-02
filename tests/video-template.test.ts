@@ -31,8 +31,8 @@ test("phụ đề được chia theo câu, mệnh đề và từ mà không chè
   const end = storyboardSource.indexOf("function normalizedTokens", start);
   assert.ok(start >= 0 && end > start, "Không tìm thấy thuật toán chia phụ đề");
   const source = storyboardSource.slice(start, end);
-  assert.match(source, /splitMeaningfulPhrases\(sentence, maxChars\)/u);
-  assert.match(source, /splitWords\(piece, maxChars, true\)/u);
+  assert.match(source, /splitMeaningfulPhrases\(sentence, maxChars, true\)/u);
+  assert.match(source, /rebalanceWordChunks\(chunks\.filter\(Boolean\), maxChars\)/u);
   assert.doesNotMatch(source, /…/u);
   assert.doesNotMatch(source, /slice\(0,\s*maxChars\)/u);
 });
@@ -86,7 +86,7 @@ test("pipeline từ chối tiếng Việt không dấu và bullet kết thúc da
   assert.match(storyboardSource, /hasVietnameseMarks/u);
   assert.match(storyboardSource, /Toàn bộ title, bullet và narration phải viết bằng tiếng Việt có dấu/u);
   assert.match(storyboardSource, /completeDisplayPhrase/u);
-  assert.match(storyboardSource, /không kết thúc bullet bằng dấu phẩy/iu);
+  assert.match(storyboardSource, /Không kết thúc bullet bằng dấu phẩy/iu);
   assert.match(storyboardSource, /quản\)\$\/iu/u);
 });
 
