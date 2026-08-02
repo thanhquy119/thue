@@ -9,8 +9,8 @@ import type {
 const NUMBER_TOKEN = /\b\d+(?:[.,/]\d+)*(?:\s*%|\s*(?:đồng|triệu|tỷ))?\b/giu;
 const SPACE = /\s+/gu;
 
-export const VIDEO_TEMPLATE_VERSION = "legal-video-v3";
-export const VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v3";
+export const VIDEO_TEMPLATE_VERSION = "legal-video-v4";
+export const VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v4";
 
 export function normalizeVideoEvidence(value: string) {
   return value
@@ -138,6 +138,23 @@ function sentenceSegments(value: string) {
   return text.split(/(?<=[.!?;:])\s+(?=[A-ZÀ-Ỹ0-9])/gu).map((item) => item.trim()).filter(Boolean);
 }
 
+function splitByWords(value: string, maxChars: number) {
+  const words = value.split(/\s+/gu).filter(Boolean);
+  const result: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = [current, word].filter(Boolean).join(" ");
+    if (current && candidate.length > maxChars) {
+      result.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) result.push(current);
+  return result;
+}
+
 function splitLongSentence(sentence: string, maxChars: number) {
   if (sentence.length <= maxChars) return [sentence];
   const pieces = sentence
@@ -152,9 +169,7 @@ function splitLongSentence(sentence: string, maxChars: number) {
         result.push(current);
         current = "";
       }
-      for (let cursor = 0; cursor < piece.length; cursor += maxChars) {
-        result.push(piece.slice(cursor, cursor + maxChars).trim());
-      }
+      result.push(...splitByWords(piece, maxChars));
       continue;
     }
     const candidate = [current, piece].filter(Boolean).join(" ");
@@ -216,6 +231,9 @@ export function validateGroundedScene(scene: LegalVideoScene, source: string) {
   if (!sceneNumbersAreGrounded(scene, source)) issues.push("ungrounded_number");
   if (!scene.title.trim() || !scene.narration.trim()) issues.push("missing_content");
   if (scene.bullets.length > 3) issues.push("too_many_bullets");
+  if ([scene.title, ...scene.bullets, ...scene.captionChunks].some((value) => /…|\.\.\.$/u.test(value))) {
+    issues.push("truncated_content");
+  }
   return issues;
 }
 
