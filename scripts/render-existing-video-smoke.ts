@@ -71,7 +71,7 @@ for (let poll = 0; poll < 240; poll += 1) {
     outputFile: render.outputFile,
     outputPath: render.outputPath,
   });
-  if (poll === 0 || (poll + 1) % 5 === 0 || progress.stage !== "rendering") {
+  if (poll === 0 || (poll + 1) % 5 === 0 || progress.stage !== "render-progress") {
     console.log(`[video-existing-render-smoke] ${JSON.stringify({
       poll: poll + 1,
       stage: progress.stage,
