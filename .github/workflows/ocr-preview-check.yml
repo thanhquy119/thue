@@ -9,31 +9,15 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: improve/video-storytelling-v4
-          fetch-depth: 0
-      - name: Apply pending final video fix
-        if: hashFiles('.video-v4-final-fix-trigger') != ''
-        run: python3 scripts/apply-video-v4-final-fix.py
-      - name: Commit pending final video fix
-        if: hashFiles('.video-v4-final-fix-trigger') != ''
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm .video-v4-final-fix-trigger scripts/apply-video-v4-final-fix.py
-          git show origin/main:.github/workflows/ocr-preview-check.yml > .github/workflows/ocr-preview-check.yml
-          git add experiments/remotion-tt89/src/LegalVideo.tsx lib/video/storyboard.ts lib/video/chunking.ts scripts/run-video-v3-e2e.ts tests/video-template.test.ts .github/workflows/ocr-preview-check.yml
-          git commit -m "Sửa triệt để câu cụt, cảnh ít giá trị và vùng phụ đề video"
-          git push origin HEAD:improve/video-storytelling-v4
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:

@@ -19,8 +19,8 @@ test("không còn dòng chú thích dư dưới trình phát video", () => {
 });
 
 test("template và pipeline v4 buộc tạo lại video theo hướng visual-first", () => {
-  assert.match(chunkingSource, /VIDEO_TEMPLATE_VERSION = "legal-video-v4"/u);
-  assert.match(chunkingSource, /VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v4"/u);
+  assert.match(chunkingSource, /VIDEO_TEMPLATE_VERSION = "legal-video-v5"/u);
+  assert.match(chunkingSource, /VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v5"/u);
   assert.match(templateSource, /VIDEO GIẢI THÍCH/u);
   assert.match(storyboardSource, /visualMode: "takeaways"/u);
   assert.match(storyboardSource, /visualKeywords:/u);
@@ -70,7 +70,8 @@ test("cảnh không bị làm trắng trước khi kết thúc và caption chuy�
   const source = captionSource();
   assert.match(source, /localFrame/u);
   assert.ok(source.includes("interpolate(localFrame,[0,6],[0,1],clamp)"));
-  assert.ok(source.includes("minHeight:176"));
+  assert.ok(source.includes("bottom:108"));
+  assert.ok(source.includes("minHeight:154"));
 });
 
 test("kết luận nêu tác động hoặc việc cần kiểm tra, không dùng câu meta vô nghĩa", () => {
@@ -108,4 +109,27 @@ test("mốc hiệu lực chỉ xuất hiện ở timeline nhưng vẫn giữ tá
 test("ngày ban hành trùng ngày hiệu lực chỉ tạo một mốc", () => {
   assert.match(storyboardSource, /const sameDate = Boolean\(issued && effective && issued === effective\)/u);
   assert.match(storyboardSource, /Ban hành và có hiệu lực:/u);
+});
+
+test("visual card giữ nguyên một cụm ý và loại mảnh một hai từ", () => {
+  const start = templateSource.indexOf("function visualItems");
+  const end = templateSource.indexOf("function sceneVisualMode", start);
+  const visualSource = templateSource.slice(start, end);
+  assert.doesNotMatch(visualSource, /source\.flatMap/u);
+  assert.match(visualSource, /standaloneVisualFragment/u);
+  assert.match(visualSource, /scene\.visualKeywords/u);
+});
+
+test("pipeline loại nội dung nội bộ ít giá trị và không gắn học máy vào hồ sơ biểu mẫu", () => {
+  assert.match(storyboardSource, /function lowValueForViewer/u);
+  assert.match(storyboardSource, /normalizedPointCategory/u);
+  assert.match(storyboardSource, /chấm điểm\|học máy\|phân tích dữ liệu/u);
+  assert.doesNotMatch(storyboardSource, /if \(scene\.category === "effective"\) return \[scene\]/u);
+});
+
+test("cảnh một ý dùng hero card và phụ đề nằm trên vùng điều khiển video", () => {
+  assert.match(templateSource, /items\.length === 1/u);
+  assert.match(templateSource, /DÒNG XỬ LÝ CHÍNH/u);
+  assert.match(templateSource, /TRỌNG TÂM CẦN THỰC HIỆN/u);
+  assert.match(captionSource(), /bottom:108/u);
 });

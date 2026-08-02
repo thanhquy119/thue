@@ -80,10 +80,21 @@ function validVietnameseText(value: string) {
   return hasVietnameseMarks(text);
 }
 function hasTruncation(value: string) { return /…|\.{3,}/u.test(value); }
+function lowValueForViewer(value: string) {
+  const text = cleanText(value);
+  return /(?:kết quả (?:phân tích|đánh giá|phân loại).*(?:chỉ là|là) căn cứ hỗ trợ|không thay thế trách nhiệm ban hành quyết định hành chính|trách nhiệm ban hành quyết định hành chính|căn cứ hỗ trợ cơ quan thuế nhưng không thay thế)/iu.test(text);
+}
+function normalizedPointCategory(category: LegalVideoCategory, claim: string): LegalVideoCategory {
+  if (category === "forms" && /chấm điểm|học máy|phân tích dữ liệu|mô hình rủi ro/iu.test(claim) && !/hồ sơ|biểu mẫu|mẫu số|tờ khai|chứng từ/iu.test(claim)) return "overview";
+  return category;
+}
 function completeDisplayPhrase(value: string, maxChars = 138) {
   const text = cleanText(value);
+  const words = text.split(/\s+/gu).filter(Boolean);
   return text.length >= 12 && text.length <= maxChars && !hasTruncation(text) && !/[,;:]$/u.test(text)
-    && !/\b(?:và|hoặc|đồng thời|tại|trong|của|với|theo|để|do|bởi|từ|quản)$/iu.test(text)
+    && !/\b(?:và|hoặc|đồng thời|tại|trong|của|với|theo|để|do|bởi|từ|quản|trụ)$/iu.test(text)
+    && (/[0-9]/u.test(text) || words.length >= 3)
+    && !lowValueForViewer(text)
     && validVietnameseText(text);
 }
 function rebalanceWordChunks(input: string[], maxChars: number, tolerance = 28, minimumTail = 34) {
@@ -178,12 +189,13 @@ export async function summarizeVideoEvidenceSection(document: DocumentDetail, se
   const points = (raw.points ?? []).flatMap((point, index): LegalVideoEvidencePoint[] => {
     const claim = typeof point.claim === "string" ? cleanText(point.claim) : "";
     const sourceExcerpt = typeof point.sourceExcerpt === "string" ? point.sourceExcerpt.trim() : "";
-    if (!claim || claim.length > 165 || hasTruncation(claim) || !validVietnameseText(claim) || !sourceExcerpt || !validCategory(point.category)) return [];
+    if (!claim || claim.length > 165 || hasTruncation(claim) || lowValueForViewer(claim) || !validVietnameseText(claim) || !sourceExcerpt || !validCategory(point.category)) return [];
     if (!sourceContainsEvidence(section.text, sourceExcerpt)) return [];
+    const category = normalizedPointCategory(point.category, claim);
     const allowed = normalizeVideoEvidence(sourceExcerpt);
     if (extractVideoNumberTokens(claim).some((token) => !allowed.includes(normalizeVideoEvidence(token)))) return [];
     const importance = Number(point.importance);
-    return [{id: `${section.id}-point-${index + 1}`, category: point.category, importance: Math.max(1, Math.min(5, Number.isFinite(importance) ? Math.round(importance) : 3)) as 1 | 2 | 3 | 4 | 5, claim, sourceExcerpt, sectionId: section.id, provisionIds: section.provisionIds}];
+    return [{id: `${section.id}-point-${index + 1}`, category, importance: Math.max(1, Math.min(5, Number.isFinite(importance) ? Math.round(importance) : 3)) as 1 | 2 | 3 | 4 | 5, claim, sourceExcerpt, sectionId: section.id, provisionIds: section.provisionIds}];
   });
   return points.length ? points : fallbackEvidence(section);
 }
@@ -214,12 +226,18 @@ function selectEvidence(points: LegalVideoEvidencePoint[], limit: number) {
   for (const point of [...points].sort((a, b) => b.importance - a.importance)) { if (selected.length >= limit) break; if (!selected.some((existing) => existing.id === point.id)) selected.push(point); }
   return selected;
 }
-function visualKeyword(value: string) { return cleanText(value).replace(/,\s*/gu, " · ").replace(/[.!?]$/u, ""); }
+function visualKeyword(value: string) { return cleanText(value).replace(/[.!?]$/u, ""); }
 function visualPhrases(points: LegalVideoEvidencePoint[], limit = 3) {
   const result: string[] = [];
-  for (const point of points) for (const candidate of displayPhrasesFromPoint(point, 138)) {
-    const phrase = visualKeyword(candidate); if (!phrase || result.some((item) => textSimilarity(item, phrase) > 0.8)) continue;
-    result.push(phrase); if (result.length >= limit) return result;
+  for (const point of points) {
+    const claim = cleanText(point.claim);
+    const candidates = completeDisplayPhrase(claim, 170) ? [claim] : displayPhrasesFromPoint(point, 170);
+    for (const candidate of candidates) {
+      const phrase = visualKeyword(candidate);
+      if (!completeDisplayPhrase(phrase, 170) || result.some((item) => textSimilarity(item, phrase) > 0.8)) continue;
+      result.push(phrase);
+      if (result.length >= limit) return result;
+    }
   }
   return result;
 }
@@ -314,7 +332,7 @@ async function draftViewerFriendlyScenes(document: DocumentDetail, groups: Array
 }
 function introScene(document: DocumentDetail): LegalVideoScene {
   const subject = cleanText(document.title.replace(/^.*?quy định về\s*/iu, "").replace(/[.]$/u, ""));
-  const narration = cleanText(`${document.type} số ${document.number} quy định về ${subject}. Video tập trung vào các tác động, điều kiện và dòng thực hiện có ý nghĩa trực tiếp.`);
+  const narration = cleanText(`${document.type} số ${document.number} quy định về ${subject}.`);
   return {id: "scene-1", kind: "intro", category: "overview", eyebrow: "VĂN BẢN TRONG 1 MẠCH KỂ", title: document.number, subtitle: shortCompletePhrase(document.title, 155), bullets: [], narration, captionChunks: captionChunksFromNarration(narration), evidencePointIds: [], sourceExcerpt: document.title, visualMode: "document", visualKeywords: [document.type, document.issuer, visualKeyword(subject)]};
 }
 function effectiveScene(document: DocumentDetail): LegalVideoScene | null {
@@ -334,11 +352,10 @@ function legalEffectTitle(value: string, category: LegalVideoCategory) {
 function removeRepeatedEffectiveFacts(scenes: LegalVideoScene[], document: DocumentDetail, pointMap: Map<string, LegalVideoEvidencePoint>) {
   if (!document.issued_date && !document.effective_date) return scenes;
   return scenes.flatMap((scene): LegalVideoScene[] => {
-    if (scene.category === "effective") return [scene];
     const originalPoints = scene.evidencePointIds.map((id) => pointMap.get(id)).filter((point): point is LegalVideoEvidencePoint => Boolean(point));
-    const remainingPoints = originalPoints.filter((point) => !isEffectiveOnly(`${point.claim} ${point.sourceExcerpt}`));
-    const remainingBullets = scene.bullets.map(cleanText).filter((bullet) => !isEffectiveOnly(bullet) && completeDisplayPhrase(bullet, 138));
-    const remainingNarration = cleanText(scene.narration).split(/(?<=[.!?])\s+/gu).map(cleanText).filter((sentence) => sentence && !isEffectiveOnly(sentence)).map(ensureSentence).join(" ");
+    const remainingPoints = originalPoints.filter((point) => !isEffectiveOnly(`${point.claim} ${point.sourceExcerpt}`) && !lowValueForViewer(`${point.claim} ${point.sourceExcerpt}`));
+    const remainingBullets = scene.bullets.map(cleanText).filter((bullet) => !isEffectiveOnly(bullet) && !lowValueForViewer(bullet) && completeDisplayPhrase(bullet, 138));
+    const remainingNarration = cleanText(scene.narration).split(/(?<=[.!?])\s+/gu).map(cleanText).filter((sentence) => sentence && !isEffectiveOnly(sentence) && !lowValueForViewer(sentence)).map(ensureSentence).join(" ");
     const changed = remainingPoints.length !== originalPoints.length || remainingBullets.length !== scene.bullets.length || cleanText(remainingNarration) !== cleanText(scene.narration);
     if (!changed) return [scene]; if (!remainingPoints.length && !remainingBullets.length && !remainingNarration) return [];
     const titlePoints = remainingPoints.length ? remainingPoints : originalPoints;
@@ -372,7 +389,8 @@ export async function createLegalVideoStoryboard(input: {document: DocumentDetai
   const {document, length, voice} = input; const profile = videoLengthProfile(length);
   const repaired = repairVideoEvidenceCoverage(document, input.points); const unique = new Map<string, LegalVideoEvidencePoint>();
   for (const point of repaired) { const key = normalizeVideoEvidence(`${point.category}:${point.claim}`); if (!unique.has(key)) unique.set(key, point); }
-  const selected = selectEvidence([...unique.values()], profile.maxEvidencePoints); const pointMap = new Map(selected.map((point) => [point.id, point]));
+  const relevantPoints = [...unique.values()].filter((point) => !lowValueForViewer(`${point.claim} ${point.sourceExcerpt}`));
+  const selected = selectEvidence(relevantPoints, profile.maxEvidencePoints); const pointMap = new Map(selected.map((point) => [point.id, point]));
   const groups = await groupEvidenceForScenes(document, selected, length); let bodyScenes = await draftViewerFriendlyScenes(document, groups, pointMap);
   const covered = new Set(bodyScenes.map((scene) => scene.category));
   for (const category of new Set(selected.map((point) => point.category))) {

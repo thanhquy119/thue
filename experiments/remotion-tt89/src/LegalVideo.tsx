@@ -138,35 +138,42 @@ function KeywordGlyph({text, size = 82}: {text: string; size?: number}) {
   return <DocumentGlyph size={size} />;
 }
 
-function splitVisualText(value: string, maxChars = 82) {
-  const normalized = value.replace(/\s+/gu, ' ').replace(/(?:…|\.{3,})$/u, '').trim();
+function normalizeVisualText(value: string) {
+  return value.replace(/\s+/gu, ' ').replace(/(?:…|\.{3,})$/u, '').trim();
+}
+function standaloneVisualFragment(value: string) {
+  const text = normalizeVisualText(value);
+  const words = text.split(/\s+/gu).filter(Boolean);
+  return !/\d/u.test(text) && words.length <= 2 && text.length < 24;
+}
+function splitVisualText(value: string) {
+  const normalized = normalizeVisualText(value);
   if (!normalized) return [];
-  const clauses = normalized.split(/(?<=[,;:])\s+|\s+(?:hoặc|đồng thời)\s+|\s+(?=(?:nếu|khi|trường hợp|sau khi|trước khi)\b)/giu)
-    .map((item) => item.replace(/^[,;:]\s*/u, '').trim()).filter(Boolean);
-  const result: string[] = [];
-  for (const clause of clauses.length ? clauses : [normalized]) {
-    if (clause.length <= maxChars) {result.push(clause); continue;}
-    const words = clause.split(/\s+/gu);
-    let current = '';
-    for (const word of words) {
-      const candidate = [current, word].filter(Boolean).join(' ');
-      if (current && candidate.length > maxChars) {result.push(current); current = word;} else current = candidate;
-    }
-    if (current) result.push(current);
-  }
-  return result;
+  return normalized
+    .split(/(?<=[.!?;:])\s+/gu)
+    .map(normalizeVisualText)
+    .filter((item) => item.length >= 12 && !/[,;:]$/u.test(item));
 }
 function visualItems(scene: LegalVideoScene, limit = 3) {
-  const source = scene.visualKeywords?.length ? scene.visualKeywords : scene.bullets;
-  const items = source.flatMap((item) => splitVisualText(item));
+  const sources = [
+    ...(scene.visualKeywords?.length ? scene.visualKeywords : []),
+    ...scene.bullets,
+  ];
   const unique: string[] = [];
-  for (const item of items) {
+  for (const raw of sources) {
+    const item = normalizeVisualText(raw);
+    if (!item || /[,;:]$/u.test(item)) continue;
+    if (scene.kind !== 'intro' && standaloneVisualFragment(item)) continue;
     const key = item.toLocaleLowerCase('vi');
     if (!unique.some((existing) => existing.toLocaleLowerCase('vi') === key)) unique.push(item);
     if (unique.length >= limit) break;
   }
-  return unique.length ? unique : splitVisualText(scene.narration).slice(0, limit);
+  if (unique.length) return unique;
+  return splitVisualText(scene.narration)
+    .filter((item) => scene.kind === 'intro' || !standaloneVisualFragment(item))
+    .slice(0, limit);
 }
+
 function sceneVisualMode(scene: LegalVideoScene): LegalVideoVisualMode {
   if (scene.visualMode) return scene.visualMode;
   if (scene.kind === 'intro') return 'document';
@@ -211,7 +218,7 @@ const SceneShell = ({scene, sceneIndex, sceneCount, children}: {scene: LegalVide
   const {fps} = useVideoConfig();
   const enter = spring({frame, fps, config: {damping: 26, stiffness: 95, mass: .9}});
   const titleSize = scene.kind === 'intro' ? 76 : scene.title.length > 72 ? 48 : scene.title.length > 52 ? 54 : 62;
-  return <AbsoluteFill style={{padding: '184px 60px 258px'}}>
+  return <AbsoluteFill style={{padding: '184px 60px 330px'}}>
     <div style={{height: '100%', display: 'flex', flexDirection: 'column', opacity: enter, translate: `0 ${interpolate(enter, [0, 1], [26, 0], clamp)}px`}}>
       <div style={{display: 'flex', alignItems: 'center', gap: 16, marginBottom: 22}}>
         <div style={{minWidth: 68, height: 68, borderRadius: 22, display: 'grid', placeItems: 'center', backgroundColor: scenePalette(scene).primary, border: `2px solid ${COLORS.line}`, color: COLORS.deep, fontSize: 25, fontWeight: 950}}>{String(sceneIndex + 1).padStart(2, '0')}</div>
@@ -274,9 +281,14 @@ const NetworkVisual = ({scene}: {scene: LegalVideoScene}) => {
 
 const FlowVisual = ({scene}: {scene: LegalVideoScene}) => {
   const frame = useCurrentFrame(); const {fps} = useVideoConfig(); const items = visualItems(scene, 3);
+  if (items.length === 1) {
+    const item = items[0];
+    const appear = spring({frame: frame - 5, fps, config: {damping: 24, stiffness: 96}});
+    return <div style={{width:'100%',minHeight:560,padding:'54px 50px',borderRadius:52,backgroundColor:COLORS.sky,border:`3px solid ${COLORS.line}`,boxShadow:'0 28px 72px rgba(36,88,74,.12)',display:'grid',gridTemplateColumns:'250px 1fr',alignItems:'center',gap:42,opacity:appear,scale:interpolate(appear,[0,1],[.95,1],clamp)}}><div style={{width:230,height:230,borderRadius:72,backgroundColor:COLORS.card,border:`4px solid ${COLORS.green}`,display:'grid',placeItems:'center',boxShadow:'0 18px 48px rgba(36,88,74,.10)'}}><FlowGlyph size={142}/></div><div><div style={{fontSize:22,fontWeight:920,letterSpacing:'.11em',color:COLORS.green,marginBottom:22}}>DÒNG XỬ LÝ CHÍNH</div><div style={{fontSize:item.length>128?34:item.length>96?38:44,lineHeight:1.2,fontWeight:900,color:COLORS.ink}}>{item}</div></div></div>;
+  }
   return <div style={{width:'100%',display:'grid',gap:0}}>{items.map((item,index) => {const appear=spring({frame:frame-8-index*11,fps,config:{damping:23,stiffness:100}}); const backgrounds=[COLORS.peach,COLORS.sky,COLORS.mint]; return <div key={item} style={{display:'grid',gridTemplateColumns:'126px 1fr',gap:22,alignItems:'stretch'}}>
     <div style={{display:'flex',flexDirection:'column',alignItems:'center'}}><div style={{width:112,height:112,borderRadius:34,display:'grid',placeItems:'center',backgroundColor:backgrounds[index],border:`3px solid ${COLORS.line}`,boxShadow:'0 14px 38px rgba(36,88,74,.09)',opacity:appear,scale:interpolate(appear,[0,1],[.86,1],clamp)}}><KeywordGlyph text={item} size={76}/></div>{index<items.length-1?<div style={{width:7,height:68,margin:'6px 0',borderRadius:99,backgroundColor:COLORS.line,overflow:'hidden'}}><div style={{width:'100%',height:`${interpolate(frame,[18+index*11,38+index*11],[0,100],clamp)}%`,backgroundColor:COLORS.green}}/></div>:null}</div>
-    <div style={{minHeight:144,marginBottom:index<items.length-1?12:0,padding:'29px 32px',borderRadius:34,backgroundColor:COLORS.card,border:`2px solid ${COLORS.line}`,boxShadow:'0 16px 44px rgba(36,88,74,.08)',display:'flex',alignItems:'center',opacity:appear,translate:`${interpolate(appear,[0,1],[38,0],clamp)}px 0`}}><div style={{fontSize:item.length>92?29:34,lineHeight:1.25,fontWeight:850,color:COLORS.ink}}>{item}</div></div>
+    <div style={{minHeight:item.length>128?184:154,marginBottom:index<items.length-1?12:0,padding:'29px 32px',borderRadius:34,backgroundColor:COLORS.card,border:`2px solid ${COLORS.line}`,boxShadow:'0 16px 44px rgba(36,88,74,.08)',display:'flex',alignItems:'center',opacity:appear,translate:`${interpolate(appear,[0,1],[38,0],clamp)}px 0`}}><div style={{fontSize:item.length>128?27:item.length>96?29:34,lineHeight:1.25,fontWeight:850,color:COLORS.ink}}>{item}</div></div>
   </div>;})}</div>;
 };
 
@@ -292,7 +304,13 @@ const MetricVisual = ({scene}: {scene: LegalVideoScene}) => {
 
 const ChecklistVisual = ({scene}: {scene: LegalVideoScene}) => {
   const frame=useCurrentFrame(); const {fps}=useVideoConfig(); const items=visualItems(scene,3);
-  return <div style={{width:'100%',display:'grid',gap:20}}>{items.map((item,index)=>{const appear=spring({frame:frame-7-index*10,fps,config:{damping:24,stiffness:100}}); const check=interpolate(frame,[16+index*10,28+index*10],[0,1],clamp); return <div key={item} style={{minHeight:172,padding:'27px 30px',borderRadius:38,backgroundColor:index===0?COLORS.mint:index===1?COLORS.cream:COLORS.sky,border:`2px solid ${COLORS.line}`,boxShadow:'0 17px 46px rgba(36,88,74,.08)',display:'grid',gridTemplateColumns:'116px 1fr',alignItems:'center',gap:24,opacity:appear,translate:`0 ${interpolate(appear,[0,1],[30,0],clamp)}px`}}><div style={{width:100,height:100,borderRadius:32,backgroundColor:COLORS.card,border:`3px solid ${COLORS.green}`,display:'grid',placeItems:'center'}}><svg width="64" height="64" viewBox="0 0 64 64" fill="none" aria-hidden="true"><path d="M13 33 26 46 52 17" stroke={COLORS.green} strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" pathLength="1" strokeDasharray="1" strokeDashoffset={1-check}/></svg></div><div style={{fontSize:item.length>96?29:34,lineHeight:1.25,fontWeight:850,color:COLORS.ink}}>{item}</div></div>;})}</div>;
+  if (items.length === 1) {
+    const item = items[0];
+    const appear = spring({frame: frame - 5, fps, config: {damping: 24, stiffness: 96}});
+    const check = interpolate(frame, [18, 34], [0, 1], clamp);
+    return <div style={{width:'100%',minHeight:560,padding:'54px 50px',borderRadius:52,backgroundColor:COLORS.mint,border:`3px solid ${COLORS.line}`,boxShadow:'0 28px 72px rgba(36,88,74,.12)',display:'grid',gridTemplateColumns:'250px 1fr',alignItems:'center',gap:42,opacity:appear,scale:interpolate(appear,[0,1],[.95,1],clamp)}}><div style={{width:230,height:230,borderRadius:72,backgroundColor:COLORS.card,border:`4px solid ${COLORS.green}`,display:'grid',placeItems:'center',boxShadow:'0 18px 48px rgba(36,88,74,.10)'}}><svg width="142" height="142" viewBox="0 0 64 64" fill="none" aria-hidden="true"><path d="M13 33 26 46 52 17" stroke={COLORS.green} strokeWidth="6" strokeLinecap="round" strokeLinejoin="round" pathLength="1" strokeDasharray="1" strokeDashoffset={1-check}/></svg></div><div><div style={{fontSize:22,fontWeight:920,letterSpacing:'.11em',color:COLORS.green,marginBottom:22}}>TRỌNG TÂM CẦN THỰC HIỆN</div><div style={{fontSize:item.length>128?34:item.length>96?38:44,lineHeight:1.2,fontWeight:900,color:COLORS.ink}}>{item}</div></div></div>;
+  }
+  return <div style={{width:'100%',display:'grid',gap:20}}>{items.map((item,index)=>{const appear=spring({frame:frame-7-index*10,fps,config:{damping:24,stiffness:100}}); const check=interpolate(frame,[16+index*10,28+index*10],[0,1],clamp); return <div key={item} style={{minHeight:item.length>128?210:item.length>104?190:172,padding:'27px 30px',borderRadius:38,backgroundColor:index===0?COLORS.mint:index===1?COLORS.cream:COLORS.sky,border:`2px solid ${COLORS.line}`,boxShadow:'0 17px 46px rgba(36,88,74,.08)',display:'grid',gridTemplateColumns:'116px 1fr',alignItems:'center',gap:24,opacity:appear,translate:`0 ${interpolate(appear,[0,1],[30,0],clamp)}px`}}><div style={{width:100,height:100,borderRadius:32,backgroundColor:COLORS.card,border:`3px solid ${COLORS.green}`,display:'grid',placeItems:'center'}}><svg width="64" height="64" viewBox="0 0 64 64" fill="none" aria-hidden="true"><path d="M13 33 26 46 52 17" stroke={COLORS.green} strokeWidth="7" strokeLinecap="round" strokeLinejoin="round" pathLength="1" strokeDasharray="1" strokeDashoffset={1-check}/></svg></div><div style={{fontSize:item.length>128?26:item.length>104?28:item.length>90?30:34,lineHeight:1.25,fontWeight:850,color:COLORS.ink}}>{item}</div></div>;})}</div>;
 };
 
 const DecisionVisual = ({scene}: {scene: LegalVideoScene}) => {
@@ -327,8 +345,8 @@ const CaptionBar=({scene}:{scene:LegalVideoScene})=>{
   const frame=useCurrentFrame(); const {fps}=useVideoConfig(); const current=frame/fps; const intervals=captionIntervals(scene);
   const caption=intervals.find((item)=>current>=item.start&&current<item.end)??intervals.at(-1); if(!caption)return null;
   const localFrame=Math.max(0,frame-Math.round(caption.start*fps)); const enter=interpolate(localFrame,[0,6],[0,1],clamp);
-  const fontSize=caption.text.length>135?29:caption.text.length>95?32:35;
-  return <div style={{position:'absolute',left:50,right:50,bottom:42,minHeight:176,zIndex:30,boxSizing:'border-box',padding:'26px 31px',borderRadius:32,border:`2px solid ${COLORS.line}`,backgroundColor:COLORS.card,boxShadow:'0 22px 58px rgba(36,88,74,.17)',color:COLORS.ink,display:'flex',alignItems:'center',overflow:'hidden'}}><div style={{position:'absolute',left:0,top:0,bottom:0,width:9,backgroundColor:scenePalette(scene).accent}}/><div style={{...readableAlign(caption.text,150),width:'100%',fontSize,lineHeight:1.33,fontWeight:760,letterSpacing:'-.01em',opacity:enter,translate:`0 ${interpolate(enter,[0,1],[10,0],clamp)}px`}}>{caption.text}</div></div>;
+  const fontSize=caption.text.length>135?27:caption.text.length>105?30:33;
+  return <div style={{position:'absolute',left:50,right:50,bottom:108,minHeight:154,zIndex:30,boxSizing:'border-box',padding:'20px 28px',borderRadius:28,border:`2px solid ${COLORS.line}`,backgroundColor:COLORS.card,boxShadow:'0 22px 58px rgba(36,88,74,.17)',color:COLORS.ink,display:'flex',alignItems:'center',overflow:'hidden'}}><div style={{position:'absolute',left:0,top:0,bottom:0,width:9,backgroundColor:scenePalette(scene).accent}}/><div style={{...readableAlign(caption.text,150),width:'100%',fontSize,lineHeight:1.33,fontWeight:760,letterSpacing:'-.01em',opacity:enter,translate:`0 ${interpolate(enter,[0,1],[10,0],clamp)}px`}}>{caption.text}</div></div>;
 };
 const SceneAudio=({scene}:{scene:LegalVideoScene})=>{const {fps}=useVideoConfig();let elapsed=0;const chunks=(scene.audioChunks??[]).map((chunk)=>{const from=Math.round(elapsed*fps);const durationInFrames=Math.max(1,Math.ceil(chunk.durationSeconds*fps));elapsed+=chunk.durationSeconds;return{chunk,from,durationInFrames};});return <>{chunks.map(({chunk,from,durationInFrames})=><Sequence key={chunk.id} from={from} durationInFrames={durationInFrames} layout="none"><Audio src={chunk.url} volume={.97}/></Sequence>)}</>;};
 

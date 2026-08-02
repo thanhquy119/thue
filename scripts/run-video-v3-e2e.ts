@@ -113,8 +113,14 @@ function requiresVietnameseMarks(value: string) {
 
 function incompleteDisplayText(value: string) {
   const text = value.trim();
+  const words = text.split(/\s+/gu).filter(Boolean);
   return /…|\.{3,}|[,;:]$/u.test(text)
-    || /\b(?:và|hoặc|đồng thời|tại|trong|của|với|theo|để|do|bởi|từ|quản)$/iu.test(text);
+    || /\b(?:và|hoặc|đồng thời|tại|trong|của|với|theo|để|do|bởi|từ|quản|trụ)$/iu.test(text)
+    || (!/\d/u.test(text) && words.length <= 2 && text.length < 24);
+}
+
+function lowValueForViewer(value: string) {
+  return /(?:kết quả (?:phân tích|đánh giá|phân loại).*(?:chỉ là|là) căn cứ hỗ trợ|không thay thế trách nhiệm ban hành quyết định hành chính|trách nhiệm ban hành quyết định hành chính|căn cứ hỗ trợ cơ quan thuế nhưng không thay thế)/iu.test(value);
 }
 
 function tokenSimilarity(left: string, right: string) {
@@ -155,6 +161,17 @@ function inspectStoryboard(storyboard: LegalVideoStoryboard) {
     }
     if (scene.kind !== "intro" && !(scene.visualKeywords?.length)) {
       throw new Error(`[video-v3-e2e] Cảnh ${scene.id} chưa có visualKeywords.`);
+    }
+    for (const keyword of scene.visualKeywords ?? []) {
+      if (incompleteDisplayText(keyword)) {
+        throw new Error(`[video-v3-e2e] Visual keyword bị cắt hoặc dang dở: ${scene.id} — ${keyword}`);
+      }
+    }
+    if (lowValueForViewer([scene.title, ...scene.bullets, scene.narration].join(" "))) {
+      throw new Error(`[video-v3-e2e] Cảnh ${scene.id} chứa nội dung nội bộ hoặc ít giá trị với người xem.`);
+    }
+    if (scene.category === "forms" && /chấm điểm|học máy|phân tích dữ liệu|mô hình rủi ro/iu.test([scene.title, ...scene.bullets].join(" ")) && !/hồ sơ|biểu mẫu|mẫu số|tờ khai|chứng từ/iu.test([scene.title, ...scene.bullets].join(" "))) {
+      throw new Error(`[video-v3-e2e] Cảnh ${scene.id} bị gắn nhãn hồ sơ/dữ liệu không đúng ngữ nghĩa.`);
     }
     if (scene.bullets.length > 3) {
       throw new Error(`[video-v3-e2e] Cảnh ${scene.id} có quá 3 gạch đầu dòng.`);
