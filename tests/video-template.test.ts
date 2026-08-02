@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import test from "node:test";
+import {captionChunksFromNarration, splitMeaningfulPhrases} from "../lib/video/storyboard.ts";
 
 const panelSource = readFileSync(new URL("../app/document-video-panel.tsx", import.meta.url), "utf8");
 const templateSource = readFileSync(new URL("../experiments/remotion-tt89/src/LegalVideo.tsx", import.meta.url), "utf8");
@@ -14,74 +15,67 @@ function captionSource() {
   return templateSource.slice(start, end);
 }
 
-function timelineSource() {
-  const start = templateSource.indexOf("const TimelineVisual");
-  const end = templateSource.indexOf("const ProcessVisual", start);
-  assert.ok(start >= 0 && end > start, "Không tìm thấy TimelineVisual trong template Remotion");
-  return templateSource.slice(start, end);
-}
-
 test("không còn dòng chú thích dư dưới trình phát video", () => {
-  assert.doesNotMatch(
-    panelSource,
-    /Video giúp nắm nhanh nội dung; toàn văn chính thức vẫn nằm ngay bên dưới để đối chiếu\./u,
+  assert.doesNotMatch(panelSource, /Video giúp nắm nhanh nội dung; toàn văn chính thức vẫn nằm ngay bên dưới để đối chiếu\./u);
+});
+
+test("template và pipeline v4 buộc tạo lại video theo hướng visual-first", () => {
+  assert.match(chunkingSource, /VIDEO_TEMPLATE_VERSION = "legal-video-v4"/u);
+  assert.match(chunkingSource, /VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v4"/u);
+  assert.match(templateSource, /VIDEO GIẢI THÍCH/u);
+  assert.match(storyboardSource, /visualMode: "takeaways"/u);
+});
+
+test("không cắt phụ đề bằng dấu ba chấm và giữ đủ toàn bộ lời đọc", () => {
+  const narration = "Trường hợp phân hệ gặp sự cố, chưa đáp ứng yêu cầu nghiệp vụ hoặc chưa tích hợp được với nguồn dữ liệu thì cơ quan thuế thực hiện kiểm tra tại trụ sở.";
+  const chunks = captionChunksFromNarration(narration, 62);
+  assert.ok(chunks.length >= 3);
+  assert.ok(chunks.every((chunk) => chunk.length <= 62));
+  assert.ok(chunks.every((chunk) => !/…|\.\.\./u.test(chunk)));
+  assert.equal(chunks.join(" ").replace(/\s+/gu, " "), narration.replace(/\s+/gu, " "));
+});
+
+test("câu pháp lý dài được tách thành các ý hình ảnh hoàn chỉnh", () => {
+  const phrases = splitMeaningfulPhrases(
+    "Trường hợp phân hệ quản lý gặp sự cố, chưa đáp ứng yêu cầu nghiệp vụ hoặc chưa tích hợp được với nguồn dữ liệu",
+    75,
   );
+  assert.ok(phrases.length >= 3);
+  assert.ok(phrases.every((phrase) => phrase.length <= 75));
+  assert.ok(phrases.every((phrase) => !/…|\.\.\./u.test(phrase)));
 });
 
-test("template v3 buộc video mới dùng thiết kế pastel và pipeline biên tập mới", () => {
-  assert.match(chunkingSource, /VIDEO_TEMPLATE_VERSION = "legal-video-v3"/u);
-  assert.match(chunkingSource, /VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v3"/u);
-  assert.match(templateSource, /backgroundColor: COLORS\.pale/u);
-});
-
-test("khung phụ đề cố định, bỏ nhãn thuyết minh và không animate khi đổi câu", () => {
-  const source = captionSource();
-  assert.match(source, /height: 196/u);
-  assert.match(source, /overflow: 'hidden'/u);
-  assert.doesNotMatch(source, /LỜI THUYẾT MINH/u);
-  assert.doesNotMatch(source, /opacity:\s*interpolate/u);
-  assert.doesNotMatch(source, /translate|translateY|scale\(/u);
-});
-
-test("text ngắn căn trái và chỉ đoạn đủ dài mới căn đều", () => {
-  const source = captionSource();
-  assert.match(templateSource, /text\.length >= justifyFrom \? \('justify' as const\) : \('left' as const\)/u);
-  assert.match(templateSource, /textAlignLast: 'left'/u);
-  assert.match(source, /readableAlign\(caption\.text, 150\)/u);
-  assert.match(timelineSource(), /readableAlign\(item, 180\)/u);
-  assert.doesNotMatch(timelineSource(), /textAlignLast: 'center'/u);
-});
-
-test("video không còn chữ thương hiệu và dùng màu phẳng thay cho nền chuyển màu", () => {
-  assert.doesNotMatch(templateSource, /Thuế Rõ|Thuế\.<\/|linear-gradient\(145deg|linear-gradient\(155deg|radial-gradient/u);
-  assert.match(templateSource, /backgroundColor: COLORS\.mint/u);
-  assert.match(templateSource, /backgroundColor: COLORS\.cream/u);
-  assert.match(templateSource, /backgroundColor: COLORS\.sky/u);
-});
-
-test("mỗi loại cảnh có minh họa trực quan riêng", () => {
+test("Remotion có hệ hình ảnh ngữ nghĩa thay vì một icon cạnh danh sách text", () => {
   for (const component of [
-    "DocumentIcon",
-    "CalendarIcon",
-    "PeopleIcon",
-    "ArrowsIcon",
-    "StepsIcon",
-    "PercentIcon",
-    "ClipboardIcon",
-    "LightbulbIcon",
-  ]) {
-    assert.match(templateSource, new RegExp(`const ${component}`, "u"));
-  }
-  assert.match(templateSource, /scene\.kind === 'audience'/u);
-  assert.match(templateSource, /scene\.kind === 'change'/u);
-  assert.match(templateSource, /scene\.kind === 'prepare'/u);
+    "SceneBackdrop", "KeywordGlyph", "DocumentVisual", "TimelineVisual", "NetworkVisual",
+    "FlowVisual", "ContrastVisual", "MetricVisual", "ChecklistVisual", "DecisionVisual", "TakeawayVisual",
+  ]) assert.match(templateSource, new RegExp(`const ${component}`, "u"));
+  assert.match(templateSource, /strokeDashoffset=\{-frame \* \.7\}/u);
+  assert.match(templateSource, /pathLength="1"/u);
 });
 
-test("pipeline biên tập cảnh theo một ý chính và kiểm tra số liệu với evidence", () => {
-  assert.match(storyboardSource, /Mỗi cảnh chỉ có một ý chính/u);
-  assert.match(storyboardSource, /ai hoặc vấn đề gì – điều kiện – phải làm gì – hệ quả hoặc lưu ý/u);
-  assert.match(storyboardSource, /groundedText\(value, points\)/u);
-  assert.match(storyboardSource, /captionChunksFromNarration/u);
+test("cảnh không bị làm trắng trước khi kết thúc và caption chuyển nhẹ theo câu", () => {
+  assert.doesNotMatch(templateSource, /durationInFrames - 16/u);
+  assert.doesNotMatch(templateSource, /const exit = interpolate/u);
+  const source = captionSource();
+  assert.match(source, /localFrame/u);
+  assert.match(source, /\[0,6\],\[0,1\]/u);
+  assert.match(source, /minHeight:176/u);
+});
+
+test("kết luận nêu tác động hoặc việc cần kiểm tra, không dùng câu meta vô nghĩa", () => {
+  assert.doesNotMatch(templateSource, /Giữ lại những ý quan trọng nhất/u);
+  assert.doesNotMatch(storyboardSource, /title: "Những điểm cần nhớ sau khi xem"/u);
+  assert.match(storyboardSource, /Ba việc cần kiểm tra trước khi áp dụng/u);
+  assert.match(storyboardSource, /Ba tác động trực tiếp cần ghi nhớ/u);
+  assert.match(storyboardSource, /KẾT LUẬN THỰC TẾ/u);
+});
+
+test("pipeline loại bỏ title lặp bullet và từ chối nội dung bị cắt", () => {
+  assert.match(storyboardSource, /removeTitleRepeats/u);
+  assert.match(storyboardSource, /textSimilarity\(title, bullet\) >= 0\.72/u);
+  assert.match(storyboardSource, /Không dùng dấu ba chấm, không cắt câu/u);
+  assert.match(chunkingSource, /truncated_content/u);
 });
 
 test("ngày ban hành trùng ngày hiệu lực chỉ tạo một mốc", () => {
