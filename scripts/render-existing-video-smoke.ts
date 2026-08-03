@@ -13,7 +13,7 @@ import type {LegalVideoStoryboard} from "@/lib/video/types";
 const enabled = process.env.RUN_VIDEO_EXISTING_RENDER_SMOKE === "true"
   || /\[video-render-existing-smoke\]/iu.test(process.env.VERCEL_GIT_COMMIT_MESSAGE || "");
 const jobId = process.env.VIDEO_EXISTING_RENDER_SMOKE_JOB_ID?.trim()
-  || "ccf1b505-8b9a-4d00-b9f8-95ab528c07dc";
+  || "b2561e56-9a88-4f5c-b441-e206768800c6";
 
 if (!enabled) {
   console.log("[video-existing-render-smoke] Bỏ qua; thêm [video-render-existing-smoke] vào commit để chạy.");
