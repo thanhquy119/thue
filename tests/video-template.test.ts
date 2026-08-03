@@ -74,6 +74,12 @@ test("cảnh không bị làm trắng trước khi kết thúc và caption chuy�
   assert.ok(source.includes("minHeight:154"));
 });
 
+test("dominant visual xuất hiện cùng nhịp caption đầu cảnh", () => {
+  assert.match(templateSource, /const VISUAL_ENTER_DELAY = 2/u);
+  assert.match(templateSource, /frame: frame - VISUAL_ENTER_DELAY - index \* 10/u);
+  assert.doesNotMatch(templateSource, /frame:\s*frame\s*-\s*(?:5|7|8|10|12|14)\b/u);
+});
+
 test("kết luận nêu tác động hoặc việc cần kiểm tra, không dùng câu meta vô nghĩa", () => {
   assert.doesNotMatch(templateSource, /Giữ lại những ý quan trọng nhất/u);
   assert.doesNotMatch(storyboardSource, /title: "Những điểm cần nhớ sau khi xem"/u);
