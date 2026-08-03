@@ -1,4 +1,4 @@
-name: Video v7 frame audit
+name: Video v8 frame audit
 
 on:
   pull_request:
@@ -45,6 +45,6 @@ jobs:
       - name: Upload audit frames
         uses: actions/upload-artifact@v4
         with:
-          name: video-v7-frame-audit
+          name: video-v8-frame-audit
           path: audit
           retention-days: 3
