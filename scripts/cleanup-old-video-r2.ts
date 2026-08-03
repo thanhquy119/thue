@@ -17,9 +17,12 @@ if (!r2Configured()) {
 }
 
 // Explicit allowlist: preserve the newly rendered 94/2026/TT-BTC job.
+// These are superseded renders from prior audits/retries.
 const oldVideoPaths = [
   "legal-video/renders/6e3c154f-3390-49d2-8ee3-fb42701e1b75/89-2026-tt-btc.mp4",
   "legal-video/renders/b2561e56-9a88-4f5c-b441-e206768800c6/94-2026-tt-btc.mp4",
+  "legal-video/renders/c0d24172-ac91-40be-8c01-9ab31002cb14/94-2026-tt-btc.mp4",
+  "legal-video/renders/d44cd678-48bd-42da-81bf-58779d5e9b94/94-2026-tt-btc.mp4",
 ];
 
 await del(oldVideoPaths);
