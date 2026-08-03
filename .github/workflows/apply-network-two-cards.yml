@@ -1,0 +1,53 @@
+name: Apply network two-card fix
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/apply-network-two-cards.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Limit network visual to two satellite cards
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('experiments/remotion-tt89/src/LegalVideo.tsx')
+          source = path.read_text(encoding='utf-8')
+          start = source.index('const NetworkVisual')
+          end = source.index('const FlowVisual', start)
+          segment = source[start:end]
+          old = 'const items = visualItems(scene, 3);'
+          compact_old = 'const items=visualItems(scene,3);'
+          if old in segment:
+              segment = segment.replace(old, 'const items = visualItems(scene, 2);', 1)
+          elif compact_old in segment:
+              segment = segment.replace(compact_old, 'const items=visualItems(scene,2);', 1)
+          else:
+              raise SystemExit('Không tìm thấy lời gọi visualItems của NetworkVisual')
+          updated = source[:start] + segment + source[end:]
+          path.write_text(updated, encoding='utf-8')
+          PY
+
+      - name: Commit patch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add experiments/remotion-tt89/src/LegalVideo.tsx
+          git diff --cached --check
+          git commit -m "Giới hạn cảnh network còn hai thẻ vệ tinh"
+          git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
