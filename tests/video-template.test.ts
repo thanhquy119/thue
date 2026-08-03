@@ -80,6 +80,13 @@ test("dominant visual xuất hiện cùng nhịp caption đầu cảnh", () => {
   assert.doesNotMatch(templateSource, /frame:\s*frame\s*-\s*(?:5|7|8|10|12|14)\b/u);
 });
 
+test("khối trung tâm không bị card phía dưới che", () => {
+  assert.match(templateSource, /const CENTER_VISUAL_Z_INDEX = 3/u);
+  assert.match(templateSource, /const LOWER_CARD_OFFSET_Y = 72/u);
+  assert.match(templateSource, /zIndex: CENTER_VISUAL_Z_INDEX/u);
+  assert.match(templateSource, /bottom:-LOWER_CARD_OFFSET_Y/u);
+});
+
 test("kết luận nêu tác động hoặc việc cần kiểm tra, không dùng câu meta vô nghĩa", () => {
   assert.doesNotMatch(templateSource, /Giữ lại những ý quan trọng nhất/u);
   assert.doesNotMatch(storyboardSource, /title: "Những điểm cần nhớ sau khi xem"/u);

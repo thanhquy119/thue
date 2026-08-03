@@ -28,6 +28,9 @@ const clamp = {extrapolateLeft: 'clamp' as const, extrapolateRight: 'clamp' as c
 // Keep the first visual legible by the time the first caption is shown.
 // Staggered cards still enter in sequence, but no scene opens on an empty canvas.
 const VISUAL_ENTER_DELAY = 2;
+const CENTER_VISUAL_Z_INDEX = 3;
+const SUPPORTING_CARD_Z_INDEX = 1;
+const LOWER_CARD_OFFSET_Y = 72;
 function readableAlign(text: string, justifyFrom = 165) {
   return {textAlign: text.length >= justifyFrom ? ('justify' as const) : ('left' as const), textAlignLast: 'left' as const};
 }
@@ -239,14 +242,15 @@ const DocumentVisual = ({scene, document}: {scene: LegalVideoScene; document: Le
   const frame = useCurrentFrame(); const {fps} = useVideoConfig(); const items = visualItems(scene, 3);
   const appear = spring({frame: frame - VISUAL_ENTER_DELAY, fps, config: {damping: 24, stiffness: 90}});
   return <div style={{width: '100%', minHeight: 620, position: 'relative', display: 'grid', placeItems: 'center'}}>
-    <div style={{width: 470, height: 470, borderRadius: 120, display: 'grid', placeItems: 'center', backgroundColor: COLORS.mint, border: `3px solid ${COLORS.line}`, boxShadow: '0 30px 80px rgba(36,88,74,.13)', scale: interpolate(appear, [0, 1], [.92, 1], clamp)}}>
+    <div style={{width: 470, height: 470, borderRadius: 120, display: 'grid', placeItems: 'center', backgroundColor: COLORS.mint, border: `3px solid ${COLORS.line}`, boxShadow: '0 30px 80px rgba(36,88,74,.13)', zIndex: CENTER_VISUAL_Z_INDEX, scale: interpolate(appear, [0, 1], [.92, 1], clamp)}}>
       <div style={{textAlign: 'center'}}><DocumentGlyph size={190} /><div style={{fontSize: 48, fontWeight: 950, color: COLORS.deep, letterSpacing: '-.04em'}}>{document.number.split('/')[0]}</div><div style={{marginTop: 8, fontSize: 25, fontWeight: 760, color: COLORS.muted}}>{document.type} · {document.issuer}</div></div>
     </div>
     {items.map((item, index) => {
       const angle = [-155, -25, 92][index] * Math.PI / 180; const radius = index === 2 ? 350 : 365;
       const x = Math.cos(angle) * radius; const y = Math.sin(angle) * radius * .62;
       const card = spring({frame: frame - VISUAL_ENTER_DELAY - index * 8, fps, config: {damping: 23, stiffness: 105}});
-      return <div key={item} style={{position: 'absolute', left: '50%', top: '50%', width: 290, minHeight: 126, marginLeft: -145, marginTop: -63, padding: '20px 22px', borderRadius: 28, backgroundColor: index === 0 ? COLORS.peach : index === 1 ? COLORS.sky : COLORS.cream, border: `2px solid ${COLORS.line}`, boxShadow: '0 16px 42px rgba(36,88,74,.10)', display: 'grid', gridTemplateColumns: '64px 1fr', alignItems: 'center', gap: 14, opacity: card, translate: `${x * card}px ${y * card}px`}}><KeywordGlyph text={item} size={62} /><div style={{fontSize: 24, lineHeight: 1.24, fontWeight: 820, color: COLORS.ink}}>{item}</div></div>;
+      const lowerCardOffset = index === 2 ? LOWER_CARD_OFFSET_Y : 0;
+      return <div key={item} style={{position: 'absolute', left: '50%', top: '50%', width: 290, minHeight: 126, marginLeft: -145, marginTop: -63, padding: '20px 22px', borderRadius: 28, backgroundColor: index === 0 ? COLORS.peach : index === 1 ? COLORS.sky : COLORS.cream, border: `2px solid ${COLORS.line}`, boxShadow: '0 16px 42px rgba(36,88,74,.10)', display: 'grid', gridTemplateColumns: '64px 1fr', alignItems: 'center', gap: 14, zIndex: SUPPORTING_CARD_Z_INDEX, opacity: card, translate: `${x * card}px ${y * card + lowerCardOffset * card}px`}}><KeywordGlyph text={item} size={62} /><div style={{fontSize: 24, lineHeight: 1.24, fontWeight: 820, color: COLORS.ink}}>{item}</div></div>;
     })}
   </div>;
 };
@@ -318,7 +322,7 @@ const ChecklistVisual = ({scene}: {scene: LegalVideoScene}) => {
 
 const DecisionVisual = ({scene}: {scene: LegalVideoScene}) => {
   const frame=useCurrentFrame(); const {fps}=useVideoConfig(); const items=visualItems(scene,3);
-  return <div style={{width:'100%',minHeight:630,position:'relative',display:'grid',placeItems:'center'}}><div style={{width:230,height:230,borderRadius:'50%',display:'grid',placeItems:'center',backgroundColor:COLORS.card,border:`4px solid ${COLORS.green}`,boxShadow:'0 22px 58px rgba(36,88,74,.12)',scale:spring({frame:frame-VISUAL_ENTER_DELAY,fps,config:{damping:24,stiffness:95}})}}><FlowGlyph size={122}/></div>{items.map((item,index)=>{const positions=[{left:5,top:35},{right:5,top:35},{left:260,bottom:0}]; const appear=spring({frame:frame-VISUAL_ENTER_DELAY-index*9,fps,config:{damping:23,stiffness:105}}); return <div key={item} style={{position:'absolute',...positions[index],width:index===2?400:310,minHeight:178,padding:'25px 27px',borderRadius:36,backgroundColor:index===0?COLORS.peach:index===1?COLORS.sky:COLORS.mint,border:`2px solid ${COLORS.line}`,boxShadow:'0 18px 48px rgba(36,88,74,.10)',opacity:appear,translate:`0 ${interpolate(appear,[0,1],[25,0],clamp)}px`}}><KeywordGlyph text={item} size={72}/><div style={{marginTop:12,fontSize:item.length>82?26:30,lineHeight:1.24,fontWeight:850,color:COLORS.ink}}>{item}</div></div>;})}</div>;
+  return <div style={{width:'100%',minHeight:630,position:'relative',display:'grid',placeItems:'center'}}><div style={{width:230,height:230,borderRadius:'50%',display:'grid',placeItems:'center',backgroundColor:COLORS.card,border:`4px solid ${COLORS.green}`,boxShadow:'0 22px 58px rgba(36,88,74,.12)',zIndex:CENTER_VISUAL_Z_INDEX,scale:spring({frame:frame-VISUAL_ENTER_DELAY,fps,config:{damping:24,stiffness:95}})}}><FlowGlyph size={122}/></div>{items.map((item,index)=>{const positions=[{left:5,top:35},{right:5,top:35},{left:260,bottom:-LOWER_CARD_OFFSET_Y}]; const appear=spring({frame:frame-VISUAL_ENTER_DELAY-index*9,fps,config:{damping:23,stiffness:105}}); return <div key={item} style={{position:'absolute',...positions[index],width:index===2?400:310,minHeight:178,padding:'25px 27px',borderRadius:36,backgroundColor:index===0?COLORS.peach:index===1?COLORS.sky:COLORS.mint,border:`2px solid ${COLORS.line}`,boxShadow:'0 18px 48px rgba(36,88,74,.10)',zIndex:SUPPORTING_CARD_Z_INDEX,opacity:appear,translate:`0 ${interpolate(appear,[0,1],[25,0],clamp)}px`}}><KeywordGlyph text={item} size={72}/><div style={{marginTop:12,fontSize:item.length>82?26:30,lineHeight:1.24,fontWeight:850,color:COLORS.ink}}>{item}</div></div>;})}</div>;
 };
 
 const TakeawayVisual = ({scene}: {scene: LegalVideoScene}) => {
