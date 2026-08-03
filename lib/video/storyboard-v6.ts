@@ -1,4 +1,5 @@
 import {captionChunksBySentence} from "./caption-sentences";
+import {normalizeSceneForVideo} from "./storyboard-normalize";
 import {
   createLegalVideoStoryboard as createBaseStoryboard,
   summarizeVideoEvidenceSection,
@@ -10,10 +11,13 @@ export {captionChunksBySentence, summarizeVideoEvidenceSection};
 export function normalizeStoryboardCaptions(storyboard: LegalVideoStoryboard): LegalVideoStoryboard {
   return {
     ...storyboard,
-    scenes: storyboard.scenes.map((scene) => ({
-      ...scene,
-      captionChunks: captionChunksBySentence(scene.narration),
-    })),
+    scenes: storyboard.scenes.map((rawScene) => {
+      const scene = normalizeSceneForVideo(rawScene);
+      return {
+        ...scene,
+        captionChunks: captionChunksBySentence(scene.narration),
+      };
+    }),
   };
 }
 
