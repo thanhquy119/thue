@@ -280,7 +280,7 @@ const TimelineVisual = ({scene}: {scene: LegalVideoScene}) => {
 };
 
 const NetworkVisual = ({scene}: {scene: LegalVideoScene}) => {
-  const frame = useCurrentFrame(); const {fps} = useVideoConfig(); const items = visualItems(scene, 3);
+  const frame = useCurrentFrame(); const {fps} = useVideoConfig(); const items = visualItems(scene, 2);
   return <div style={{width: '100%', minHeight: 650, position: 'relative', display: 'grid', placeItems: 'center'}}>
     <svg width="920" height="620" viewBox="0 0 920 620" style={{position: 'absolute'}} aria-hidden="true">{items.map((_item, index) => {const positions = [[155,135],[765,135],[460,520]]; const [x,y] = positions[index]; const progress = interpolate(frame, [12 + index * 8, 34 + index * 8], [0,1], clamp); return <line key={index} x1="460" y1="305" x2={460 + (x - 460) * progress} y2={305 + (y - 305) * progress} stroke={COLORS.green} strokeWidth="6" strokeLinecap="round" strokeDasharray="13 14" />;})}</svg>
     <div style={{width: 265, height: 265, borderRadius: '50%', display: 'grid', placeItems: 'center', backgroundColor: COLORS.mint, border: `4px solid ${COLORS.green}`, boxShadow: '0 24px 62px rgba(36,88,74,.14)', scale: spring({frame, fps, config: {damping: 24, stiffness: 90}})}}><div style={{textAlign: 'center'}}><ShieldGlyph size={112} /><div style={{fontSize: 27, fontWeight: 920, color: COLORS.deep}}>PHẠM VI<br />ÁP DỤNG</div></div></div>
