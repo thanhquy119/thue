@@ -19,7 +19,7 @@
     "smoke:presentation-search": "tsx tests/live-presentation-search-smoke.ts",
     "smoke:exact-documents": "tsx tests/live-exact-document-matrix.ts",
     "video:v3-e2e": "tsx scripts/run-video-v3-e2e.ts",
-    "video:snapshot": "tsx scripts/report-video-status.ts && tsx scripts/create-video-snapshot.ts && tsx scripts/run-video-v3-e2e.ts && tsx scripts/render-existing-video-smoke.ts && tsx scripts/cleanup-old-video-r2.ts",
+    "video:snapshot": "tsx scripts/report-video-status.ts && tsx scripts/create-video-snapshot.ts && tsx scripts/run-video-v3-e2e.ts && tsx scripts/render-existing-video-smoke.ts",
     "verify": "npm run lint && npm run typecheck && npm run build"
   },
   "dependencies": {
