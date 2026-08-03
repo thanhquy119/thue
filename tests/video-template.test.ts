@@ -20,8 +20,8 @@ test("không còn dòng chú thích dư dưới trình phát video", () => {
   assert.doesNotMatch(panelSource, /Video giúp nắm nhanh nội dung; toàn văn chính thức vẫn nằm ngay bên dưới để đối chiếu\./u);
 });
 
-test("template và pipeline v7 buộc tạo lại video theo hướng visual-first", () => {
-  assert.match(chunkingSource, /VIDEO_TEMPLATE_VERSION = "legal-video-v7"/u);
+test("template v8 và pipeline v7 buộc tạo lại video theo hướng visual-first", () => {
+  assert.match(chunkingSource, /VIDEO_TEMPLATE_VERSION = "legal-video-v8"/u);
   assert.match(chunkingSource, /VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v7"/u);
   assert.match(templateSource, /VIDEO GIẢI THÍCH/u);
   assert.match(storyboardSource, /visualMode: "takeaways"/u);
