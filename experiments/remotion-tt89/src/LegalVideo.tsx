@@ -30,7 +30,9 @@ const clamp = {extrapolateLeft: 'clamp' as const, extrapolateRight: 'clamp' as c
 const VISUAL_ENTER_DELAY = 2;
 const CENTER_VISUAL_Z_INDEX = 3;
 const SUPPORTING_CARD_Z_INDEX = 1;
-const LOWER_CARD_OFFSET_Y = 72;
+// Leave a visible gap between the dominant visual and the lower supporting card.
+// The previous offset still allowed card padding/shadow to cover the center.
+const LOWER_CARD_OFFSET_Y = 170;
 function readableAlign(text: string, justifyFrom = 165) {
   return {textAlign: text.length >= justifyFrom ? ('justify' as const) : ('left' as const), textAlignLast: 'left' as const};
 }
@@ -282,7 +284,7 @@ const NetworkVisual = ({scene}: {scene: LegalVideoScene}) => {
   return <div style={{width: '100%', minHeight: 650, position: 'relative', display: 'grid', placeItems: 'center'}}>
     <svg width="920" height="620" viewBox="0 0 920 620" style={{position: 'absolute'}} aria-hidden="true">{items.map((_item, index) => {const positions = [[155,135],[765,135],[460,520]]; const [x,y] = positions[index]; const progress = interpolate(frame, [12 + index * 8, 34 + index * 8], [0,1], clamp); return <line key={index} x1="460" y1="305" x2={460 + (x - 460) * progress} y2={305 + (y - 305) * progress} stroke={COLORS.green} strokeWidth="6" strokeLinecap="round" strokeDasharray="13 14" />;})}</svg>
     <div style={{width: 265, height: 265, borderRadius: '50%', display: 'grid', placeItems: 'center', backgroundColor: COLORS.mint, border: `4px solid ${COLORS.green}`, boxShadow: '0 24px 62px rgba(36,88,74,.14)', scale: spring({frame, fps, config: {damping: 24, stiffness: 90}})}}><div style={{textAlign: 'center'}}><ShieldGlyph size={112} /><div style={{fontSize: 27, fontWeight: 920, color: COLORS.deep}}>PHẠM VI<br />ÁP DỤNG</div></div></div>
-    {items.map((item,index) => {const positions = [{left:5,top:20},{right:5,top:20},{left:290,bottom:-6}]; const appear = spring({frame: frame - VISUAL_ENTER_DELAY - index * 8, fps, config: {damping:23,stiffness:105}}); return <div key={item} style={{position:'absolute',...positions[index],width:index===2?340:285,minHeight:170,padding:'24px',borderRadius:34,backgroundColor:index===0?COLORS.peach:index===1?COLORS.sky:COLORS.card,border:`2px solid ${COLORS.line}`,boxShadow:'0 18px 48px rgba(36,88,74,.10)',opacity:appear,scale:interpolate(appear,[0,1],[.92,1],clamp)}}><KeywordGlyph text={item} size={68}/><div style={{marginTop:13,fontSize:item.length>74?25:28,lineHeight:1.24,fontWeight:840,color:COLORS.ink}}>{item}</div></div>;})}
+    {items.map((item,index) => {const positions = [{left:5,top:20},{right:5,top:20},{left:290,bottom:-LOWER_CARD_OFFSET_Y}]; const appear = spring({frame: frame - VISUAL_ENTER_DELAY - index * 8, fps, config: {damping:23,stiffness:105}}); return <div key={item} style={{position:'absolute',...positions[index],width:index===2?340:285,minHeight:170,padding:'24px',borderRadius:34,backgroundColor:index===0?COLORS.peach:index===1?COLORS.sky:COLORS.card,border:`2px solid ${COLORS.line}`,boxShadow:'0 18px 48px rgba(36,88,74,.10)',opacity:appear,scale:interpolate(appear,[0,1],[.92,1],clamp)}}><KeywordGlyph text={item} size={68}/><div style={{marginTop:13,fontSize:item.length>74?25:28,lineHeight:1.24,fontWeight:840,color:COLORS.ink}}>{item}</div></div>;})}
   </div>;
 };
 
