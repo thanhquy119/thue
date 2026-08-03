@@ -20,34 +20,51 @@ jobs:
           ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
-      - name: Limit network visual to two satellite cards
+      - name: Prepare template v8 render
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          path = Path('experiments/remotion-tt89/src/LegalVideo.tsx')
-          source = path.read_text(encoding='utf-8')
+          network_path = Path('experiments/remotion-tt89/src/LegalVideo.tsx')
+          source = network_path.read_text(encoding='utf-8')
           start = source.index('const NetworkVisual')
           end = source.index('const FlowVisual', start)
           segment = source[start:end]
-          old = 'const items = visualItems(scene, 3);'
-          compact_old = 'const items=visualItems(scene,3);'
-          if old in segment:
-              segment = segment.replace(old, 'const items = visualItems(scene, 2);', 1)
-          elif compact_old in segment:
-              segment = segment.replace(compact_old, 'const items=visualItems(scene,2);', 1)
-          else:
-              raise SystemExit('Không tìm thấy lời gọi visualItems của NetworkVisual')
-          updated = source[:start] + segment + source[end:]
-          path.write_text(updated, encoding='utf-8')
+          segment = segment.replace('visualItems(scene, 3)', 'visualItems(scene, 2)', 1)
+          segment = segment.replace('visualItems(scene,3)', 'visualItems(scene,2)', 1)
+          network_path.write_text(source[:start] + segment + source[end:], encoding='utf-8')
+
+          chunking = Path('lib/video/chunking.ts')
+          text = chunking.read_text(encoding='utf-8')
+          text = text.replace('VIDEO_TEMPLATE_VERSION = "legal-video-v7"', 'VIDEO_TEMPLATE_VERSION = "legal-video-v8"')
+          chunking.write_text(text, encoding='utf-8')
+
+          tests = Path('tests/video-template.test.ts')
+          text = tests.read_text(encoding='utf-8')
+          text = text.replace('VIDEO_TEMPLATE_VERSION = "legal-video-v7"', 'VIDEO_TEMPLATE_VERSION = "legal-video-v8"')
+          text = text.replace('template và pipeline v7', 'template v8 và pipeline v7')
+          tests.write_text(text, encoding='utf-8')
+
+          smoke = Path('scripts/render-existing-video-smoke.ts')
+          text = smoke.read_text(encoding='utf-8')
+          text = text.replace(
+              'b2561e56-9a88-4f5c-b441-e206768800c6',
+              'ccf1b505-8b9a-4d00-b9f8-95ab528c07dc',
+              1,
+          )
+          smoke.write_text(text, encoding='utf-8')
           PY
 
-      - name: Commit patch
+      - name: Commit patch and trigger render
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add experiments/remotion-tt89/src/LegalVideo.tsx
+          git add experiments/remotion-tt89/src/LegalVideo.tsx lib/video/chunking.ts tests/video-template.test.ts scripts/render-existing-video-smoke.ts
           git diff --cached --check
-          git commit -m "Giới hạn cảnh network còn hai thẻ vệ tinh"
+          if git diff --cached --quiet; then
+            echo "Bản sửa đã được áp dụng."
+            exit 0
+          fi
+          git commit -m "[video-render-existing-smoke] Render lại TT94 bằng template v8"
           git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
