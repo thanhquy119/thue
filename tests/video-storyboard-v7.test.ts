@@ -1,3 +1,4 @@
+// E2E marker: render Thông tư 94 sau khi khóa card network và dấu tiếng Việt.
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
