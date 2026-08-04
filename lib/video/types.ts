@@ -164,6 +164,9 @@ export type LegalVideoCapabilities = {
   sandbox: boolean;
   ready: boolean;
   missing: string[];
+  generationPaused: boolean;
+  generationResumeAt: string;
+  generationPauseMessage: string;
   defaultVoice: LegalVideoVoice;
   defaultLength: LegalVideoLength;
 };
