@@ -9,6 +9,11 @@ import type {DocumentDetail, SearchCandidate, TaxSearchResponse} from "@/lib/leg
 import {legalVideoCapabilities} from "@/lib/video/capabilities";
 import {videoFingerprint} from "@/lib/video/fingerprint";
 import {
+  legalVideoGenerationPaused,
+  legalVideoGenerationPauseMessage,
+  legalVideoGenerationResumeAt,
+} from "@/lib/video/generation-pause";
+import {
   documentSnapshotPath,
   findReusableLegalVideoJob,
   publicLegalVideoJob,
@@ -70,6 +75,17 @@ function candidatePayload(candidates: SearchCandidate[] | undefined) {
 }
 
 export async function POST(request: Request) {
+  if (legalVideoGenerationPaused()) {
+    return NextResponse.json(
+      {
+        error: legalVideoGenerationPauseMessage(),
+        code: "VIDEO_GENERATION_PAUSED",
+        resumeAt: legalVideoGenerationResumeAt(),
+      },
+      {status: 503, headers: {"cache-control": "no-store", "retry-after": "3600"}},
+    );
+  }
+
   const limit = consumeMemoryRateLimit(`video:${requestFingerprint(request)}`);
   if (!limit.allowed) {
     return NextResponse.json(

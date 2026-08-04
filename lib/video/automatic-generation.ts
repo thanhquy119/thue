@@ -4,6 +4,7 @@ import type {DocumentDetail} from "@/lib/legal/types";
 import {classifyStrictTaxDocumentForNotification} from "@/lib/notifications/tax-notification-policy";
 import {legalVideoCapabilities} from "./capabilities";
 import {videoFingerprint} from "./fingerprint";
+import {legalVideoGenerationPaused} from "./generation-pause";
 import {
   documentSnapshotPath,
   findReusableLegalVideoJob,
@@ -50,7 +51,9 @@ export function automaticLegalVideoDecision(
   revision: AutomaticLegalVideoRevision,
 ): AutomaticLegalVideoDecision {
   const startAt = legalVideoAutomationStartAt();
-  if (!automationEnabled()) return {shouldStart: false, reason: "disabled", startAt};
+  if (legalVideoGenerationPaused() || !automationEnabled()) {
+    return {shouldStart: false, reason: "disabled", startAt};
+  }
   if (!revision.validation.accepted) return {shouldStart: false, reason: "not_accepted", startAt};
   if (!Number.isFinite(Date.parse(revision.publishedAt)) || Date.parse(revision.publishedAt) < Date.parse(startAt)) {
     return {shouldStart: false, reason: "before_rollout", startAt};

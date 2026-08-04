@@ -1,5 +1,10 @@
 import {hasGeminiConfig} from "@/lib/legal/gemini";
 import {azureTtsConfigured} from "./azure-tts";
+import {
+  legalVideoGenerationPaused,
+  legalVideoGenerationPauseMessage,
+  legalVideoGenerationResumeAt,
+} from "./generation-pause";
 import {videoMediaConfigured} from "./r2-assets";
 import {remotionVercelConfigured} from "./remotion-renderer";
 import {legalVideoR2Configured} from "./r2-media";
@@ -18,6 +23,7 @@ export function legalVideoCapabilities(): LegalVideoCapabilities {
   const gemini = hasGeminiConfig();
   const azureTts = azureTtsConfigured();
   const sandbox = remotionVercelConfigured();
+  const generationPaused = legalVideoGenerationPaused();
   const missing = [
     !enabled ? "VIDEO_EXPERIMENT_ENABLED" : "",
     !storage ? "R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID và R2_SECRET_ACCESS_KEY" : "",
@@ -37,6 +43,9 @@ export function legalVideoCapabilities(): LegalVideoCapabilities {
     sandbox,
     ready: !missing.length,
     missing,
+    generationPaused,
+    generationResumeAt: legalVideoGenerationResumeAt(),
+    generationPauseMessage: legalVideoGenerationPauseMessage(),
     defaultVoice: "female",
     defaultLength: "standard",
   };
