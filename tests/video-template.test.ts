@@ -20,9 +20,9 @@ test("không còn dòng chú thích dư dưới trình phát video", () => {
   assert.doesNotMatch(panelSource, /Video giúp nắm nhanh nội dung; toàn văn chính thức vẫn nằm ngay bên dưới để đối chiếu\./u);
 });
 
-test("template và pipeline v6 buộc tạo lại video theo hướng visual-first", () => {
-  assert.match(chunkingSource, /VIDEO_TEMPLATE_VERSION = "legal-video-v6"/u);
-  assert.match(chunkingSource, /VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v6"/u);
+test("template v8 và pipeline v7 buộc tạo lại video theo hướng visual-first", () => {
+  assert.match(chunkingSource, /VIDEO_TEMPLATE_VERSION = "legal-video-v8"/u);
+  assert.match(chunkingSource, /VIDEO_PIPELINE_VERSION = "legal-video-pipeline-v7"/u);
   assert.match(templateSource, /VIDEO GIẢI THÍCH/u);
   assert.match(storyboardSource, /visualMode: "takeaways"/u);
   assert.match(storyboardSource, /visualKeywords:/u);
@@ -72,6 +72,19 @@ test("cảnh không bị làm trắng trước khi kết thúc và caption chuy�
   assert.ok(source.includes("interpolate(localFrame,[0,6],[0,1],clamp)"));
   assert.ok(source.includes("bottom:108"));
   assert.ok(source.includes("minHeight:154"));
+});
+
+test("dominant visual xuất hiện cùng nhịp caption đầu cảnh", () => {
+  assert.match(templateSource, /const VISUAL_ENTER_DELAY = 2/u);
+  assert.match(templateSource, /frame: frame - VISUAL_ENTER_DELAY - index \* 10/u);
+  assert.doesNotMatch(templateSource, /frame:\s*frame\s*-\s*(?:5|7|8|10|12|14)\b/u);
+});
+
+test("khối trung tâm không bị card phía dưới che", () => {
+  assert.match(templateSource, /const CENTER_VISUAL_Z_INDEX = 3/u);
+  assert.match(templateSource, /zIndex: CENTER_VISUAL_Z_INDEX/u);
+  assert.match(templateSource, /bottom:-LOWER_CARD_OFFSET_Y/u);
+  assert.match(templateSource, /const LOWER_CARD_OFFSET_Y = 170/u);
 });
 
 test("kết luận nêu tác động hoặc việc cần kiểm tra, không dùng câu meta vô nghĩa", () => {
