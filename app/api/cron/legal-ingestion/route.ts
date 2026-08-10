@@ -5,6 +5,7 @@ import {
   cronIngestionDecision,
   cronRunLimit,
 } from "@/lib/legal/cron-ingestion-policy";
+import { legalCronPaused, legalCronPauseMessage } from "@/lib/legal/cron-pause";
 import {
   cleanupExpiredDurableRunCheckpoints,
   durableStoreConfigured,
@@ -45,6 +46,16 @@ async function startDocument(source: DurableLegalSource) {
 export async function GET(request: Request) {
   if (!authorized(request)) {
     return NextResponse.json({ error: "Cron secret không hợp lệ." }, { status: 401 });
+  }
+  if (legalCronPaused()) {
+    return NextResponse.json(
+      {
+        ok: true,
+        paused: true,
+        message: legalCronPauseMessage(),
+      },
+      { status: 200, headers: { "cache-control": "no-store" } },
+    );
   }
   if (!durableStoreConfigured()) {
     return NextResponse.json(

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { start } from "workflow/api";
 import { cronIngestionDecision } from "@/lib/legal/cron-ingestion-policy";
+import { legalCronPaused, legalCronPauseMessage } from "@/lib/legal/cron-pause";
 import {
   durableStoreConfigured,
   readDurableIngestionState,
@@ -136,6 +137,16 @@ export async function GET(request: Request) {
     return NextResponse.json(
       { error: "Discovery Cron secret không hợp lệ." },
       { status: 401 },
+    );
+  }
+  if (legalCronPaused()) {
+    return NextResponse.json(
+      {
+        ok: true,
+        paused: true,
+        message: legalCronPauseMessage(),
+      },
+      { status: 200, headers: { "cache-control": "no-store" } },
     );
   }
   if (!durableStoreConfigured() || !fastTaxDiscoveryStoreConfigured()) {
