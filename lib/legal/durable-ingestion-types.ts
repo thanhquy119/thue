@@ -3,6 +3,8 @@ import { MINIMUM_DURABLE_OCR_PAGE_SCORE } from "./durable-ocr-retry.ts";
 
 export type DurableIngestionStatus = "processing" | "ready" | "needs_review" | "failed";
 
+export const DURABLE_OCR_POLICY_VERSION = 2;
+
 export type DurableIngestionStage =
   | "queued"
   | "downloading"
@@ -34,6 +36,7 @@ export type DurableOcrPage = {
 };
 
 export type DurableIngestionState = {
+  ocrPolicyVersion?: number;
   number: string;
   status: DurableIngestionStatus;
   stage: DurableIngestionStage;
