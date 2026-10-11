@@ -148,3 +148,21 @@ test("requires review for low-quality or divergent OCR pages", () => {
   assert.match(warnings, /không đọc rõ/i);
   assert.match(warnings, /khác nhau/i);
 });
+
+test("17/17 OCR pages at 47% remain blocked until the difficult page recovers", () => {
+  const pages = Array.from({ length: 17 }, (_, index) => page(index + 1, index === 16 ? 0.47 : 0.85));
+  const input = {
+    expectedNumber: "109/2026/TT-BTC",
+    text: legalText("109/2026/TT-BTC"),
+    extractionMethod: "ocr",
+    qualityScore: 0.9,
+    totalPages: 17,
+    pages,
+  };
+  const blocked = validateDurableLegalText(input);
+  assert.equal(blocked.metrics.pageCoverage, 1);
+  assert.equal(blocked.accepted, false);
+  assert.match(blocked.warnings.join(" "), /47%/u);
+  const recovered = validateDurableLegalText({ ...input, pages: pages.map((item) => ({ ...item, score: 0.85 })) });
+  assert.equal(recovered.accepted, true);
+});
