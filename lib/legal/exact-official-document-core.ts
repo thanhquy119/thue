@@ -1,5 +1,6 @@
 import { extractExactLegalNumber } from "./durable-document-lookup-core.ts";
 import {
+  DURABLE_OCR_POLICY_VERSION,
   normalizeDocumentNumber,
   type DurableIngestionState,
   type DurableLegalSource,
@@ -282,6 +283,10 @@ export function extractOfficialAttachmentUrls(html: string, pageUrl: string) {
 export function shouldQueueExactIngestion(state: DurableIngestionState | null, nowMs = Date.now()) {
   if (!state) return true;
   if (state.status === "processing" || state.status === "ready") return false;
+  // Reprocess review results produced before low-quality page retries shipped.
+  // New attempts are versioned on write, so normal cooldown resumes afterwards.
+  if (state.status === "needs_review" &&
+      (state.ocrPolicyVersion ?? 0) < DURABLE_OCR_POLICY_VERSION) return true;
   const updatedAt = Date.parse(state.updatedAt);
   return !Number.isFinite(updatedAt) || nowMs - updatedAt >= RETRY_COOLDOWN_MS;
 }

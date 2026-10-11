@@ -1,6 +1,9 @@
 import { looksLikeGovernmentPortalShell } from "./document-quality.ts";
+import { MINIMUM_DURABLE_OCR_PAGE_SCORE } from "./durable-ocr-retry.ts";
 
 export type DurableIngestionStatus = "processing" | "ready" | "needs_review" | "failed";
+
+export const DURABLE_OCR_POLICY_VERSION = 2;
 
 export type DurableIngestionStage =
   | "queued"
@@ -33,6 +36,7 @@ export type DurableOcrPage = {
 };
 
 export type DurableIngestionState = {
+  ocrPolicyVersion?: number;
   number: string;
   status: DurableIngestionStatus;
   stage: DurableIngestionStage;
@@ -193,7 +197,7 @@ export function validateDurableLegalText(input: DurableValidationInput): Durable
   if (totalPages > 0 && coverage.ratio < 1) {
     warnings.push(`Thiếu nội dung đạt yêu cầu ở trang ${coverage.missing.join(", ")} (${coverage.coveredPages}/${totalPages} trang).`);
   }
-  if (minimumPageScore !== null && minimumPageScore < 0.62) {
+  if (minimumPageScore !== null && minimumPageScore < MINIMUM_DURABLE_OCR_PAGE_SCORE) {
     warnings.push(`Có trang OCR chỉ đạt ${Math.round(minimumPageScore * 100)}% chất lượng.`);
   }
   if (unreadableMarkers > Math.max(2, Math.ceil(Math.max(1, totalPages) * 0.15))) {

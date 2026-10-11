@@ -9,6 +9,7 @@ import {
   responseFromDurableRecord,
 } from "./durable-document-lookup-core.ts";
 import { enrichDocumentWithOfficialMetadata } from "./official-document-metadata-fetch.ts";
+import { shouldQueueExactIngestion } from "./exact-official-document-core.ts";
 
 async function prepareDurableResponse(
   response: ReturnType<typeof responseFromDurableRecord>,
@@ -29,5 +30,8 @@ export async function durableDocumentResponse(query: string) {
   }
 
   const state = await readDurableIngestionState(number).catch(() => null);
+  // Let exact-source discovery and its queue retry terminal records after the
+  // existing cooldown. A stored needs_review result must not block them forever.
+  if (state && shouldQueueExactIngestion(state)) return null;
   return prepareDurableResponse(responseFromDurableRecord(query, number, state, revision));
 }

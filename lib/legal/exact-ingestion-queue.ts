@@ -7,6 +7,7 @@ import {
   writeDurableIngestionState,
 } from "./durable-document-store.ts";
 import {
+  DURABLE_OCR_POLICY_VERSION,
   documentStorageKey,
   type DurableIngestionState,
   type DurableLegalSource,
@@ -25,7 +26,7 @@ async function claimSearchIngestion(number: string, sourceUrl: string) {
   const { put } = await import("@vercel/blob");
   const hour = new Date().toISOString().slice(0, 13);
   const sourceKey = createHash("sha256").update(sourceUrl).digest("hex").slice(0, 16);
-  const pathname = `legal-documents/${documentStorageKey(number)}/runs/search-claims/${hour}-${sourceKey}.json`;
+  const pathname = `legal-documents/${documentStorageKey(number)}/runs/search-claims/v${DURABLE_OCR_POLICY_VERSION}/${hour}-${sourceKey}.json`;
   try {
     await put(pathname, JSON.stringify({ number, sourceUrl, claimedAt: new Date().toISOString() }), {
       access: durableStoreAccess(),

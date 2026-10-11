@@ -12,6 +12,7 @@ import {
 import { extractDurableLegalSource, type DurableExtractedSource } from "./durable-extraction.ts";
 import { fetchDurableLegalBuffer } from "./durable-fetch.ts";
 import {
+  DURABLE_OCR_POLICY_VERSION,
   documentStorageKey,
   normalizeDocumentNumber,
   validateDurableLegalText,
@@ -452,7 +453,7 @@ export async function loadExactOfficialDocument(number: string) {
 async function claimSearchIngestion(number: string) {
   const { put } = await import("@vercel/blob");
   const hour = new Date().toISOString().slice(0, 13);
-  const pathname = `legal-documents/${documentStorageKey(number)}/runs/search-claims/${hour}.json`;
+  const pathname = `legal-documents/${documentStorageKey(number)}/runs/search-claims/v${DURABLE_OCR_POLICY_VERSION}/${hour}.json`;
   try {
     await put(pathname, JSON.stringify({ number, claimedAt: new Date().toISOString() }), {
       access: durableStoreAccess(),

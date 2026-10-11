@@ -10,6 +10,7 @@ import {
 } from "../storage/r2-blob-compat.ts";
 import type { DocumentDetail } from "./types.ts";
 import {
+  DURABLE_OCR_POLICY_VERSION,
   documentStorageKey,
   type DurableIngestionState,
   type DurableOcrPage,
@@ -216,7 +217,10 @@ export async function readDurableIngestionState(number: string) {
 }
 
 export async function writeDurableIngestionState(state: DurableIngestionState) {
-  return writeJson(`${basePath(state.number)}/status.json`, state, true);
+  return writeJson(`${basePath(state.number)}/status.json`, {
+    ...state,
+    ocrPolicyVersion: DURABLE_OCR_POLICY_VERSION,
+  }, true);
 }
 
 export async function readDurableDocument(number: string) {

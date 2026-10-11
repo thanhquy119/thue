@@ -116,3 +116,19 @@ test("keeps needs-review and failed results as metadata-only candidates", () => 
   assert.equal(failed?.document, null);
   assert.match(failed?.warnings.join(" ") ?? "", /không phản hồi/i);
 });
+
+test("109/2026/TT-BTC distinguishes complete processing from OCR quality approval", () => {
+  const review = {
+    ...state("needs_review"),
+    number: "109/2026/TT-BTC",
+    processedPages: 17,
+    totalPages: 17,
+    warnings: ["Có trang OCR chỉ đạt 47% chất lượng."],
+  };
+  const response = responseFromDurableRecord(review.number, review.number, review, null);
+  assert.equal(response?.document, null);
+  assert.match(response?.direct_answer ?? "", /Đã xử lý đủ 17\/17 trang/u);
+  assert.match(response?.direct_answer ?? "", /chưa vượt qua kiểm tra chất lượng/u);
+  assert.doesNotMatch(response?.direct_answer ?? "", /17\/17 trang đạt yêu cầu|OCR thiếu trang/u);
+  assert.deepEqual(response?.warnings, review.warnings);
+});

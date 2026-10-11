@@ -82,13 +82,16 @@ export function responseFromDurableRecord(
     };
   }
   if (state.status === "needs_review") {
+    const complete = state.totalPages > 0 && state.processedPages >= state.totalPages;
     const progress = state.totalPages > 0
-      ? ` Lượt nhập gần nhất mới có ${state.processedPages}/${state.totalPages} trang đạt yêu cầu.`
+      ? complete
+        ? ` Đã xử lý đủ ${state.totalPages}/${state.totalPages} trang, nhưng kết quả chưa vượt qua kiểm tra chất lượng.`
+        : ` Lượt nhập gần nhất đã xử lý ${state.processedPages}/${state.totalPages} trang; chưa đủ toàn bộ trang.`
       : "";
     return {
       query_normalized: number.toLocaleLowerCase("vi"),
       query_kind: "document",
-      direct_answer: `Đã xác định đúng ${number}, nhưng kết quả nhập chưa đủ để công bố toàn văn.${progress} Hệ thống sẽ ưu tiên nguồn DOCX, DOC hoặc HTML có lớp chữ thay vì dùng bản OCR thiếu trang.`,
+      direct_answer: `Đã xác định đúng ${number}, nhưng kết quả nhập chưa đủ điều kiện công bố toàn văn.${progress} Hệ thống ưu tiên nguồn DOCX, DOC, PDF hoặc HTML có lớp chữ; nội dung OCR chưa đạt yêu cầu cần được xử lý lại hoặc kiểm tra trước khi công bố.`,
       document: null,
       candidates: [],
       warnings: compactWarnings(state.warnings),
