@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { runOcrBatch } from "@/lib/legal/ocr-batch-runner";
 import {
+  durableOcrPageNeedsRetry,
+  mergeDurableOcrPages,
+  pendingDurableOcrPages,
+} from "@/lib/legal/durable-ocr-retry";
+import {
   extractDurableLegalSource,
   sourceFileExtension,
   type DurableExtractedSource,
@@ -52,9 +57,9 @@ type ExtractedWorkflowSource = Omit<DurableExtractedSource, "sourceBuffer"> & {
   sourceBlobUrl: string | null;
 };
 
-const EMPTY_OCR_RETRY_MIN_MS = 5_000;
-const EMPTY_OCR_RETRY_MAX_MS = 65_000;
-const EMPTY_OCR_MAX_RETRIES = 3;
+const OCR_RETRY_MIN_MS = 5_000;
+const OCR_RETRY_MAX_MS = 65_000;
+const OCR_MAX_RETRIES = 3;
 
 function now() {
   return new Date().toISOString();
@@ -74,14 +79,8 @@ function quotaRetryDelayMs(pages: DurableOcrPage[]) {
     );
   const recommended = retrySeconds.length
     ? Math.ceil(Math.max(...retrySeconds) * 1_000) + 1_500
-    : EMPTY_OCR_RETRY_MIN_MS;
-  return Math.max(EMPTY_OCR_RETRY_MIN_MS, Math.min(EMPTY_OCR_RETRY_MAX_MS, recommended));
-}
-
-function mergeOcrPages(original: DurableOcrPage[], retried: DurableOcrPage[]) {
-  const byPage = new Map(original.map((page) => [page.page, page]));
-  for (const page of retried) byPage.set(page.page, page);
-  return [...byPage.values()].sort((left, right) => left.page - right.page);
+    : OCR_RETRY_MIN_MS;
+  return Math.max(OCR_RETRY_MIN_MS, Math.min(OCR_RETRY_MAX_MS, recommended));
 }
 
 function state(
@@ -313,7 +312,7 @@ async function readOcrPagesStep(
   "use step";
   const pages = (
     await Promise.all(requestedPages.map((page) => readDurableOcrPage(number, jobId, page)))
-  ).filter((page): page is DurableOcrPage => Boolean(page && usableOcrPage(page)));
+  ).filter((page): page is DurableOcrPage => Boolean(page && !durableOcrPageNeedsRetry(page)));
   console.info("[legal-ingestion-ocr-checkpoints]", JSON.stringify({
     number,
     jobId,
@@ -343,28 +342,32 @@ async function ocrPagesStep(
     }));
 
   let completed = toDurablePages(await runOcrBatch(sourceUrl, { pages }));
-  let unusablePages = completed.filter((page) => !usableOcrPage(page));
+  let pendingPages = pendingDurableOcrPages(pages, completed);
   const retryDelaysMs: number[] = [];
   let retryAttempts = 0;
-  while (unusablePages.length && retryAttempts < EMPTY_OCR_MAX_RETRIES) {
-    const retryDelayMs = quotaRetryDelayMs(unusablePages);
+  while (pendingPages.length && retryAttempts < OCR_MAX_RETRIES) {
+    const retryDelayMs = quotaRetryDelayMs(completed.filter((page) => pendingPages.includes(page.page)));
     retryDelaysMs.push(retryDelayMs);
     retryAttempts += 1;
     console.warn("[legal-ingestion-ocr-retry]", JSON.stringify({
       number,
       jobId,
-      pages: unusablePages.map((page) => page.page),
+      pages: pendingPages,
       attempt: retryAttempts,
-      maxAttempts: EMPTY_OCR_MAX_RETRIES,
+      maxAttempts: OCR_MAX_RETRIES,
       delayMs: retryDelayMs,
-      reason: "empty_or_zero_score",
+      reason: "missing_low_quality_or_divergent",
     }));
     await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-    const retried = toDurablePages(await runOcrBatch(sourceUrl, {
-      pages: unusablePages.map((page) => page.page),
-    }));
-    completed = mergeOcrPages(completed, retried);
-    unusablePages = completed.filter((page) => !usableOcrPage(page));
+    try {
+      const retried = toDurablePages(await runOcrBatch(sourceUrl, { pages: pendingPages }));
+      completed = mergeDurableOcrPages(completed, retried);
+    } catch (error) {
+      console.warn("[legal-ingestion-ocr-retry-failed]", error instanceof Error ? error.message : "OCR retry failed");
+      // Keep the completed pages; validation still blocks poor OCR below.
+      break;
+    }
+    pendingPages = pendingDurableOcrPages(pages, completed);
   }
 
   const usable = completed.filter(usableOcrPage);
