@@ -155,3 +155,20 @@ test("an accessible official PDF can replace a failed Gazette CDN URL immediatel
   assert.equal(shouldRetryExactWithBetterSource({ ...failed, status: "ready" }, better), false);
   assert.equal(shouldRetryExactWithBetterSource(failed, source(failed.sourceUrl)), false);
 });
+
+test("legacy OCR review is retried once without waiting for the old cooldown", () => {
+  const now = Date.parse("2026-10-11T04:30:00.000Z");
+  const legacy = {
+    ...state("needs_review", "2026-10-11T04:29:00.000Z"),
+    number: "109/2026/TT-BTC",
+    processedPages: 17,
+    totalPages: 17,
+    extractionMethod: "ocr",
+    qualityScore: 0.47,
+  };
+  assert.equal(shouldQueueExactIngestion(legacy, now), true);
+  assert.equal(shouldQueueExactIngestion({ ...legacy, ocrPolicyVersion: 2 }, now), false);
+  assert.equal(shouldQueueExactIngestion({ ...legacy, ocrPolicyVersion: 2 }, now + 12 * 60 * 60 * 1000), true);
+  assert.equal(shouldQueueExactIngestion({ ...legacy, status: "processing" }, now), false);
+  assert.equal(shouldQueueExactIngestion({ ...legacy, status: "ready" }, now), false);
+});
