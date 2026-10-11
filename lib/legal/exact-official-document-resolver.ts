@@ -572,6 +572,13 @@ export async function exactOfficialDocumentResponse(query: string): Promise<TaxS
     query_normalized: normalizeLegalQuery(query),
     query_kind: "document",
     direct_answer: queueMessage(number, queue),
+    ingestion: {
+      number,
+      status: queue.state?.status === "needs_review" ? "needs_review" : queue.status === "started" || queue.status === "processing" ? "processing" : "failed",
+      processedPages: queue.state?.processedPages ?? 0,
+      totalPages: queue.state?.totalPages ?? 0,
+      updatedAt: queue.state?.updatedAt ?? retrievedAt,
+    },
     document: null,
     candidates: [candidate(resolved.source)],
     warnings: Array.from(new Set(resolved.warnings)).slice(0, 5),

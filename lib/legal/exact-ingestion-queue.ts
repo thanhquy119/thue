@@ -143,6 +143,13 @@ export async function exactQueuedResponse(
     query_normalized: normalizeLegalQuery(query),
     query_kind: "document",
     direct_answer: queueMessage(source.number, queue),
+    ingestion: {
+      number: source.number,
+      status: queue.state?.status === "needs_review" ? "needs_review" : queue.status === "started" || queue.status === "processing" ? "processing" : "failed",
+      processedPages: queue.state?.processedPages ?? 0,
+      totalPages: queue.state?.totalPages ?? 0,
+      updatedAt: queue.state?.updatedAt ?? new Date().toISOString(),
+    },
     document: null,
     candidates: [candidate(source)],
     warnings: Array.from(new Set(warnings)).slice(0, 5),
