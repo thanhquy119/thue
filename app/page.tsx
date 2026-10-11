@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadReadingStates, putReadingState, type ReadingStateRecord } from "./client-storage";
 import DocumentVideoPanel from "./document-video-panel";
+import IngestionLoadingPanel from "./ingestion-loading-panel";
 import type { EffectiveStatus, TaxSearchResponse } from "@/lib/legal/types";
 import { canCacheSearchResult } from "@/lib/legal/search-result-cache";
 import { splitLegalBlocks, type LegalBlock } from "@/lib/legal/format";
@@ -424,11 +425,15 @@ export default function Home() {
       {searching ? (
         <section className="loadingPanel" aria-live="polite">
           <div className="loadingDot" />
-          <div><strong>Đang tìm nguồn chính thức và tải toàn văn…</strong><p>Lần đầu có thể mất khoảng 10–30 giây; các lần sau sẽ nhanh hơn nhờ cache.</p></div>
+          <div><strong>Đang tải toàn văn…</strong><p>Thời gian dự kiến: khoảng 10–30 giây. Văn bản cần đọc từ bản scan có thể mất vài phút.</p></div>
         </section>
       ) : null}
 
-      {result ? (
+      {result?.ingestion && !detail && !searching ? (
+        <IngestionLoadingPanel key={`${result.ingestion.number}:${result.retrieved_at}`} progress={result.ingestion} onReady={(number) => { void runSearch(number); }} />
+      ) : null}
+
+      {result && !(result.ingestion && !detail) ? (
         <section className="resultShell" id="search-result">
           {result.query_kind === "question" ? (
             <article className="answerPanel">
