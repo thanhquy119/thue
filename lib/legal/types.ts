@@ -71,6 +71,13 @@ export type SearchCandidate = {
 };
 
 export type TaxSearchResponse = {
+  ingestion?: {
+    number: string;
+    status: "processing" | "needs_review" | "failed";
+    processedPages: number;
+    totalPages: number;
+    updatedAt: string;
+  };
   query_normalized: string;
   query_kind: "document" | "question";
   direct_answer: string;
