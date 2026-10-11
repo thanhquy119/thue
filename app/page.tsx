@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loadReadingStates, putReadingState, type ReadingStateRecord } from "./client-storage";
 import DocumentVideoPanel from "./document-video-panel";
 import type { EffectiveStatus, TaxSearchResponse } from "@/lib/legal/types";
+import { canCacheSearchResult } from "@/lib/legal/search-result-cache";
 import { splitLegalBlocks, type LegalBlock } from "@/lib/legal/format";
 
 type InstallPrompt = Event & {
@@ -296,10 +297,13 @@ export default function Home() {
       if (cached) {
         try {
           const payload = JSON.parse(cached) as TaxSearchResponse;
-          if (requestId !== searchRequestRef.current) return;
-          setResult(payload);
-          window.setTimeout(() => document.getElementById("search-result")?.scrollIntoView({ behavior: "smooth" }), 30);
-          return;
+          if (canCacheSearchResult(payload)) {
+            if (requestId !== searchRequestRef.current) return;
+            setResult(payload);
+            window.setTimeout(() => document.getElementById("search-result")?.scrollIntoView({ behavior: "smooth" }), 30);
+            return;
+          }
+          window.sessionStorage.removeItem(cacheKey);
         } catch {
           window.sessionStorage.removeItem(cacheKey);
         }
@@ -336,7 +340,9 @@ export default function Home() {
       const searchPayload = payload as TaxSearchResponse;
       setResult(searchPayload);
       try {
-        window.sessionStorage.setItem(cacheKey, JSON.stringify(searchPayload));
+        if (canCacheSearchResult(searchPayload)) {
+          window.sessionStorage.setItem(cacheKey, JSON.stringify(searchPayload));
+        }
       } catch {
         // Kết quả vẫn hiển thị bình thường nếu bộ nhớ phiên đã đầy hoặc bị chặn.
       }
